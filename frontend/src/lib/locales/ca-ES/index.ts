@@ -211,10 +211,11 @@ export const caES = {
     connectErrorHint: "No es pot connectar al servidor. Comprova si l'API s'està executant.",
   },
   navigation: {
-    collect: "Recull",
     process: "Processa",
     create: "Crea",
-    manage: "Gestiona",
+    home: "Inici",
+    knowledge: "Coneixement",
+    system: "Sistema",
     sources: "Fonts",
     notebooks: "Quaderns",
     askAndSearch: "Pregunta i cerca",
@@ -984,5 +985,11 @@ export const caES = {
     migrationDescription: "{{count}} proveïdor(s) tenen claus de l'API configurades mitjançant variables d'entorn. Migra-les a la base de dades per facilitar-ne la gestió.",
     goToSettings: "Ves a la configuració",
     viewDocs: "Visualitza la documentació",
+  },
+  shell: {
+    searchPlaceholder: "Cerca coneixement accessible…",
+    searchAria: "Cerca coneixement",
+    accessGuardTitle: "Accés aplicat",
+    accessGuardDescription: "La cerca, fitxers, xats i context d'IA segueixen el teu departament.",
   },
 } satisfies TranslationShape;

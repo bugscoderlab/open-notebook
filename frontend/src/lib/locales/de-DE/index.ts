@@ -214,10 +214,11 @@ export const deDE = {
     connectErrorHint: "Keine Verbindung zum Server möglich. Bitte prüfe, ob die API läuft.",
   },
   navigation: {
-    collect: "Sammeln",
     process: "Verarbeiten",
     create: "Erstellen",
-    manage: "Verwalten",
+    home: "Start",
+    knowledge: "Wissen",
+    system: "System",
     sources: "Quellen",
     notebooks: "Notebooks",
     askAndSearch: "Fragen und Suchen",
@@ -987,5 +988,11 @@ export const deDE = {
     migrationDescription: "{{count}} Anbieter haben API-Keys über Umgebungsvariablen gesetzt. Migriere sie zur einfacheren Verwaltung in die Datenbank.",
     goToSettings: "Zu den Einstellungen",
     viewDocs: "Dokumentation anzeigen",
+  },
+  shell: {
+    searchPlaceholder: "Wissensbereich durchsuchen…",
+    searchAria: "Wissen durchsuchen",
+    accessGuardTitle: "Zugriff erzwungen",
+    accessGuardDescription: "Suche, Dateien, Chats und KI-Kontext folgen Ihrer Abteilung.",
   },
 } satisfies TranslationShape;

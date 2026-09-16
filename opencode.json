@@ -1,0 +1,10 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "postgres-analytics": {
+      "type": "remote",
+      "url": "postgres://z@localhost:5432/open_notebook_analytics",
+      "enabled": true
+    }
+  }
+}

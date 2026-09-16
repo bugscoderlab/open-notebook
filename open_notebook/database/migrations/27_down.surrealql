@@ -1,0 +1,4 @@
+-- Migration 27 down: remove analytics metadata tables.
+REMOVE INDEX IF EXISTS dataset_team ON TABLE dataset;
+REMOVE TABLE IF EXISTS analytics_query_log;
+REMOVE TABLE IF EXISTS dataset;

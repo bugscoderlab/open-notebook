@@ -211,10 +211,11 @@ export const frFR = {
     connectErrorHint: "Impossible de se connecter au serveur. Veuillez vérifier si l'API est lancée.",
   },
   navigation: {
-    collect: "Collecter",
     process: "Traiter",
     create: "Créer",
-    manage: "Gérer",
+    home: "Accueil",
+    knowledge: "Connaissance",
+    system: "Système",
     sources: "Sources",
     notebooks: "Carnets",
     askAndSearch: "Demander et rechercher",
@@ -984,5 +985,11 @@ export const frFR = {
     migrationDescription: "{{count}} fournisseur(s) ont des clés API définies via des variables d'environnement. Migrez-les vers la base de données pour une gestion plus facile.",
     goToSettings: "Aller aux paramètres",
     viewDocs: "Voir la documentation",
+  },
+  shell: {
+    searchPlaceholder: "Rechercher dans les connaissances accessibles…",
+    searchAria: "Rechercher les connaissances",
+    accessGuardTitle: "Accès appliqué",
+    accessGuardDescription: "La recherche, les fichiers, les discussions et le contexte IA suivent votre service.",
   },
 } satisfies TranslationShape;

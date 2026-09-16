@@ -211,10 +211,11 @@ export const jaJP = {
     connectErrorHint: "サーバーに接続できません。APIが起動しているか確認してください。",
   },
   navigation: {
-    collect: "収集",
     process: "処理",
     create: "作成",
-    manage: "管理",
+    home: "ホーム",
+    knowledge: "ナレッジ",
+    system: "システム",
     sources: "ソース",
     notebooks: "ノートブック",
     askAndSearch: "質問と検索",
@@ -984,5 +985,11 @@ export const jaJP = {
     migrationDescription: "{{count}} 個のプロバイダーのAPIキーが環境変数で設定されています。管理を容易にするためにデータベースに移行してください。",
     goToSettings: "設定へ移動",
     viewDocs: "ドキュメントを見る",
+  },
+  shell: {
+    searchPlaceholder: "アクセス可能なナレッジを検索…",
+    searchAria: "ナレッジを検索",
+    accessGuardTitle: "アクセスは強制されています",
+    accessGuardDescription: "検索、ファイル、チャット、AI のコンテキストは所属部門に従います。",
   },
 } satisfies TranslationShape;

@@ -211,10 +211,11 @@ export const zhTW = {
     connectErrorHint: "無法連線至伺服器。請檢查 API 是否正在運行。",
   },
   navigation: {
-    collect: "採集",
     process: "處理",
     create: "創作",
-    manage: "管理",
+    home: "首頁",
+    knowledge: "知識",
+    system: "系統",
     sources: "來源",
     notebooks: "筆記本",
     askAndSearch: "詢問與搜尋",
@@ -984,5 +985,11 @@ export const zhTW = {
     migrationDescription: "{{count}} 個供應商的 API 金鑰透過環境變數設定。將它們遷移到資料庫以便於管理。",
     goToSettings: "前往設定",
     viewDocs: "查看文件",
+  },
+  shell: {
+    searchPlaceholder: "搜尋可存取的知識…",
+    searchAria: "搜尋知識",
+    accessGuardTitle: "存取已強制執行",
+    accessGuardDescription: "搜尋、檔案、聊天和 AI 內容均遵循您的部門權限。",
   },
 } satisfies TranslationShape;

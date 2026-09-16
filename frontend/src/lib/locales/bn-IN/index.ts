@@ -211,10 +211,11 @@ export const bnIN = {
     connectErrorHint: "সার্ভারে সংযোগ করতে অক্ষম। API চালু আছে কিনা চেক করুন।",
   },
   navigation: {
-    collect: "সংগ্রহ",
     process: "প্রক্রিয়া",
     create: "তৈরি",
-    manage: "ব্যবস্থাপনা",
+    home: "হোম",
+    knowledge: "জ্ঞান",
+    system: "সিস্টেম",
     sources: "উৎসগুলি",
     notebooks: "নোটবুকগুলি",
     askAndSearch: "জিজ্ঞাসা ও অনুসন্ধান",
@@ -985,5 +986,11 @@ export const bnIN = {
     migrationDescription: "{{count}}টি প্রভাইডারের API key environment variable দিয়ে সেট করা আছে। সহজ ব্যবস্থাপনার জন্য সেগুলি ডেটাবেসে মাইগ্রেট করুন।",
     goToSettings: "সেটিংসে যান",
     viewDocs: "ডকুমেন্টেশন দেখুন",
+  },
+  shell: {
+    searchPlaceholder: "অ্যাক্সেসযোগ্য জ্ঞানে খুঁজুন…",
+    searchAria: "জ্ঞানে খুঁজুন",
+    accessGuardTitle: "অ্যাক্সেস কার্যকর",
+    accessGuardDescription: "সার্চ, ফাইল, চ্যাট ও AI প্রসঙ্গ আপনার বিভাগ অনুসরণ করে।",
   },
 } satisfies TranslationShape;

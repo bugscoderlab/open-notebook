@@ -211,10 +211,11 @@ export const trTR = {
     connectErrorHint: "Sunucuya bağlanılamıyor. API'nin çalışıp çalışmadığını kontrol edin.",
   },
   navigation: {
-    collect: "Topla",
     process: "İşle",
     create: "Oluştur",
-    manage: "Yönet",
+    home: "Ana Sayfa",
+    knowledge: "Bilgi",
+    system: "Sistem",
     sources: "Kaynaklar",
     notebooks: "Defterler",
     askAndSearch: "Sor ve Ara",
@@ -984,5 +985,11 @@ export const trTR = {
     migrationDescription: "{{count}} sağlayıcının API anahtarları ortam değişkenleri aracılığıyla ayarlanmış. Daha kolay yönetim için veritabanına taşıyın.",
     goToSettings: "Ayarlara Git",
     viewDocs: "Belgeleri Görüntüle",
+  },
+  shell: {
+    searchPlaceholder: "Erişilebilir bilgilerde ara…",
+    searchAria: "Bilgide ara",
+    accessGuardTitle: "Erişim zorunlu",
+    accessGuardDescription: "Arama, dosyalar, sohbetler ve AI bağlamı departmanınıza göre belirlenir.",
   },
 } satisfies TranslationShape;

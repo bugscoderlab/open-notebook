@@ -209,10 +209,11 @@ export const enUS = {
     connectErrorHint: "Unable to connect to server. Please check if the API is running.",
   },
   navigation: {
-    collect: "Collect",
     process: "Process",
     create: "Create",
-    manage: "Manage",
+    home: "Home",
+    knowledge: "Knowledge",
+    system: "System",
     sources: "Sources",
     notebooks: "Notebooks",
     askAndSearch: "Ask and Search",
@@ -983,6 +984,12 @@ export const enUS = {
     migrationDescription: "{{count}} provider(s) have API keys set via environment variables. Migrate them to the database for easier management.",
     goToSettings: "Go to Settings",
     viewDocs: "View docs",
+  },
+  shell: {
+    searchPlaceholder: "Search accessible knowledge…",
+    searchAria: "Search knowledge",
+    accessGuardTitle: "Access enforced",
+    accessGuardDescription: "Search, files, chats and AI context follow your department.",
   },
 }
 

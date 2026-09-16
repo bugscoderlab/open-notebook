@@ -211,10 +211,11 @@ export const ptBR = {
     connectErrorHint: "Não foi possível conectar ao servidor. Verifique se a API está rodando.",
   },
   navigation: {
-    collect: "Coletar",
     process: "Processar",
     create: "Criar",
-    manage: "Gerenciar",
+    home: "Início",
+    knowledge: "Conhecimento",
+    system: "Sistema",
     sources: "Fontes",
     notebooks: "Cadernos",
     askAndSearch: "Perguntar e Buscar",
@@ -984,5 +985,11 @@ export const ptBR = {
     migrationDescription: "{{count}} provedor(es) possuem chaves de API definidas por variáveis de ambiente. Migre-as para o banco de dados para facilitar o gerenciamento.",
     goToSettings: "Ir para Configurações",
     viewDocs: "Ver documentação",
+  },
+  shell: {
+    searchPlaceholder: "Pesquisar conhecimento acessível…",
+    searchAria: "Pesquisar conhecimento",
+    accessGuardTitle: "Acesso aplicado",
+    accessGuardDescription: "Busca, arquivos, conversas e contexto de IA seguem o seu departamento.",
   },
 } satisfies TranslationShape;

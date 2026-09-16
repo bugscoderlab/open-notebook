@@ -211,10 +211,11 @@ export const itIT = {
     connectErrorHint: "Impossibile connettersi al server. Verifica che l'API sia in esecuzione.",
   },
   navigation: {
-    collect: "Raccogli",
     process: "Elabora",
     create: "Crea",
-    manage: "Gestisci",
+    home: "Home",
+    knowledge: "Conoscenza",
+    system: "Sistema",
     sources: "Fonti",
     notebooks: "Quaderni",
     askAndSearch: "Chiedi e cerca",
@@ -984,5 +985,11 @@ export const itIT = {
     migrationDescription: "{{count}} provider hanno chiavi API impostate tramite variabili d'ambiente. Migrale nel database per una gestione più semplice.",
     goToSettings: "Vai alle Impostazioni",
     viewDocs: "Vedi documentazione",
+  },
+  shell: {
+    searchPlaceholder: "Cerca nelle conoscenze accessibili…",
+    searchAria: "Cerca conoscenze",
+    accessGuardTitle: "Accesso applicato",
+    accessGuardDescription: "Ricerca, file, chat e contesto IA seguono il tuo reparto.",
   },
 } satisfies TranslationShape;

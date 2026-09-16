@@ -1,0 +1,20 @@
+-- Migration 26 down: remove team-access tables and ownership fields.
+REMOVE INDEX IF EXISTS app_user_email ON TABLE app_user;
+REMOVE INDEX IF EXISTS user_session_token_hash ON TABLE user_session;
+REMOVE INDEX IF EXISTS notebook_team_visibility ON TABLE notebook;
+REMOVE INDEX IF EXISTS source_team_visibility ON TABLE source;
+
+REMOVE FIELD IF EXISTS organization ON TABLE notebook;
+REMOVE FIELD IF EXISTS team ON TABLE notebook;
+REMOVE FIELD IF EXISTS visibility ON TABLE notebook;
+REMOVE FIELD IF EXISTS created_by ON TABLE notebook;
+
+REMOVE FIELD IF EXISTS organization ON TABLE source;
+REMOVE FIELD IF EXISTS team ON TABLE source;
+REMOVE FIELD IF EXISTS visibility ON TABLE source;
+REMOVE FIELD IF EXISTS created_by ON TABLE source;
+
+REMOVE TABLE IF EXISTS user_session;
+REMOVE TABLE IF EXISTS app_user;
+REMOVE TABLE IF EXISTS team;
+REMOVE TABLE IF EXISTS organization;

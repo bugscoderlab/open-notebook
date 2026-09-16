@@ -211,10 +211,11 @@ export const plPL = {
     connectErrorHint: "Nie można połączyć się z serwerem. Sprawdź, czy API jest uruchomione.",
   },
   navigation: {
-    collect: "Zbieraj",
     process: "Przetwarzaj",
     create: "Twórz",
-    manage: "Zarządzaj",
+    home: "Start",
+    knowledge: "Wiedza",
+    system: "System",
     sources: "Źródła",
     notebooks: "Notatniki",
     askAndSearch: "Pytaj i szukaj",
@@ -984,5 +985,11 @@ export const plPL = {
     migrationDescription: "Liczba dostawców z kluczami API ustawionymi przez zmienne środowiskowe: {{count}}. Przenieś je do bazy danych w celu łatwiejszego zarządzania.",
     goToSettings: "Przejdź do Ustawień",
     viewDocs: "Zobacz dokumentację",
+  },
+  shell: {
+    searchPlaceholder: "Szukaj w dostępnej wiedzy…",
+    searchAria: "Szukaj wiedzy",
+    accessGuardTitle: "Dostęp wymuszony",
+    accessGuardDescription: "Wyszukiwarka, pliki, czaty i kontekst AI są zgodne z Twoim działem.",
   },
 } satisfies TranslationShape;
