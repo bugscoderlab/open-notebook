@@ -1,0 +1,78 @@
+transaction_id,transaction_date,customer_id,customer_name,service,amount_myr,status,data_team
+TX0001,2026-01-01,C001,Sarah Lim,Full Groom,350.00,completed,Finance
+TX0002,2026-02-04,C001,Sarah Lim,Full Groom,350.00,completed,Finance
+TX0003,2026-03-07,C001,Sarah Lim,Full Groom,350.00,completed,Finance
+TX0004,2026-04-10,C001,Sarah Lim,Full Groom,350.00,completed,Finance
+TX0005,2026-05-13,C001,Sarah Lim,Full Groom,350.00,completed,Finance
+TX0006,2026-06-16,C001,Sarah Lim,Full Groom,350.00,completed,Finance
+TX0007,2026-07-19,C001,Sarah Lim,Full Groom,350.00,completed,Finance
+TX0008,2026-08-22,C001,Sarah Lim,Full Groom,350.00,completed,Finance
+TX0009,2026-09-25,C001,Sarah Lim,Full Groom,350.00,completed,Finance
+TX0010,2026-01-03,C001,Sarah Lim,Full Groom,350.00,completed,Finance
+TX0011,2026-02-06,C001,Sarah Lim,Full Groom,350.00,completed,Finance
+TX0012,2026-03-09,C001,Sarah Lim,Boarding,350.00,completed,Finance
+TX0013,2026-04-12,C001,Sarah Lim,Boarding,350.00,completed,Finance
+TX0014,2026-05-15,C001,Sarah Lim,Boarding,350.00,completed,Finance
+TX0015,2026-06-18,C001,Sarah Lim,Boarding,350.00,completed,Finance
+TX0016,2026-07-21,C001,Sarah Lim,Boarding,350.00,completed,Finance
+TX0017,2026-08-24,C001,Sarah Lim,Boarding,350.00,completed,Finance
+TX0018,2026-09-02,C001,Sarah Lim,Boarding,350.00,completed,Finance
+TX0019,2026-01-05,C001,Sarah Lim,Spa Treatment,350.00,completed,Finance
+TX0020,2026-02-08,C001,Sarah Lim,Spa Treatment,350.00,completed,Finance
+TX0021,2026-03-11,C001,Sarah Lim,Spa Treatment,350.00,completed,Finance
+TX0022,2026-04-14,C001,Sarah Lim,Spa Treatment,350.00,completed,Finance
+TX0023,2026-05-17,C001,Sarah Lim,Spa Treatment,350.00,completed,Finance
+TX0024,2026-06-20,C001,Sarah Lim,Spa Treatment,410.00,completed,Finance
+TX0025,2026-01-01,C002,Amir Rahman,Boarding,350.00,completed,Finance
+TX0026,2026-02-04,C002,Amir Rahman,Boarding,350.00,completed,Finance
+TX0027,2026-03-07,C002,Amir Rahman,Boarding,350.00,completed,Finance
+TX0028,2026-04-10,C002,Amir Rahman,Boarding,350.00,completed,Finance
+TX0029,2026-05-13,C002,Amir Rahman,Boarding,350.00,completed,Finance
+TX0030,2026-06-16,C002,Amir Rahman,Boarding,350.00,completed,Finance
+TX0031,2026-07-19,C002,Amir Rahman,Boarding,350.00,completed,Finance
+TX0032,2026-08-22,C002,Amir Rahman,Boarding,350.00,completed,Finance
+TX0033,2026-09-25,C002,Amir Rahman,Boarding,350.00,completed,Finance
+TX0034,2026-01-03,C002,Amir Rahman,Full Groom,350.00,completed,Finance
+TX0035,2026-02-06,C002,Amir Rahman,Full Groom,350.00,completed,Finance
+TX0036,2026-03-09,C002,Amir Rahman,Full Groom,350.00,completed,Finance
+TX0037,2026-04-12,C002,Amir Rahman,Full Groom,350.00,completed,Finance
+TX0038,2026-05-15,C002,Amir Rahman,Full Groom,350.00,completed,Finance
+TX0039,2026-06-18,C002,Amir Rahman,Full Groom,350.00,completed,Finance
+TX0040,2026-07-21,C002,Amir Rahman,Full Groom,350.00,completed,Finance
+TX0041,2026-08-24,C002,Amir Rahman,Basic Groom,350.00,completed,Finance
+TX0042,2026-09-02,C002,Amir Rahman,Basic Groom,350.00,completed,Finance
+TX0043,2026-01-05,C002,Amir Rahman,Basic Groom,350.00,completed,Finance
+TX0044,2026-02-08,C002,Amir Rahman,Basic Groom,290.00,completed,Finance
+TX0045,2026-01-01,C003,Michelle Tan,Full Groom,350.00,completed,Finance
+TX0046,2026-02-04,C003,Michelle Tan,Full Groom,350.00,completed,Finance
+TX0047,2026-03-07,C003,Michelle Tan,Full Groom,350.00,completed,Finance
+TX0048,2026-04-10,C003,Michelle Tan,Full Groom,350.00,completed,Finance
+TX0049,2026-05-13,C003,Michelle Tan,Full Groom,350.00,completed,Finance
+TX0050,2026-06-16,C003,Michelle Tan,Full Groom,350.00,completed,Finance
+TX0051,2026-07-19,C003,Michelle Tan,Full Groom,350.00,completed,Finance
+TX0052,2026-08-22,C003,Michelle Tan,Full Groom,350.00,completed,Finance
+TX0053,2026-09-25,C003,Michelle Tan,Spa Treatment,350.00,completed,Finance
+TX0054,2026-01-03,C003,Michelle Tan,Spa Treatment,350.00,completed,Finance
+TX0055,2026-02-06,C003,Michelle Tan,Spa Treatment,350.00,completed,Finance
+TX0056,2026-03-09,C003,Michelle Tan,Spa Treatment,350.00,completed,Finance
+TX0057,2026-04-12,C003,Michelle Tan,Spa Treatment,350.00,completed,Finance
+TX0058,2026-05-15,C003,Michelle Tan,Basic Groom,350.00,completed,Finance
+TX0059,2026-06-18,C003,Michelle Tan,Basic Groom,350.00,completed,Finance
+TX0060,2026-07-21,C003,Michelle Tan,Basic Groom,350.00,completed,Finance
+TX0061,2026-08-24,C003,Michelle Tan,Basic Groom,320.00,completed,Finance
+TX0062,2026-01-01,C004,Jason Wong,Boarding,350.00,completed,Finance
+TX0063,2026-02-04,C004,Jason Wong,Boarding,350.00,completed,Finance
+TX0064,2026-03-07,C004,Jason Wong,Boarding,350.00,completed,Finance
+TX0065,2026-04-10,C004,Jason Wong,Boarding,350.00,completed,Finance
+TX0066,2026-05-13,C004,Jason Wong,Boarding,350.00,completed,Finance
+TX0067,2026-06-16,C004,Jason Wong,Boarding,350.00,completed,Finance
+TX0068,2026-07-19,C004,Jason Wong,Boarding,350.00,completed,Finance
+TX0069,2026-08-22,C004,Jason Wong,Full Groom,350.00,completed,Finance
+TX0070,2026-09-25,C004,Jason Wong,Full Groom,350.00,completed,Finance
+TX0071,2026-01-03,C004,Jason Wong,Full Groom,350.00,completed,Finance
+TX0072,2026-02-06,C004,Jason Wong,Full Groom,350.00,completed,Finance
+TX0073,2026-03-09,C004,Jason Wong,Basic Groom,350.00,completed,Finance
+TX0074,2026-04-12,C004,Jason Wong,Basic Groom,350.00,completed,Finance
+TX0075,2026-05-15,C004,Jason Wong,Basic Groom,440.00,completed,Finance
+TX9001,2026-09-02,C001,Sarah Lim,Boarding,900.00,refunded,Finance
+TX9002,2026-08-13,C005,David Lee,Full Groom,1200.00,voided,Finance

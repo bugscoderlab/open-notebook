@@ -1,0 +1,7 @@
+file,team,canary,hr,finance,ceo,admin
+01_company_shared_guide.pdf,Company Shared,SHARED-ORBIT-204,allow,allow,allow,allow
+02_hr_employee_handbook.pdf,HR,HR-ORCHID-731,allow,deny,allow,allow
+03_hr_recruitment_compensation.pdf,HR,HR-CEDAR-482,allow,deny,allow,allow
+04_finance_monthly_report.pdf,Finance,FIN-QUARTZ-915,deny,allow,allow,allow
+05_finance_budget_forecast.pdf,Finance,FIN-AMBER-367,deny,allow,allow,allow
+06_executive_strategy_memo.pdf,Executive,CEO-NOVA-628,deny,deny,allow,allow
