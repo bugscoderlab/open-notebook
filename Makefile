@@ -1,4 +1,4 @@
-.PHONY: run frontend check ruff database lint api start-all stop-all status clean-cache worker worker-start worker-stop worker-restart
+.PHONY: run frontend check ruff database database-local database-local-fg database-local-stop dev-up dev-down dev-status test test-cov lint api start-all stop-all status clean-cache worker worker-start worker-stop worker-restart
 .PHONY: docker-buildx-prepare docker-buildx-clean docker-buildx-reset
 .PHONY: docker-push docker-push-latest docker-release docker-build-local tag export-docs
 .PHONY: release-test release-stack release-stack-down
@@ -15,6 +15,57 @@ PLATFORMS := linux/amd64,linux/arm64
 
 database:
 	docker compose up -d surrealdb
+
+# Native (no-Docker) SurrealDB for localhost development.
+# Uses a locally installed SurrealDB binary with a repo-local data dir.
+# IMPORTANT: must be SurrealDB v2.x (the migrations use v2 syntax; v3 rejects
+# them). Docker mode uses the same major version. Get a v2 binary from
+# https://github.com/surrealdb/surrealdb/releases (e.g. surreal-v2.x.y.darwin-arm64.tgz)
+# and either put it on PATH as `surreal` or point SURREAL_BIN at it.
+SURREAL_BIN ?= surreal
+LOCAL_SURREAL_USER ?= root
+LOCAL_SURREAL_PASS ?= root
+LOCAL_SURREAL_DIR := $(CURDIR)/.surrealdb-local
+LOCAL_SURREAL_PORT ?= 8000
+
+database-local:
+	@echo "Starting SurrealDB ($(SURREAL_BIN)) on port $(LOCAL_SURREAL_PORT) (data: $(LOCAL_SURREAL_DIR))"
+	@mkdir -p $(LOCAL_SURREAL_DIR)
+	@$(SURREAL_BIN) start --user $(LOCAL_SURREAL_USER) --pass $(LOCAL_SURREAL_PASS) --bind 0.0.0.0:$(LOCAL_SURREAL_PORT) rocksdb://$(LOCAL_SURREAL_DIR)/mydatabase.db & \
+		echo $$! > $(LOCAL_SURREAL_DIR)/surreal.pid
+	@echo "SurrealDB starting (pid in $(LOCAL_SURREAL_DIR)/surreal.pid). Use 'make database-local-stop' to stop."
+
+database-local-stop:
+	@if [ -f $(LOCAL_SURREAL_DIR)/surreal.pid ]; then \
+		kill $$(cat $(LOCAL_SURREAL_DIR)/surreal.pid) 2>/dev/null || true; \
+		rm -f $(LOCAL_SURREAL_DIR)/surreal.pid; \
+		echo "SurrealDB stopped."; \
+	else \
+		pkill -f "surreal start" 2>/dev/null && echo "SurrealDB stopped." || echo "No local SurrealDB running."; \
+	fi
+
+# Foreground SurrealDB for Herdr/dev-herdr.sh (status visible in the pane).
+database-local-fg:
+	@mkdir -p $(LOCAL_SURREAL_DIR)
+	$(SURREAL_BIN) start --user $(LOCAL_SURREAL_USER) --pass $(LOCAL_SURREAL_PASS) --bind 0.0.0.0:$(LOCAL_SURREAL_PORT) rocksdb://$(LOCAL_SURREAL_DIR)/mydatabase.db
+
+# Dev stack in Herdr tabs (one server per tab). Requires running inside Herdr.
+dev-up:
+	@bash scripts/dev-herdr.sh up
+
+dev-down:
+	@bash scripts/dev-herdr.sh down
+
+dev-status:
+	@bash scripts/dev-herdr.sh status
+
+# Fast local tests: parallel workers, no coverage.
+test:
+	uv run pytest tests/ -n auto
+
+# CI-equivalent: serial coverage run matching .github/workflows/test.yml.
+test-cov:
+	uv run pytest tests/ -v --cov=open_notebook --cov=api --cov-report=term-missing --cov-report=xml
 
 run:
 	@echo "⚠️  Warning: Starting frontend only. For full functionality, use 'make start-all'"

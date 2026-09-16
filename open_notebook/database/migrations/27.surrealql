@@ -1,0 +1,22 @@
+-- Migration 27: analytics metadata — dataset registry and query log.
+DEFINE TABLE IF NOT EXISTS dataset SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS organization ON TABLE dataset TYPE record<organization>;
+DEFINE FIELD IF NOT EXISTS name ON TABLE dataset TYPE string;
+DEFINE FIELD IF NOT EXISTS team ON TABLE dataset TYPE record<team>;
+DEFINE FIELD IF NOT EXISTS source_type ON TABLE dataset TYPE string DEFAULT 'postgres';
+DEFINE FIELD IF NOT EXISTS connection_ref ON TABLE dataset TYPE string;
+DEFINE FIELD IF NOT EXISTS schema_metadata ON TABLE dataset FLEXIBLE TYPE option<object>;
+DEFINE FIELD IF NOT EXISTS freshness_at ON TABLE dataset TYPE option<datetime>;
+DEFINE FIELD IF NOT EXISTS active ON TABLE dataset TYPE bool DEFAULT true;
+
+DEFINE TABLE IF NOT EXISTS analytics_query_log SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS user ON TABLE analytics_query_log TYPE record<app_user>;
+DEFINE FIELD IF NOT EXISTS dataset ON TABLE analytics_query_log TYPE record<dataset>;
+DEFINE FIELD IF NOT EXISTS question ON TABLE analytics_query_log TYPE string;
+DEFINE FIELD IF NOT EXISTS template_id ON TABLE analytics_query_log TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS duration_ms ON TABLE analytics_query_log TYPE option<int>;
+DEFINE FIELD IF NOT EXISTS row_count ON TABLE analytics_query_log TYPE option<int>;
+DEFINE FIELD IF NOT EXISTS status ON TABLE analytics_query_log TYPE string;
+DEFINE FIELD IF NOT EXISTS created ON analytics_query_log DEFAULT time::now() VALUE $before OR time::now();
+
+DEFINE INDEX IF NOT EXISTS dataset_team ON TABLE dataset FIELDS team;

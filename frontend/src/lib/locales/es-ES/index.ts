@@ -211,10 +211,11 @@ export const esES = {
     connectErrorHint: "No se puede conectar al servidor. Por favor, verifica si la API está funcionando.",
   },
   navigation: {
-    collect: "Recopilar",
     process: "Procesar",
     create: "Crear",
-    manage: "Gestionar",
+    home: "Inicio",
+    knowledge: "Conocimiento",
+    system: "Sistema",
     sources: "Fuentes",
     notebooks: "Cuadernos",
     askAndSearch: "Preguntar y buscar",
@@ -985,5 +986,11 @@ export const esES = {
     migrationDescription: "{{count}} proveedor(es) tienen claves API configuradas vía variables de entorno. Mígralas a la base de datos para una gestión más fácil.",
     goToSettings: "Ir a configuración",
     viewDocs: "Ver documentación",
+  },
+  shell: {
+    searchPlaceholder: "Buscar conocimiento accesible…",
+    searchAria: "Buscar conocimiento",
+    accessGuardTitle: "Acceso aplicado",
+    accessGuardDescription: "La búsqueda, los archivos, los chats y el contexto de IA siguen tu departamento.",
   },
 } satisfies TranslationShape;

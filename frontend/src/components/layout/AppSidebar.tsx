@@ -7,6 +7,7 @@ import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/lib/hooks/use-auth'
+import { useMediaQuery } from '@/lib/hooks/use-media-query'
 import { useSidebarStore } from '@/lib/stores/sidebar-store'
 import { useCreateDialogs } from '@/lib/hooks/use-create-dialogs'
 import {
@@ -23,10 +24,11 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { ThemeToggle } from '@/components/common/ThemeToggle'
 import { LanguageToggle } from '@/components/common/LanguageToggle'
+import { AccessGuard } from '@/components/shell/access-guard'
 import type { TFunction } from 'i18next'
 import { useTranslation } from '@/lib/hooks/use-translation'
-import { Separator } from '@/components/ui/separator'
 import {
+  Home,
   Book,
   Search,
   Mic,
@@ -42,33 +44,32 @@ import {
   Command,
 } from 'lucide-react'
 
+// Prototype shell (T2) — section groups mirror the team-access prototype:
+// KNOWLEDGE / CREATE / SYSTEM. Models stays at /settings/models as a nested
+// settings item.
 const getNavigation = (t: TFunction) => [
   {
-    title: t('navigation.collect'),
+    title: t('navigation.knowledge'),
     items: [
-      { name: t('navigation.sources'), href: '/sources', icon: FileText, iconClass: 'text-sage' },
-    ],
-  },
-  {
-    title: t('navigation.process'),
-    items: [
-      { name: t('navigation.notebooks'), href: '/notebooks', icon: Book, iconClass: 'text-teal' },
+      { name: t('navigation.home'), href: '/', icon: Home, iconClass: undefined },
+      { name: t('navigation.notebooks'), href: '/notebooks', icon: Book, iconClass: undefined },
+      { name: t('navigation.sources'), href: '/sources', icon: FileText, iconClass: undefined },
       { name: t('navigation.askAndSearch'), href: '/search', icon: Search, iconClass: undefined },
     ],
   },
   {
     title: t('navigation.create'),
     items: [
-      { name: t('navigation.podcasts'), href: '/podcasts', icon: Mic, iconClass: 'text-mauve' },
+      { name: t('navigation.podcasts'), href: '/podcasts', icon: Mic, iconClass: undefined },
+      { name: t('navigation.transformations'), href: '/transformations', icon: Shuffle, iconClass: undefined },
+      { name: t('navigation.advanced'), href: '/advanced', icon: Wrench, iconClass: undefined },
     ],
   },
   {
-    title: t('navigation.manage'),
+    title: t('navigation.system'),
     items: [
-      { name: t('navigation.models'), href: '/settings/models', icon: Bot, iconClass: undefined },
-      { name: t('navigation.transformations'), href: '/transformations', icon: Shuffle, iconClass: undefined },
       { name: t('navigation.settings'), href: '/settings', icon: Settings, iconClass: undefined },
-      { name: t('navigation.advanced'), href: '/advanced', icon: Wrench, iconClass: undefined },
+      { name: t('navigation.models'), href: '/settings/models', icon: Bot, iconClass: undefined },
     ],
   },
 ] as const
@@ -93,10 +94,15 @@ export function AppSidebar() {
   const { logout } = useAuth()
   const { isCollapsed, toggleCollapse } = useSidebarStore()
   const { openSourceDialog, openNotebookDialog, openPodcastDialog } = useCreateDialogs()
+  // Prototype shell (T2): at ≤950px the sidebar becomes a 76px icon rail,
+  // regardless of the stored collapse preference.
+  const isRail = useMediaQuery('(max-width: 950px)')
+  const showCollapsed = isCollapsed || isRail
 
   // The active item is the longest href that prefixes the current path.
   // Longest-wins keeps `/settings` from also highlighting on `/settings/models`
   // (the Models page is a URL child of the Settings page but a distinct item).
+  // The Home item (`/`) only matches an exact path, never as a prefix.
   const activeHref = navigation
     .map((section) => section.items)
     .flat()
@@ -127,24 +133,24 @@ export function AppSidebar() {
     <TooltipProvider delayDuration={0}>
       <div
         className={cn(
-          'app-sidebar flex h-full flex-col bg-sidebar border-sidebar-border border-r transition-all duration-300',
-          isCollapsed ? 'w-16' : 'w-64'
+          'app-sidebar flex h-full flex-col bg-shell-nav border-r border-white/10 transition-all duration-300',
+          showCollapsed ? 'w-[76px]' : 'w-[244px]'
         )}
       >
         <div
           className={cn(
             'flex h-16 items-center group',
-            isCollapsed ? 'justify-center px-2' : 'justify-between px-4'
+            showCollapsed ? 'justify-center px-2' : 'justify-between px-4'
           )}
         >
-          {isCollapsed ? (
+          {showCollapsed ? (
             <div className="relative flex items-center justify-center w-full">
               <LogoPebbles className="flex-col gap-[3px] transition-opacity group-hover:opacity-0" />
               <Button
                 variant="ghost"
                 size="sm"
                 onClick={toggleCollapse}
-                className="absolute text-sidebar-foreground hover:bg-sidebar-accent opacity-0 group-hover:opacity-100 transition-opacity"
+                className="absolute text-white hover:bg-shell-nav-hover hover:text-white opacity-0 group-hover:opacity-100 transition-opacity"
               >
                 <Menu className="h-4 w-4" />
               </Button>
@@ -153,7 +159,7 @@ export function AppSidebar() {
             <>
               <div className="flex items-center gap-2.5">
                 <LogoPebbles />
-                <span className="font-display text-[15px] font-bold tracking-tight text-sidebar-foreground">
+                <span className="font-display text-[15px] font-bold tracking-tight text-white">
                   {t('common.appName')}
                 </span>
               </div>
@@ -161,7 +167,7 @@ export function AppSidebar() {
                 variant="ghost"
                 size="sm"
                 onClick={toggleCollapse}
-                className="text-sidebar-foreground hover:bg-sidebar-accent"
+                className="text-shell-nav-muted hover:bg-shell-nav-hover hover:text-white"
                 data-testid="sidebar-toggle"
               >
                 <ChevronLeft className="h-4 w-4" />
@@ -172,18 +178,18 @@ export function AppSidebar() {
 
         <nav
           className={cn(
-            'flex-1 space-y-1 py-4',
-            isCollapsed ? 'px-2' : 'px-3'
+            'flex-1 space-y-1 overflow-y-auto py-4',
+            showCollapsed ? 'px-2' : 'px-3'
           )}
         >
           <div
             className={cn(
               'mb-4',
-              isCollapsed ? 'px-0' : 'px-3'
+              showCollapsed ? 'px-0' : 'px-3'
             )}
           >
             <DropdownMenu open={createMenuOpen} onOpenChange={setCreateMenuOpen}>
-              {isCollapsed ? (
+              {showCollapsed ? (
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <DropdownMenuTrigger asChild>
@@ -215,8 +221,8 @@ export function AppSidebar() {
               )}
 
               <DropdownMenuContent
-                align={isCollapsed ? 'end' : 'start'}
-                side={isCollapsed ? 'right' : 'bottom'}
+                align={showCollapsed ? 'end' : 'start'}
+                side={showCollapsed ? 'right' : 'bottom'}
                 className="w-48"
               >
                 <DropdownMenuItem
@@ -256,11 +262,11 @@ export function AppSidebar() {
           {navigation.map((section, index) => (
             <div key={section.title}>
               {index > 0 && (
-                <Separator className="my-3" />
+                <div className="mx-3 my-3 h-px bg-white/10" />
               )}
               <div className="space-y-1">
-                {!isCollapsed && (
-                  <h3 className="mb-1.5 px-3 text-[10.5px] font-bold uppercase tracking-[0.14em] text-sidebar-foreground/40">
+                {!showCollapsed && (
+                  <h3 className="mb-1.5 px-3 text-[9px] font-extrabold uppercase tracking-[0.13em] text-shell-nav-dim">
                     {section.title}
                   </h3>
                 )}
@@ -271,18 +277,19 @@ export function AppSidebar() {
                     <Button
                       variant="ghost"
                       className={cn(
-                        'w-full gap-2.5 text-[13px] font-medium text-sidebar-foreground/80 sidebar-menu-item relative',
+                        'sidebar-menu-item relative w-full gap-2.5 rounded-[9px] text-[13px] font-medium text-shell-nav-muted',
+                        'hover:bg-shell-nav-hover hover:text-white',
                         isActive &&
-                          'bg-popover font-semibold text-sidebar-foreground ring-1 ring-inset ring-border before:absolute before:-left-1.5 before:top-[7px] before:bottom-[7px] before:w-[3px] before:rounded-[2px] before:bg-fern',
-                        isCollapsed ? 'justify-center px-2' : 'justify-start'
+                          'bg-shell-nav-hover font-semibold text-white ring-1 ring-inset ring-white/10 before:absolute before:-left-1.5 before:top-[7px] before:bottom-[7px] before:w-[3px] before:rounded-[2px] before:bg-white',
+                        showCollapsed ? 'justify-center px-2' : 'justify-start'
                       )}
                     >
-                      <item.icon className={cn('h-4 w-4 opacity-85', item.iconClass)} />
-                      {!isCollapsed && <span>{item.name}</span>}
+                      <item.icon className="h-4 w-4 opacity-85" />
+                      {!showCollapsed && <span>{item.name}</span>}
                     </Button>
                   )
 
-                  if (isCollapsed) {
+                  if (showCollapsed) {
                     return (
                       <Tooltip key={item.name}>
                         <TooltipTrigger asChild>
@@ -308,23 +315,29 @@ export function AppSidebar() {
 
         <div
           className={cn(
-            'border-t border-sidebar-border p-3 space-y-2',
-            isCollapsed && 'px-2'
+            'border-t border-white/10 p-3 space-y-2',
+            showCollapsed && 'px-2'
           )}
         >
+          {!showCollapsed && (
+            <div className="sidebar-guard">
+              <AccessGuard />
+            </div>
+          )}
+
           {/* Command Palette hint */}
-          {!isCollapsed && (
-            <div className="px-3 py-1.5 text-xs text-sidebar-foreground/60">
+          {!showCollapsed && (
+            <div className="px-3 py-1.5 text-xs text-shell-nav-muted">
               <div className="flex items-center justify-between">
                  <span className="flex items-center gap-1.5">
                   <Command className="h-3 w-3" />
                   {t('common.quickActions')}
                 </span>
-                <kbd className="pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground">
+                <kbd className="pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border border-white/15 bg-white/5 px-1.5 font-mono text-[10px] font-medium text-shell-nav-muted">
                   {isMac ? <span className="text-xs">⌘</span> : <span>Ctrl+</span>}K
                 </kbd>
               </div>
-               <p className="mt-1 text-[10px] text-sidebar-foreground/40">
+               <p className="mt-1 text-[10px] text-shell-nav-dim">
                 {t('common.quickActionsDesc')}
               </p>
             </div>
@@ -333,10 +346,10 @@ export function AppSidebar() {
            <div
             className={cn(
               'flex flex-col gap-2',
-              isCollapsed ? 'items-center' : 'items-stretch'
+              showCollapsed ? 'items-center' : 'items-stretch'
             )}
           >
-            {isCollapsed ? (
+            {showCollapsed ? (
               <>
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -363,7 +376,7 @@ export function AppSidebar() {
             )}
           </div>
 
-          {isCollapsed ? (
+          {showCollapsed ? (
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button

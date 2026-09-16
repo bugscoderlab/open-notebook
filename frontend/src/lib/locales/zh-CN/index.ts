@@ -211,10 +211,11 @@ export const zhCN = {
     connectErrorHint: "无法连接到服务器。请检查 API 是否正在运行。",
   },
   navigation: {
-    collect: "采集",
     process: "处理",
     create: "创作",
-    manage: "管理",
+    home: "首页",
+    knowledge: "知识",
+    system: "系统",
     sources: "来源",
     notebooks: "笔记本",
     askAndSearch: "询问与搜索",
@@ -984,5 +985,11 @@ export const zhCN = {
     migrationDescription: "{{count}} 个服务商的 API 密钥通过环境变量设置。将它们迁移到数据库以便于管理。",
     goToSettings: "前往设置",
     viewDocs: "查看文档",
+  },
+  shell: {
+    searchPlaceholder: "搜索可访问的知识…",
+    searchAria: "搜索知识",
+    accessGuardTitle: "访问已强制实施",
+    accessGuardDescription: "搜索、文件、聊天和 AI 上下文均遵循您的部门权限。",
   },
 } satisfies TranslationShape;

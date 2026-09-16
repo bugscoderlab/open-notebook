@@ -211,10 +211,11 @@ export const ruRU = {
     connectErrorHint: "Не удаётся подключиться к серверу. Проверьте, запущен ли API.",
   },
   navigation: {
-    collect: "Собрать",
     process: "Обработать",
     create: "Создать",
-    manage: "Управление",
+    home: "Главная",
+    knowledge: "Знания",
+    system: "Система",
     sources: "Источники",
     notebooks: "Блокноты",
     askAndSearch: "Запрос и поиск",
@@ -984,5 +985,11 @@ export const ruRU = {
     migrationDescription: "{{count}} провайдер(ов) имеют API-ключи, заданные через переменные окружения. Перенесите их в базу данных для удобного управления.",
     goToSettings: "Перейти к настройкам",
     viewDocs: "Документация",
+  },
+  shell: {
+    searchPlaceholder: "Поиск по доступным знаниям…",
+    searchAria: "Поиск знаний",
+    accessGuardTitle: "Доступ ограничен",
+    accessGuardDescription: "Поиск, файлы, чаты и контекст ИИ соответствуют вашему отделу.",
   },
 } satisfies TranslationShape;

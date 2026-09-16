@@ -119,6 +119,41 @@
   --color-ctx-insights: var(--ctx-insights);
   --color-ctx-insights-tint: var(--ctx-insights-tint);
 
+  /* --------------------------------------------------------------
+     prototype shell palette (T2) — see _jobbrief/open-notebook-
+     team-access-prototype.html. Dark left nav, green accents,
+     department pills. Raw values live in :root below.
+     -------------------------------------------------------------- */
+  --color-shell-nav: var(--shell-nav);
+  --color-shell-nav-hover: var(--shell-nav-hover);
+  --color-shell-nav-dim: var(--shell-nav-dim);
+  --color-shell-nav-muted: var(--shell-nav-muted);
+  --color-shell-nav-guard-bg: var(--shell-nav-guard-bg);
+  --color-shell-nav-guard-border: var(--shell-nav-guard-border);
+  --color-shell-green: var(--shell-green);
+  --color-shell-paper: var(--shell-paper);
+  --color-shell-line: var(--shell-line);
+  --color-shell-ink: var(--shell-ink);
+  --color-shell-muted: var(--shell-muted);
+  --color-shell-pale: var(--shell-pale);
+  --color-shell-red: var(--shell-red);
+  --color-shell-gold: var(--shell-gold);
+  --color-shell-blue: var(--shell-blue);
+  --color-shell-banner-bg: var(--shell-banner-bg);
+  --color-shell-banner-border: var(--shell-banner-border);
+
+  /* department pills */
+  --color-pill-hr-bg: var(--pill-hr-bg);
+  --color-pill-hr-fg: var(--pill-hr-fg);
+  --color-pill-finance-bg: var(--pill-finance-bg);
+  --color-pill-finance-fg: var(--pill-finance-fg);
+  --color-pill-executive-bg: var(--pill-executive-bg);
+  --color-pill-executive-fg: var(--pill-executive-fg);
+  --color-pill-shared-bg: var(--pill-shared-bg);
+  --color-pill-shared-fg: var(--pill-shared-fg);
+  --color-pill-status-bg: var(--pill-status-bg);
+  --color-pill-status-fg: var(--pill-status-fg);
+
   /* shape — squared: instrument, not toy; floor is 4px */
   --radius-sm: 4px;
   --radius-md: 5px;
@@ -133,6 +168,39 @@
 }
 
 :root {
+  /* --------------------------------------------------------------
+     prototype shell raws (T2) — dark nav, green accents, pills
+     -------------------------------------------------------------- */
+  --shell-nav: #173b2e;
+  --shell-nav-hover: #2a5443;
+  --shell-nav-dim: #819d91;
+  --shell-nav-muted: #a9bdb5;
+  --shell-nav-guard-bg: #204638;
+  --shell-nav-guard-border: #3d6454;
+  --shell-green: #2d664d;
+  --shell-paper: #f7f8f5;
+  --shell-line: #dde4df;
+  --shell-ink: #19231f;
+  --shell-muted: #6b756f;
+  --shell-pale: #eaf3ed;
+  --shell-red: #8b4038;
+  --shell-gold: #79591b;
+  --shell-blue: #37647a;
+  --shell-banner-bg: #edf6f0;
+  --shell-banner-border: #bdd2c5;
+
+  /* department pills */
+  --pill-hr-bg: #f6e5e2;
+  --pill-hr-fg: var(--shell-red);
+  --pill-finance-bg: #f7edd9;
+  --pill-finance-fg: var(--shell-gold);
+  --pill-executive-bg: #e6eff4;
+  --pill-executive-fg: var(--shell-blue);
+  --pill-shared-bg: var(--shell-pale);
+  --pill-shared-fg: var(--shell-green);
+  --pill-status-bg: #e9f3ec;
+  --pill-status-fg: #31664e;
+
   /* --------------------------------------------------------------
      core palette — the owned hues, red-free
      -------------------------------------------------------------- */
@@ -412,6 +480,11 @@
     background-color: var(--sidebar-accent) !important;
   }
 
+  /* Dark prototype nav: keep menu-item hovers on the nav palette */
+  .app-sidebar .sidebar-menu-item:hover {
+    background-color: var(--shell-nav-hover) !important;
+  }
+
   /* Cards separate with hairlines, not shadows; hover raises the surface */
   .card-hover {
     @apply transition-colors duration-150 cursor-pointer;
@@ -445,5 +518,23 @@
 
   .w-md-editor-preview :where(.wmde-markdown ol) {
     list-style-type: decimal;
+  }
+}
+
+/* ============================================================================
+   PROTOTYPE SHELL (T2) — responsive left nav
+   244px sidebar → 76px icon rail at ≤950px → hidden at ≤650px.
+   The rail rendering is driven by useMediaQuery in AppSidebar; these rules
+   are the CSS guard for the width and the mobile hide.
+   ========================================================================== */
+@media (max-width: 950px) {
+  .app-sidebar {
+    width: 76px !important;
+  }
+}
+
+@media (max-width: 650px) {
+  .app-sidebar {
+    display: none !important;
   }
 }

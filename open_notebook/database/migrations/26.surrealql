@@ -1,0 +1,54 @@
+-- Migration 26: team access — organization, team, app_user, user_session, and ownership fields on notebook/source.
+-- Field naming follows the repo convention: record fields are named by their target table.
+-- The domain models expose these as organization_id / team_id / created_by.
+DEFINE TABLE IF NOT EXISTS organization SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS external_key ON TABLE organization TYPE string;
+DEFINE FIELD IF NOT EXISTS name ON TABLE organization TYPE string;
+DEFINE FIELD IF NOT EXISTS status ON TABLE organization TYPE string DEFAULT 'active';
+DEFINE FIELD IF NOT EXISTS created ON organization DEFAULT time::now() VALUE $before OR time::now();
+DEFINE FIELD IF NOT EXISTS updated ON organization DEFAULT time::now() VALUE time::now();
+
+DEFINE TABLE IF NOT EXISTS team SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS organization ON TABLE team TYPE record<organization>;
+DEFINE FIELD IF NOT EXISTS slug ON TABLE team TYPE string;
+DEFINE FIELD IF NOT EXISTS name ON TABLE team TYPE string;
+DEFINE FIELD IF NOT EXISTS description ON TABLE team TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS manager ON TABLE team TYPE option<record<app_user>>;
+DEFINE FIELD IF NOT EXISTS active ON TABLE team TYPE bool DEFAULT true;
+DEFINE FIELD IF NOT EXISTS created ON team DEFAULT time::now() VALUE $before OR time::now();
+DEFINE FIELD IF NOT EXISTS updated ON team DEFAULT time::now() VALUE time::now();
+
+DEFINE TABLE IF NOT EXISTS app_user SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS organization ON TABLE app_user TYPE record<organization>;
+DEFINE FIELD IF NOT EXISTS email ON TABLE app_user TYPE string;
+DEFINE FIELD IF NOT EXISTS password_hash ON TABLE app_user TYPE string;
+DEFINE FIELD IF NOT EXISTS display_name ON TABLE app_user TYPE string;
+DEFINE FIELD IF NOT EXISTS team ON TABLE app_user TYPE record<team>;
+DEFINE FIELD IF NOT EXISTS role ON TABLE app_user TYPE string DEFAULT 'member';
+DEFINE FIELD IF NOT EXISTS status ON TABLE app_user TYPE string DEFAULT 'invited';
+DEFINE FIELD IF NOT EXISTS last_active_at ON TABLE app_user TYPE option<datetime>;
+DEFINE FIELD IF NOT EXISTS created ON app_user DEFAULT time::now() VALUE $before OR time::now();
+DEFINE FIELD IF NOT EXISTS updated ON app_user DEFAULT time::now() VALUE time::now();
+
+DEFINE TABLE IF NOT EXISTS user_session SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS user ON TABLE user_session TYPE record<app_user>;
+DEFINE FIELD IF NOT EXISTS token_hash ON TABLE user_session TYPE string;
+DEFINE FIELD IF NOT EXISTS expires_at ON TABLE user_session TYPE datetime;
+DEFINE FIELD IF NOT EXISTS last_seen_at ON TABLE user_session TYPE option<datetime>;
+DEFINE FIELD IF NOT EXISTS revoked_at ON TABLE user_session TYPE option<datetime>;
+DEFINE FIELD IF NOT EXISTS created ON user_session DEFAULT time::now() VALUE $before OR time::now();
+
+DEFINE FIELD IF NOT EXISTS organization ON TABLE notebook TYPE option<record<organization>>;
+DEFINE FIELD IF NOT EXISTS team ON TABLE notebook TYPE option<record<team>>;
+DEFINE FIELD IF NOT EXISTS visibility ON TABLE notebook TYPE string DEFAULT 'team';
+DEFINE FIELD IF NOT EXISTS created_by ON TABLE notebook TYPE option<record<app_user>>;
+
+DEFINE FIELD IF NOT EXISTS organization ON TABLE source TYPE option<record<organization>>;
+DEFINE FIELD IF NOT EXISTS team ON TABLE source TYPE option<record<team>>;
+DEFINE FIELD IF NOT EXISTS visibility ON TABLE source TYPE string DEFAULT 'team';
+DEFINE FIELD IF NOT EXISTS created_by ON TABLE source TYPE option<record<app_user>>;
+
+DEFINE INDEX IF NOT EXISTS app_user_email ON TABLE app_user FIELDS email UNIQUE;
+DEFINE INDEX IF NOT EXISTS user_session_token_hash ON TABLE user_session FIELDS token_hash UNIQUE;
+DEFINE INDEX IF NOT EXISTS notebook_team_visibility ON TABLE notebook FIELDS team, visibility;
+DEFINE INDEX IF NOT EXISTS source_team_visibility ON TABLE source FIELDS team, visibility;

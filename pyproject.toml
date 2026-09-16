@@ -46,6 +46,11 @@ dependencies = [
     "numpy>=2.4.1",
     "pycountry>=26.2.16",
     "babel>=2.18.0",
+    # Analytics subsystem (ADR-009): scoped to open_notebook/analytics/ only.
+    # The rest of the application must not import these.
+    "sqlalchemy[asyncio]>=2.0",
+    "asyncpg>=0.30",
+    "alembic>=1.14",
 ]
 
 [tool.setuptools]
@@ -66,6 +71,7 @@ dev = [
     "pytest>=9.0.3",
     "pytest-asyncio>=1.2.0",
     "pytest-cov>=7.0.0",
+    "pytest-xdist>=3.6",
     "ruff>=0.14.13",
     "types-requests>=2.32.4.20250913",
 ]
