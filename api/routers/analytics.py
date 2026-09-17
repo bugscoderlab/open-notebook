@@ -1,9 +1,11 @@
-"""Analytics API (issue #9) — datasets, ask, and stored-query retrieval.
+"""Analytics API (issue #9/T8, permissions #10/T9) — datasets, ask, stored queries.
 
 Frozen contract: docs/7-DEVELOPMENT/team-access/api-contracts.md (Analytics).
-The service accepts a CurrentUser plus permitted_dataset_ids from day one;
-both are fed by the api/access seam (stub under ANALYTICS_AUTH_BYPASS=true,
-env-gated and default off until native sessions land).
+The service accepts a CurrentUser plus permitted_dataset_ids from the
+api/access seam; T9 removed the dev bypass — every analytics endpoint
+authenticates like every other router, and stored queries enforce the
+same dataset ownership as asking (a caller outside the dataset's team
+gets a 404, not an existence oracle).
 """
 
 from typing import Any, List
@@ -20,7 +22,7 @@ from api.models import (
 from open_notebook.analytics.service import (
     AnalyticsAnswer,
     ask_analytics_question,
-    get_query,
+    get_query_for_caller,
     list_datasets_for_caller,
 )
 from open_notebook.domain.analytics import ensure_sales_2026_dataset
@@ -112,10 +114,17 @@ async def ask_analytics(
 async def get_analytics_query(
     query_id: str,
     user: CurrentUser = Depends(get_current_user),
+    permitted_ids: List[str] = Depends(get_permitted_dataset_ids),
 ):
-    """Fetch a stored query-log entry with its rendered parameterized query (AN-009)."""
+    """Fetch a stored query-log entry with its rendered parameterized query (AN-009).
+
+    Same ownership as asking: a log whose dataset the caller may not query
+    returns 404 (no existence oracle). Logs with no dataset (AN-010
+    refusals, no-permitted-dataset denials) are visible to their owner,
+    admins, and the CEO only.
+    """
     try:
-        record = await get_query(query_id)
+        record = await get_query_for_caller(user, query_id, permitted_ids)
         if record is None:
             raise NotFoundError(f"Analytics query {query_id} not found")
         return record

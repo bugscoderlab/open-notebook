@@ -2,9 +2,8 @@
 
 ``get_current_user`` resolves the caller from the session cookie (ADR-010):
 the opaque token's SHA-256 hash is looked up in ``user_session`` and the
-user must be active. ``ANALYTICS_AUTH_BYPASS`` (env-gated, default off)
-still substitutes a fixed dev persona so the analytics endpoints remain
-exercisable without logging in; T9 removes the bypass.
+user must be active. The T9 dev bypass (``ANALYTICS_AUTH_BYPASS``) is gone —
+analytics endpoints authenticate exactly like every other router.
 
 T5 adds the team-enforcement layer consumed by every content router:
 
@@ -23,7 +22,6 @@ T5 adds the team-enforcement layer consumed by every content router:
   ``ForbiddenError``.
 """
 
-import os
 from typing import Any, Dict, List, Literal, Optional, cast, get_args
 
 from fastapi import Depends, Request
@@ -51,56 +49,8 @@ class CurrentUser(BaseModel):
     role: Role = "member"
 
 
-def analytics_auth_bypass_enabled() -> bool:
-    """True only when ANALYTICS_AUTH_BYPASS is explicitly set (default off)."""
-    return (os.environ.get("ANALYTICS_AUTH_BYPASS") or "").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
-
-
-# Dev-only persona: Daniel, Finance team_manager (the analytics UAT persona
-# from the spec). Used exclusively under ANALYTICS_AUTH_BYPASS=true. The
-# team id is resolved from the finance team's slug at request time because
-# team record ids are server-generated.
-BYPASS_TEAM_SLUG = "finance"
-
-# Pre-resolution fallback only; replaced by the real finance team id below.
-BYPASS_USER_TEAM_FALLBACK = "team:finance"
-
-
-async def _bypass_user() -> CurrentUser:
-    team_id = BYPASS_USER_TEAM_FALLBACK
-    try:
-        from open_notebook.database.repository import repo_query
-
-        records = await repo_query(
-            "SELECT id FROM team WHERE slug = $slug LIMIT 1",
-            {"slug": BYPASS_TEAM_SLUG},
-        )
-        if records:
-            team_id = str(records[0]["id"])
-    except Exception:
-        pass
-    return BYPASS_USER.model_copy(update={"team_id": team_id})
-
-
-BYPASS_USER = CurrentUser(
-    id="app_user:dev-bypass",
-    email="dev-bypass@example.com",
-    display_name="Dev Bypass (Daniel)",
-    organization_id="organization:default",
-    team_id=BYPASS_USER_TEAM_FALLBACK,
-    role="team_manager",
-)
-
-
 async def get_current_user(request: Request) -> CurrentUser:
-    """Resolve the caller from the session cookie (bypass first, dev-only)."""
-    if analytics_auth_bypass_enabled():
-        return await _bypass_user()
+    """Resolve the caller from the session cookie."""
     resolved = await auth_service.resolve_session(
         request.cookies.get(auth_service.SESSION_COOKIE)
     )

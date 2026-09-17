@@ -79,7 +79,6 @@ Normative rules for working on the Python backend. Architecture and design ratio
 | `LANGGRAPH_CHECKPOINT_FILE` | Chat history SQLite path |
 | `CORS_ORIGINS` | Restrict before production |
 | `ANALYTICS_DATABASE_URL` | Analytics Postgres DSN (default: Postgres.app `open_notebook_analytics`); the only Postgres the app connects to |
-| `ANALYTICS_AUTH_BYPASS` | DEV ONLY: unauthenticated access to `/api/analytics/*` (stub Daniel/Finance persona); default off |
 | `ANALYTICS_TEST_DATABASE_URL` | Scratch Postgres for the analytics integration tests (not read by the app — tests point `ANALYTICS_DATABASE_URL` at it) |
 
 ## Analytics (`open_notebook/analytics/`)

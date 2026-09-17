@@ -91,6 +91,41 @@ DENIED_DATASET = (
     "You don't have permission to access that dataset, so I can't answer "
     "that question. Contact the dataset owner if you need access."
 )
+DENIED_INJECTION = (
+    "I can't change or bypass access permissions, and I can't answer "
+    "questions about other teams' data. I can only analyse the datasets "
+    "your team is permitted to see."
+)
+
+# AN-010: permission-injection refusal. The question is checked BEFORE any
+# template classification or dataset lookup, so an injected question can
+# never reach the allowlisted queries or the LLM explainer. The patterns
+# deliberately target permission-bypass language only — ordinary analytical
+# questions never contain these phrases.
+_INJECTION_PATTERNS = (
+    "ignore permission",
+    "ignoring permission",
+    "bypass permission",
+    "without permission",
+    "no permission",
+    "disable permission",
+    "skip permission",
+    "permission check",
+    "access control",
+    "all teams",
+    "other team",
+    "other department",
+    "salary",
+    "salaries",
+    "confidential",
+)
+
+
+def is_permission_injection(question: str) -> bool:
+    """True when the question asks to bypass permissions or probe other
+    teams' data (AN-010). Whole-phrase, case-insensitive substring match."""
+    lowered = question.lower()
+    return any(pattern in lowered for pattern in _INJECTION_PATTERNS)
 
 
 async def permitted_dataset_ids_for(caller: AnalyticsCaller) -> List[str]:
@@ -360,6 +395,25 @@ async def ask_analytics_question(
         InvalidInputError: The question matches no approved template (the
             request is refused — never guessed, never leaked).
     """
+    if is_permission_injection(question):
+        # AN-010: refuse before anything else; the attempt is logged with
+        # the same denied audit shape as a permission denial.
+        log = await analytics_domain.create_query_log(
+            user_id=caller.id,
+            dataset_id=None,
+            question=question,
+            template_id=None,
+            duration_ms=None,
+            row_count=None,
+            status="denied",
+        )
+        logger.warning(
+            f"Analytics permission-injection attempt refused for user {caller.id}"
+        )
+        return AnalyticsAnswer(
+            status="denied", answer_text=DENIED_INJECTION, query_id=log.id
+        )
+
     datasets = await analytics_domain.list_datasets(active_only=True)
     if permitted_dataset_ids is None:
         permitted_dataset_ids = await permitted_dataset_ids_for(caller)
@@ -472,6 +526,31 @@ async def ask_analytics_question(
         freshness_at=freshness.isoformat() if freshness else None,
         query_template=query_template,
     )
+
+
+async def get_query_for_caller(
+    caller: AnalyticsCaller, query_id: str, permitted_dataset_ids: List[str]
+) -> Optional[Dict[str, Any]]:
+    """Fetch one stored query log, enforcing dataset ownership (T9/ADR-014).
+
+    Same policy as asking: a log whose dataset the caller may not query is
+    indistinguishable from a missing one (None). Dataset-less logs (AN-010
+    refusals, no-permitted-dataset denials) are readable by their author,
+    admins, and the CEO only.
+    """
+    record = await get_query(query_id)
+    if record is None:
+        return None
+    log_dataset = record.get("dataset_id")
+    if caller.role in ("admin", "ceo"):
+        return record
+    if log_dataset is None:
+        if record.get("user_id") == caller.id:
+            return record
+        return None
+    if log_dataset not in set(permitted_dataset_ids):
+        return None
+    return record
 
 
 async def get_query(query_id: str) -> Optional[Dict[str, Any]]:

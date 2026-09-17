@@ -122,17 +122,20 @@ async def get_query_log(query_id: str) -> Optional[AnalyticsQueryLog]:
 async def create_query_log(
     *,
     user_id: str,
-    dataset_id: str,
+    dataset_id: Optional[str],
     question: str,
     template_id: Optional[str],
     duration_ms: Optional[int],
     row_count: Optional[int],
     status: str,
 ) -> AnalyticsQueryLog:
-    """Insert an analytics_query_log audit record (migration 27 schema)."""
+    """Insert an analytics_query_log audit record (migration 27 schema).
+
+    ``dataset_id`` is None for denials that never reached a dataset
+    (AN-010 injection refusals, no-permitted-dataset denials)."""
     data: Dict[str, Any] = {
         "user": ensure_record_id(user_id),
-        "dataset": ensure_record_id(dataset_id),
+        "dataset": ensure_record_id(dataset_id) if dataset_id else None,
         "question": question,
         "template_id": template_id,
         "duration_ms": duration_ms,

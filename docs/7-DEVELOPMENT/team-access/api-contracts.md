@@ -41,6 +41,8 @@ Frontend tracks mock against these shapes until the backend lands. Changes here 
 
 ## Analytics
 
+All analytics endpoints require a live session (cookie auth, ADR-010). Ownership: a dataset is queryable by its owning team + CEO + admin (there are no company-shared datasets in the MVP — `dataset` has no visibility field). Denials and refusals return only `{status, answer_text}` — no names/values/rankings ever (AN-003/010).
+
 - `GET /api/analytics/datasets` → `[{id, name, team_id, team_name, source_type, freshness_at}]` (permitted only)
 - `POST /api/analytics/ask` — `{question, dataset_id?, include_refunds?: false}` → **AnalyticsAnswer**:
   ```json
@@ -56,8 +58,8 @@ Frontend tracks mock against these shapes until the backend lands. Changes here 
     "query_template": "SELECT … WHERE … AND data_team IN (:authorized_team_ids) …"
   }
   ```
-  `denied`: only `{status: "denied", answer_text}` — no names/values/rankings, ever (AN-003/010).
-- `GET /api/analytics/queries/{id}` — the stored answer + rendered parameterized query (AN-009).
+  `denied`: only `{status: "denied", answer_text}` — no names/values/rankings, ever (AN-003/010). Two denial flavours: the caller may not query the dataset (or has no permitted dataset), and the AN-010 permission-injection refusal (the question is checked against bypass language before any template classification or dataset lookup; the attempt is logged with `status: "denied"` and no dataset/template/rows).
+- `GET /api/analytics/queries/{id}` — the stored answer + rendered parameterized query (AN-009). Same ownership as asking: a log whose dataset the caller may not query returns `404` (no existence oracle). Logs with no dataset (AN-010 refusals) are readable by their author, admins, and the CEO only.
 
 ## Migration (T6, admin-only)
 

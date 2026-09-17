@@ -1,0 +1,9 @@
+-- Migration 30: analytics_query_log.dataset becomes optional (T9/ADR-014).
+-- AN-010 permission-injection refusals and no-permitted-dataset denials are
+-- audited with no dataset — the log entry must still be writable.
+-- SurrealDB v2 does not overwrite an existing field definition (DEFINE FIELD
+-- on an existing field errors, and IF NOT EXISTS silently skips), so the
+-- migration removes the migration 27 field first. Existing rows all carry a
+-- dataset, so the brief remove window loses nothing.
+REMOVE FIELD IF EXISTS dataset ON TABLE analytics_query_log;
+DEFINE FIELD dataset ON TABLE analytics_query_log TYPE option<record<dataset>>;
