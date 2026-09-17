@@ -13,39 +13,22 @@ fallbacks run, which also proves the bypass path needs no configured model.
 
 import asyncio
 import os
-import subprocess
-from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from conftest import requires_analytics_pg
-
-ALEMBIC_INI = "open_notebook/analytics/alembic.ini"
-CSV_PATH = (
-    Path(__file__).parent.parent
-    / "_jobbrief"
-    / "testdata"
-    / "sales_transactions_2026.csv"
+from conftest import (
+    analytics_alembic_upgrade,
+    analytics_seed_scratch,
+    requires_analytics_pg,
 )
+
 TEST_USER_ID = "app_user:t8servicetest"
 
 pytestmark = [
     pytest.mark.integration,
     requires_analytics_pg(),
 ]
-
-
-def _alembic(*args: str) -> None:
-    env = dict(os.environ)
-    env["ANALYTICS_DATABASE_URL"] = os.environ["ANALYTICS_TEST_DATABASE_URL"]
-    result = subprocess.run(
-        ["uv", "run", "alembic", "-c", ALEMBIC_INI, *args],
-        env=env,
-        capture_output=True,
-        text=True,
-    )
-    assert result.returncode == 0, result.stderr
 
 
 def _surreal_available() -> bool:
@@ -72,15 +55,13 @@ if not _surreal_available():
 def seeded():
     """Scratch PG with the 77-row seed + registered dataset + finance team."""
     from open_notebook.analytics.engine import dispose_engine
-    from open_notebook.analytics.seed import seed
     from open_notebook.database.repository import repo_query
     from open_notebook.domain.analytics import ensure_sales_2026_dataset
 
     previous_url = os.environ.get("ANALYTICS_DATABASE_URL")
     os.environ["ANALYTICS_DATABASE_URL"] = os.environ["ANALYTICS_TEST_DATABASE_URL"]
-    _alembic("upgrade", "head")
-    inserted, skipped = asyncio.run(seed(CSV_PATH, os.environ["ANALYTICS_TEST_DATABASE_URL"]))
-    assert inserted + skipped == 77
+    analytics_alembic_upgrade()
+    asyncio.run(analytics_seed_scratch())
 
     dataset = asyncio.run(ensure_sales_2026_dataset())
     teams = asyncio.run(repo_query("SELECT id FROM team WHERE slug = 'finance'"))
