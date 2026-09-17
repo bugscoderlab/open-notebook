@@ -81,6 +81,13 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
     if (get().isCheckingAuth) {
       return get().user !== null || get().authEnabled === false
     }
+    // Identity already loaded: authoritative until a request 401s (the
+    // response interceptor clears the user). Without this, every useAuth()
+    // mount re-probes, flips isCheckingAuth, and the dashboard guard
+    // unmounts/remounts its children in an infinite /auth/me loop.
+    if (get().user) {
+      return true
+    }
     set({ isCheckingAuth: true, error: null, errorCode: null })
     try {
       if (get().authEnabled === null) {

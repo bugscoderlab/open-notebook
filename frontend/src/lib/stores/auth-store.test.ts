@@ -109,6 +109,22 @@ describe('auth-store (cookie sessions)', () => {
       expect(mocks.get.mock.calls[0][0]).toBe('/auth/me')
       expect(authenticated).toBe(false)
     })
+
+    it('short-circuits when the identity is already loaded (no re-probe)', async () => {
+      // Regression: every useAuth() consumer auto-probes on mount. Without
+      // the short-circuit, mounting a second consumer (e.g. the sidebar)
+      // re-runs the probe, flips isCheckingAuth, and the dashboard layout
+      // unmounts/remounts its children in an infinite /auth/me loop. A 401
+      // from any request clears the identity via the interceptor, so the
+      // loaded user is authoritative until disproven.
+      resetStore()
+      useAuthStore.setState({ user: AISHA, authEnabled: true })
+
+      const authenticated = await useAuthStore.getState().checkAuth()
+
+      expect(authenticated).toBe(true)
+      expect(mocks.get).not.toHaveBeenCalled()
+    })
   })
 
   describe('login', () => {
