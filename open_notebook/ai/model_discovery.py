@@ -184,6 +184,15 @@ OPENROUTER_AUDIO_MODELS: Dict[str, List[str]] = {
     "speech_to_text": ["openai/whisper-1", "openai/whisper-large-v3"],
 }
 
+# OpenRouter serves OpenAI-compatible embeddings but its /models listing does
+# not include embedding models at all, so live discovery can never surface
+# them. Seed the known-working ids (OpenAI's embedding models, per OpenRouter's
+# docs) so sync registers them as embedding models.
+OPENROUTER_EMBEDDING_MODELS: List[str] = [
+    "openai/text-embedding-3-small",
+    "openai/text-embedding-3-large",
+]
+
 
 def classify_model_type(model_name: str, provider: str) -> str:
     """
@@ -238,6 +247,21 @@ def _classify_mistral(model: dict) -> str:
     return classify_model_type(model.get("id", ""), "mistral")
 
 
+def _classify_openrouter(model: dict) -> str:
+    """OpenRouter quirk: the /models listing is dominated by language models
+    and does not reliably tag model types. Trust the architecture field when
+    present (embedding models report output_modalities ["embedding"]), fall
+    back to name patterns, and default to language."""
+    output_modalities = model.get("architecture", {}).get("output_modalities", [])
+    if "embedding" in output_modalities:
+        return "embedding"
+    model_id = model.get("id", "")
+    name_lower = model_id.lower()
+    if "text-embedding" in name_lower or "embed" in name_lower:
+        return "embedding"
+    return "language"
+
+
 @dataclass(frozen=True)
 class ProviderDiscoverySpec:
     """Spec for a provider with an OpenAI-compatible /models endpoint."""
@@ -253,8 +277,7 @@ class ProviderDiscoverySpec:
 # Per-provider quirk hooks that can't live in the (pure data) registry.
 _COMPAT_CLASSIFY: Dict[str, Callable[[dict], str]] = {
     "mistral": _classify_mistral,
-    # OpenRouter models are typically language models
-    "openrouter": lambda model: "language",
+    "openrouter": _classify_openrouter,
 }
 _COMPAT_DESCRIPTION: Dict[str, Callable[[dict], Optional[str]]] = {
     "openrouter": lambda model: model.get("name"),
@@ -489,23 +512,32 @@ async def discover_ollama_models() -> List[DiscoveredModel]:
 async def discover_openrouter_models() -> List[DiscoveredModel]:
     """Discover OpenRouter models (language/embedding + a static audio seed).
 
-    OpenRouter's OpenAI-compatible /models endpoint lists language (and some
-    embedding) models but does not reliably surface its TTS/STT catalog, so we
-    combine live API discovery with a small static seed of the audio model ids
-    esperanto ships as defaults (see OPENROUTER_AUDIO_MODELS). Returns [] when
-    live discovery yields nothing (missing key, HTTP/network error), so the
-    audio seed is never registered on top of a failed discovery.
+    OpenRouter's OpenAI-compatible /models endpoint lists language models but
+    does not surface its embedding or TTS/STT catalog, so we combine live API
+    discovery with static seeds (OPENROUTER_EMBEDDING_MODELS,
+    OPENROUTER_AUDIO_MODELS). Returns [] when live discovery yields nothing
+    (missing key, HTTP/network error), so the seeds are never registered on
+    top of a failed discovery.
     """
     models = await discover_openai_compatible_provider("openrouter")
 
-    # Only seed the static audio models when live discovery actually returned
+    # Only seed the static models when live discovery actually returned
     # something. An empty result means the /models call failed (invalid key,
     # HTTP error, network) — seeding on top of a failed discovery would make it
-    # look successful and auto-register unusable audio models during sync.
+    # look successful and auto-register unusable models during sync.
     if not models:
         return models
 
     seen = {(m.name, m.model_type) for m in models}
+    for name in OPENROUTER_EMBEDDING_MODELS:
+        if (name, "embedding") not in seen:
+            models.append(
+                DiscoveredModel(
+                    name=name,
+                    provider="openrouter",
+                    model_type="embedding",
+                )
+            )
     for model_type, names in OPENROUTER_AUDIO_MODELS.items():
         for name in names:
             if (name, model_type) not in seen:

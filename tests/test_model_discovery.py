@@ -14,6 +14,7 @@ from open_notebook.ai.model_discovery import (
     ANTHROPIC_FALLBACK_MODELS,
     OPENAI_COMPAT_PROVIDERS,
     OPENROUTER_AUDIO_MODELS,
+    OPENROUTER_EMBEDDING_MODELS,
     PROVIDER_DISCOVERY_FUNCTIONS,
     discover_anthropic_models,
     discover_openai_compatible_provider,
@@ -170,11 +171,28 @@ class TestGenericOpenAICompatDiscovery:
         ]
 
     @pytest.mark.asyncio
-    async def test_openrouter_quirk_language_and_description(self, monkeypatch):
+    async def test_openrouter_quirk_classification(self, monkeypatch):
         def handler(url, headers, params, timeout):
             return json_response(
                 url,
-                {"data": [{"id": "acme/embedding-x", "name": "Acme Embedding X"}]},
+                {
+                    "data": [
+                        {
+                            "id": "acme/embedding-x",
+                            "name": "Acme Embedding X",
+                            "architecture": {"output_modalities": ["embedding"]},
+                        },
+                        {
+                            "id": "acme/text-embedding-3",
+                            "name": "Acme Text Embedding 3",
+                        },
+                        {
+                            "id": "acme/llama-3",
+                            "name": "Acme Llama 3",
+                            "architecture": {"output_modalities": ["text"]},
+                        },
+                    ]
+                },
             )
 
         monkeypatch.setenv("OPENROUTER_API_KEY", "or-test")
@@ -183,14 +201,19 @@ class TestGenericOpenAICompatDiscovery:
         )
 
         models = await discover_openai_compatible_provider("openrouter")
-        assert len(models) == 1
-        # OpenRouter models are always registered as language models
-        assert models[0].model_type == "language"
-        assert models[0].description == "Acme Embedding X"
+        assert len(models) == 3
+        by_id = {m.name: m for m in models}
+        # architecture field marks embedding models
+        assert by_id["acme/embedding-x"].model_type == "embedding"
+        # name fallback catches embedding models without the architecture field
+        assert by_id["acme/text-embedding-3"].model_type == "embedding"
+        # everything else stays a language model
+        assert by_id["acme/llama-3"].model_type == "language"
+        assert by_id["acme/embedding-x"].description == "Acme Embedding X"
 
 
 class TestOpenRouterDiscovery:
-    """discover_openrouter_models combines API discovery with an audio seed."""
+    """discover_openrouter_models combines API discovery with static seeds."""
 
     @pytest.mark.asyncio
     async def test_missing_key_returns_empty(self, monkeypatch):
@@ -198,7 +221,7 @@ class TestOpenRouterDiscovery:
         assert await discover_openrouter_models() == []
 
     @pytest.mark.asyncio
-    async def test_seeds_audio_models_alongside_api_models(self, monkeypatch):
+    async def test_seeds_static_models_alongside_api_models(self, monkeypatch):
         def handler(url, headers, params, timeout):
             return json_response(
                 url,
@@ -215,6 +238,9 @@ class TestOpenRouterDiscovery:
 
         # Language model from the /models endpoint is preserved.
         assert ("openai/gpt-4o", "language") in by_type
+        # The static embedding models are seeded.
+        for name in OPENROUTER_EMBEDDING_MODELS:
+            assert (name, "embedding") in by_type
         # The esperanto default audio models are seeded.
         for model_type, names in OPENROUTER_AUDIO_MODELS.items():
             for name in names:
