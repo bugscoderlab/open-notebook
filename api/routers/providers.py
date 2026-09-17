@@ -11,13 +11,18 @@ Endpoints:
 
 from typing import List
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
+from api.access import get_current_user
 from api.credentials_service import check_env_configured
 from api.models import ProviderInfoResponse
 from open_notebook.ai.provider_registry import PROVIDERS
 
-router = APIRouter(prefix="/providers", tags=["providers"])
+router = APIRouter(
+    prefix="/providers",
+    tags=["providers"],
+    dependencies=[Depends(get_current_user)],  # T5: authenticated (env probe)
+)
 
 
 @router.get("", response_model=List[ProviderInfoResponse])

@@ -1,7 +1,12 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from loguru import logger
 from surreal_commands import get_command_status
 
+from api.access import (
+    CurrentUser,
+    get_current_user,
+    permitted_notebook_ids,
+)
 from api.command_service import CommandService
 from api.models import (
     RebuildProgress,
@@ -10,14 +15,28 @@ from api.models import (
     RebuildStats,
     RebuildStatusResponse,
 )
-from open_notebook.database.repository import repo_query
+from open_notebook.database.repository import ensure_record_id, repo_query
 from open_notebook.exceptions import OpenNotebookError
 
 router = APIRouter()
 
 
+async def _scoped_item_ids(
+    permitted_ids: list, kind: str
+) -> list:
+    """Source/note ids linked (reference/artifact) to a permitted notebook (T5)."""
+    edge = "reference" if kind == "source" else "artifact"
+    rows = await repo_query(
+        f"SELECT VALUE in FROM {edge} WHERE out IN $ids",
+        {"ids": [ensure_record_id(i) for i in permitted_ids]},
+    )
+    return [str(row) for row in rows]
+
+
 @router.post("/rebuild", response_model=RebuildResponse)
-async def start_rebuild(request: RebuildRequest):
+async def start_rebuild(
+    request: RebuildRequest, user: CurrentUser = Depends(get_current_user)
+):
     """
     Start a background job to rebuild embeddings.
 
@@ -25,6 +44,10 @@ async def start_rebuild(request: RebuildRequest):
     - **include_sources**: Include sources in rebuild (default: true)
     - **include_notes**: Include notes in rebuild (default: true)
     - **include_insights**: Include insights in rebuild (default: true)
+
+    T5: non-admin callers rebuild only items in their permitted notebook scope;
+    admins keep the global scope. The scope rides the job payload and the
+    worker revalidates it.
 
     Returns command ID to track progress and estimated item count.
     """
@@ -34,6 +57,20 @@ async def start_rebuild(request: RebuildRequest):
         # Import commands to ensure they're registered
         import commands.embedding_commands  # noqa: F401
 
+        # T5 scope: admins get the global scope (None); everyone else is
+        # limited to their permitted notebooks.
+        permitted = None if user.role == "admin" else await permitted_notebook_ids(user)
+        scoped_sources: list = []
+        scoped_notes: list = []
+        if permitted is not None:
+            if not permitted:
+                scoped_sources, scoped_notes = [], []
+            else:
+                if request.include_sources or request.include_insights:
+                    scoped_sources = await _scoped_item_ids(permitted, "source")
+                if request.include_notes:
+                    scoped_notes = await _scoped_item_ids(permitted, "note")
+
         # Estimate total items (quick count query)
         # This is a rough estimate before the command runs
         total_estimate = 0
@@ -41,20 +78,39 @@ async def start_rebuild(request: RebuildRequest):
         if request.include_sources:
             if request.mode == "existing":
                 # Count sources with embeddings
-                result = await repo_query(
-                    """
-                    SELECT VALUE count(array::distinct(
-                        SELECT VALUE source.id
-                        FROM source_embedding
-                        WHERE embedding != none AND array::len(embedding) > 0
-                    )) as count FROM {}
-                    """
-                )
+                if permitted is None:
+                    result = await repo_query(
+                        """
+                        SELECT VALUE count(array::distinct(
+                            SELECT VALUE source.id
+                            FROM source_embedding
+                            WHERE embedding != none AND array::len(embedding) > 0
+                        )) as count FROM {}
+                        """
+                    )
+                else:
+                    result = await repo_query(
+                        """
+                        SELECT VALUE count(array::distinct(
+                            SELECT VALUE source.id
+                            FROM source_embedding
+                            WHERE embedding != none AND array::len(embedding) > 0
+                              AND source IN $scoped
+                        )) as count FROM {}
+                        """,
+                        {"scoped": [ensure_record_id(i) for i in scoped_sources]},
+                    )
             else:
                 # Count all sources with content
-                result = await repo_query(
-                    "SELECT VALUE count() as count FROM source WHERE full_text != none GROUP ALL"
-                )
+                if permitted is None:
+                    result = await repo_query(
+                        "SELECT VALUE count() as count FROM source WHERE full_text != none GROUP ALL"
+                    )
+                else:
+                    result = await repo_query(
+                        "SELECT VALUE count() as count FROM source WHERE full_text != none AND id IN $scoped GROUP ALL",
+                        {"scoped": [ensure_record_id(i) for i in scoped_sources]},
+                    )
 
             if result and isinstance(result[0], dict):
                 total_estimate += result[0].get("count", 0)
@@ -63,13 +119,16 @@ async def start_rebuild(request: RebuildRequest):
 
         if request.include_notes:
             if request.mode == "existing":
+                base = "SELECT VALUE count() as count FROM note WHERE embedding != none AND array::len(embedding) > 0"
+            else:
+                base = "SELECT VALUE count() as count FROM note WHERE content != none"
+            if permitted is not None:
                 result = await repo_query(
-                    "SELECT VALUE count() as count FROM note WHERE embedding != none AND array::len(embedding) > 0 GROUP ALL"
+                    f"{base} AND id IN $scoped GROUP ALL",
+                    {"scoped": [ensure_record_id(i) for i in scoped_notes]},
                 )
             else:
-                result = await repo_query(
-                    "SELECT VALUE count() as count FROM note WHERE content != none GROUP ALL"
-                )
+                result = await repo_query(f"{base} GROUP ALL")
 
             if result and isinstance(result[0], dict):
                 total_estimate += result[0].get("count", 0)
@@ -78,13 +137,16 @@ async def start_rebuild(request: RebuildRequest):
 
         if request.include_insights:
             if request.mode == "existing":
+                base = "SELECT VALUE count() as count FROM source_insight WHERE embedding != none AND array::len(embedding) > 0"
+            else:
+                base = "SELECT VALUE count() as count FROM source_insight"
+            if permitted is not None:
                 result = await repo_query(
-                    "SELECT VALUE count() as count FROM source_insight WHERE embedding != none AND array::len(embedding) > 0 GROUP ALL"
+                    f"{base} AND source IN $scoped GROUP ALL",
+                    {"scoped": [ensure_record_id(i) for i in scoped_sources]},
                 )
             else:
-                result = await repo_query(
-                    "SELECT VALUE count() as count FROM source_insight GROUP ALL"
-                )
+                result = await repo_query(f"{base} GROUP ALL")
 
             if result and isinstance(result[0], dict):
                 total_estimate += result[0].get("count", 0)
@@ -93,7 +155,7 @@ async def start_rebuild(request: RebuildRequest):
 
         logger.info(f"Estimated {total_estimate} items to process")
 
-        # Submit command
+        # Submit command — the permitted scope rides the payload (T5)
         command_id = await CommandService.submit_command_job(
             "open_notebook",
             "rebuild_embeddings",
@@ -102,6 +164,7 @@ async def start_rebuild(request: RebuildRequest):
                 "include_sources": request.include_sources,
                 "include_notes": request.include_notes,
                 "include_insights": request.include_insights,
+                "notebook_ids": permitted,
             },
         )
 
@@ -126,9 +189,13 @@ async def start_rebuild(request: RebuildRequest):
 
 
 @router.get("/rebuild/{command_id}/status", response_model=RebuildStatusResponse)
-async def get_rebuild_status(command_id: str):
+async def get_rebuild_status(
+    command_id: str, user: CurrentUser = Depends(get_current_user)
+):
     """
     Get the status of a rebuild operation.
+
+    T5: authenticated — progress counts contain no content.
 
     Returns:
     - **status**: queued, running, completed, failed

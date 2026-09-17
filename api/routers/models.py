@@ -3,10 +3,11 @@ import traceback
 from typing import Dict, List, Optional
 
 from esperanto import AIFactory
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from loguru import logger
 from pydantic import BaseModel
 
+from api.access import CurrentUser, get_current_user, require_admin
 from api.models import (
     DefaultModelsResponse,
     ModelCreate,
@@ -29,7 +30,7 @@ from open_notebook.exceptions import (
     OpenNotebookError,
 )
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(get_current_user)])  # T5: authenticated
 
 
 # =============================================================================
@@ -203,7 +204,9 @@ async def get_models(
 
 
 @router.post("/models", response_model=ModelResponse)
-async def create_model(model_data: ModelCreate):
+async def create_model(model_data: ModelCreate,
+    admin: CurrentUser = Depends(require_admin),  # T5: admin-only mutation
+):
     """Create a new model configuration."""
     try:
         # Validate model type
@@ -260,7 +263,9 @@ async def create_model(model_data: ModelCreate):
 
 
 @router.delete("/models/{model_id}")
-async def delete_model(model_id: str):
+async def delete_model(model_id: str,
+    admin: CurrentUser = Depends(require_admin),  # T5: admin-only mutation
+):
     """Delete a model configuration."""
     try:
         model = await Model.get(model_id)
@@ -280,7 +285,9 @@ async def delete_model(model_id: str):
 
 
 @router.post("/models/{model_id}/test", response_model=ModelTestResponse)
-async def test_model(model_id: str):
+async def test_model(model_id: str,
+    admin: CurrentUser = Depends(require_admin),  # T5: admin-only (secret-bearing)
+):
     """Test if a specific model is correctly configured and functional."""
     try:
         model = await Model.get(model_id)
@@ -337,7 +344,9 @@ REQUIRED_DEFAULTS = {"default_chat_model", "default_embedding_model"}
 
 
 @router.put("/models/defaults", response_model=DefaultModelsResponse)
-async def update_default_models(defaults_data: DefaultModelsResponse):
+async def update_default_models(defaults_data: DefaultModelsResponse,
+    admin: CurrentUser = Depends(require_admin),  # T5: admin-only mutation
+):
     """Update default model assignments.
 
     Partial-update semantics keyed on field PRESENCE, not value: a field
@@ -534,7 +543,9 @@ async def get_provider_availability():
 @router.get(
     "/models/discover/{provider}", response_model=List[DiscoveredModelResponse]
 )
-async def discover_models(provider: str):
+async def discover_models(provider: str,
+    admin: CurrentUser = Depends(require_admin),  # T5: admin-only (secret-bearing)
+):
     """
     Discover available models from a provider without registering them.
 
@@ -567,7 +578,9 @@ async def discover_models(provider: str):
 
 
 @router.post("/models/sync/{provider}", response_model=ProviderSyncResponse)
-async def sync_models(provider: str):
+async def sync_models(provider: str,
+    admin: CurrentUser = Depends(require_admin),  # T5: admin-only mutation
+):
     """
     Sync models for a specific provider.
 
@@ -598,7 +611,9 @@ async def sync_models(provider: str):
 
 
 @router.post("/models/sync", response_model=AllProvidersSyncResponse)
-async def sync_all_models():
+async def sync_all_models(
+    admin: CurrentUser = Depends(require_admin),  # T5: admin-only mutation
+):
     """
     Sync models for all configured providers.
 
@@ -749,7 +764,9 @@ def _get_preferred_model(
 
 
 @router.post("/models/auto-assign", response_model=AutoAssignResult)
-async def auto_assign_defaults():
+async def auto_assign_defaults(
+    admin: CurrentUser = Depends(require_admin),  # T5: admin-only mutation
+):
     """
     Auto-assign default models based on available models.
 

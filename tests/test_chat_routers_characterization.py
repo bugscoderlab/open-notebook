@@ -30,6 +30,18 @@ def client():
     return TestClient(app)
 
 
+@pytest.fixture(autouse=True)
+def _authenticated_admin(auth_session, monkeypatch):
+    """T5: every router requires a session; characterization tests assert
+    shapes, not authorization. Authenticate as admin (which also passes the
+    parent-scope check) and stub the parent-edge lookup."""
+    auth_session()
+    monkeypatch.setattr(
+        "api.access._parent_ids_via",
+        AsyncMock(return_value=[]),
+    )
+
+
 def _nf(*_args, **_kwargs):
     raise NotFoundError("not found")
 

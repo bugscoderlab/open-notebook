@@ -97,8 +97,11 @@ def _source() -> Source:
 class TestInsightTimestampSerialization:
     """API must emit null for missing timestamps and ISO strings otherwise."""
 
-    @patch("api.routers.insights.SourceInsight.get", new_callable=AsyncMock)
-    def test_get_insight_absent_timestamps_are_null(self, mock_get, client):
+    @patch("open_notebook.domain.notebook.SourceInsight.get", new_callable=AsyncMock)
+    def test_get_insight_absent_timestamps_are_null(
+        self, mock_get, client, auth_session, auth_cookie
+    ):
+        auth_session()
         insight = _insight()
         mock_get.return_value = insight
 
@@ -106,15 +109,20 @@ class TestInsightTimestampSerialization:
             SourceInsight, "get_source", new_callable=AsyncMock
         ) as mock_source:
             mock_source.return_value = _source()
-            response = client.get("/api/insights/source_insight:abc")
+            response = client.get(
+                "/api/insights/source_insight:abc", cookies=auth_cookie
+            )
 
         assert response.status_code == 200
         body = response.json()
         assert body["created"] is None
         assert body["updated"] is None
 
-    @patch("api.routers.insights.SourceInsight.get", new_callable=AsyncMock)
-    def test_get_insight_present_timestamps_are_iso(self, mock_get, client):
+    @patch("open_notebook.domain.notebook.SourceInsight.get", new_callable=AsyncMock)
+    def test_get_insight_present_timestamps_are_iso(
+        self, mock_get, client, auth_session, auth_cookie
+    ):
+        auth_session()
         ts = datetime(2026, 7, 11, 12, 30, 45, tzinfo=timezone.utc)
         mock_get.return_value = _insight(created=ts, updated=ts)
 
@@ -122,7 +130,9 @@ class TestInsightTimestampSerialization:
             SourceInsight, "get_source", new_callable=AsyncMock
         ) as mock_source:
             mock_source.return_value = _source()
-            response = client.get("/api/insights/source_insight:abc")
+            response = client.get(
+                "/api/insights/source_insight:abc", cookies=auth_cookie
+            )
 
         assert response.status_code == 200
         body = response.json()
@@ -131,8 +141,9 @@ class TestInsightTimestampSerialization:
 
     @patch("api.routers.sources.Source.get", new_callable=AsyncMock)
     def test_list_source_insights_never_serializes_the_string_none(
-        self, mock_get, client
+        self, mock_get, client, auth_session, auth_cookie
     ):
+        auth_session()
         ts = datetime(2026, 7, 11, 12, 30, 45, tzinfo=timezone.utc)
         source = _source()
         mock_get.return_value = source
@@ -144,7 +155,9 @@ class TestInsightTimestampSerialization:
                 _insight(),  # legacy row without timestamps
                 _insight(created=ts, updated=ts),  # stamped row
             ]
-            response = client.get("/api/sources/source:xyz/insights")
+            response = client.get(
+                "/api/sources/source:xyz/insights", cookies=auth_cookie
+            )
 
         assert response.status_code == 200
         body = response.json()

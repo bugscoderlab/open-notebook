@@ -222,8 +222,25 @@ class PodcastEpisode(ObjectModel):
     """Enhanced PodcastEpisode with job tracking and metadata"""
 
     table_name: ClassVar[str] = "episode"
+    nullable_fields: ClassVar[set[str]] = {
+        "notebook",
+        "organization",
+        "team",
+        "created_by",
+    }
 
     name: str = Field(..., description="Episode name")
+    notebook_id: Optional[str] = Field(
+        default=None,
+        alias="notebook",
+        description="Source notebook the episode was generated from (T5)",
+    )
+    organization_id: Optional[str] = Field(
+        default=None, alias="organization"
+    )
+    team_id: Optional[str] = Field(default=None, alias="team")
+    visibility: str = "team"
+    created_by: Optional[str] = Field(default=None, alias="created_by")
     episode_profile: Dict[str, Any] = Field(
         ..., description="Episode profile used (stored as object)"
     )
@@ -251,7 +268,7 @@ class PodcastEpisode(ObjectModel):
         default=None, description="Link to surreal-commands job"
     )
 
-    model_config = ConfigDict(arbitrary_types_allowed=True)
+    model_config = ConfigDict(arbitrary_types_allowed=True, populate_by_name=True)
 
     async def get_job_status(self) -> Optional[str]:
         """Get the status of the associated command"""
@@ -332,11 +349,21 @@ class PodcastEpisode(ObjectModel):
         return value
 
     def _prepare_save_data(self) -> dict:
-        """Override to ensure command field is always RecordID format for database"""
-        data = super()._prepare_save_data()
+        """Override to ensure command and team-ownership fields (T5,
+        migration 28) are database-ready: alias names + RecordID values."""
+        data = self.model_dump(by_alias=True)
 
         # Ensure command field is RecordID format if not None
         if data.get("command") is not None:
             data["command"] = ensure_record_id(data["command"])
+        # Record-typed fields need RecordID values (raw string refs are
+        # rejected by SurrealDB on the UPDATE ... MERGE path).
+        for key in ("notebook", "organization", "team", "created_by"):
+            if data.get(key) is not None:
+                data[key] = ensure_record_id(data[key])
 
-        return data
+        return {
+            key: value
+            for key, value in data.items()
+            if value is not None or key in self.__class__.nullable_fields
+        }

@@ -2,11 +2,19 @@ import asyncio
 import traceback
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from langchain_core.runnables import RunnableConfig
 from loguru import logger
 from pydantic import BaseModel, Field
 
+from api.access import (
+    CurrentUser,
+    check_chat_session_write,
+    check_notebook_read,
+    filter_context_to_permitted,
+    get_current_user,
+    permitted_notebook_ids,
+)
 from api.routers._chat_shared import (
     ChatMessage,
     SuccessResponse,
@@ -91,13 +99,14 @@ class BuildContextResponse(BaseModel):
 
 
 @router.get("/chat/sessions", response_model=List[ChatSessionResponse])
-async def get_sessions(notebook_id: str = Query(..., description="Notebook ID")):
+async def get_sessions(
+    user: CurrentUser = Depends(get_current_user),
+    notebook_id: str = Query(..., description="Notebook ID"),
+):
     """Get all chat sessions for a notebook."""
     try:
-        # Get notebook to verify it exists
-        notebook = await Notebook.get(notebook_id)
-        if not notebook:
-            raise HTTPException(status_code=404, detail="Notebook not found")
+        # T5: reading a notebook's sessions requires read access to it.
+        notebook = await check_notebook_read(user, notebook_id)
 
         # Get sessions for this notebook
         sessions_list = await notebook.get_chat_sessions()
@@ -136,13 +145,13 @@ async def get_sessions(notebook_id: str = Query(..., description="Notebook ID"))
 
 
 @router.post("/chat/sessions", response_model=ChatSessionResponse)
-async def create_session(request: CreateSessionRequest):
+async def create_session(
+    request: CreateSessionRequest, user: CurrentUser = Depends(get_current_user)
+):
     """Create a new chat session."""
     try:
-        # Verify notebook exists
-        notebook = await Notebook.get(request.notebook_id)
-        if not notebook:
-            raise HTTPException(status_code=404, detail="Notebook not found")
+        # T5: creating a session in a notebook requires read access to it.
+        await check_notebook_read(user, request.notebook_id)
 
         # Create new session
         session = ChatSession(
@@ -180,11 +189,14 @@ async def create_session(request: CreateSessionRequest):
 @router.get(
     "/chat/sessions/{session_id}", response_model=ChatSessionWithMessagesResponse
 )
-async def get_session(session_id: str):
+async def get_session(
+    session_id: str, user: CurrentUser = Depends(get_current_user)
+):
     """Get a specific session with its messages."""
     try:
-        # Get session (normalizes the ID and 404s if missing)
-        full_session_id, session = await get_session_or_404(session_id)
+        # Get session (normalizes the ID; T5: the single fetch doubles as the
+        # permission check — out-of-scope sessions 404)
+        full_session_id, session = await get_session_or_404(session_id, user)
 
         # Get session state from LangGraph to retrieve messages
         # Use sync get_state() in a thread since SqliteSaver doesn't support async
@@ -234,11 +246,16 @@ async def get_session(session_id: str):
 
 
 @router.put("/chat/sessions/{session_id}", response_model=ChatSessionResponse)
-async def update_session(session_id: str, request: UpdateSessionRequest):
+async def update_session(
+    session_id: str,
+    request: UpdateSessionRequest,
+    user: CurrentUser = Depends(get_current_user),
+):
     """Update session title."""
     try:
-        # Get session (normalizes the ID and 404s if missing)
-        full_session_id, session = await get_session_or_404(session_id)
+        # Get session (normalizes the ID; T5: write check re-checks via parent)
+        full_session_id, _session = await get_session_or_404(session_id)
+        session = await check_chat_session_write(user, full_session_id)
 
         update_data = request.model_dump(exclude_unset=True)
 
@@ -281,11 +298,14 @@ async def update_session(session_id: str, request: UpdateSessionRequest):
 
 
 @router.delete("/chat/sessions/{session_id}", response_model=SuccessResponse)
-async def delete_session(session_id: str):
+async def delete_session(
+    session_id: str, user: CurrentUser = Depends(get_current_user)
+):
     """Delete a chat session."""
     try:
-        # Get session (normalizes the ID and 404s if missing)
-        _full_session_id, session = await get_session_or_404(session_id)
+        # Get session (normalizes the ID; T5: write check re-checks via parent)
+        full_session_id, _session = await get_session_or_404(session_id)
+        session = await check_chat_session_write(user, full_session_id)
 
         await session.delete()
 
@@ -302,11 +322,14 @@ async def delete_session(session_id: str):
 
 
 @router.post("/chat/execute", response_model=ExecuteChatResponse)
-async def execute_chat(request: ExecuteChatRequest):
+async def execute_chat(
+    request: ExecuteChatRequest, user: CurrentUser = Depends(get_current_user)
+):
     """Execute a chat request and get AI response."""
     try:
-        # Verify session exists (normalizes the ID and 404s if missing)
-        full_session_id, session = await get_session_or_404(request.session_id)
+        # Verify session exists (normalizes the ID; T5: 404 when the session's
+        # parent notebook/source is outside the caller's permitted scope)
+        full_session_id, session = await get_session_or_404(request.session_id, user)
 
         # Fetch notebook linked to this session
         notebook_query = await repo_query(
@@ -316,6 +339,11 @@ async def execute_chat(request: ExecuteChatRequest):
         notebook = None
         if notebook_query:
             notebook = await Notebook.get(notebook_query[0]["out"])
+
+        # T5: the client-supplied context is display state from the frontend,
+        # but it still ends up in the LLM prompt — drop anything outside the
+        # caller's permitted scope before it can leak foreign content.
+        context = await filter_context_to_permitted(user, request.context)
 
         # Determine model override (per-request override takes precedence over session-level)
         model_override = (
@@ -334,7 +362,7 @@ async def execute_chat(request: ExecuteChatRequest):
         # Prepare state for execution
         state_values = current_state.values if current_state else {}
         state_values["messages"] = state_values.get("messages", [])
-        state_values["context"] = request.context
+        state_values["context"] = context
         state_values["notebook"] = notebook
         state_values["model_override"] = model_override
 
@@ -389,16 +417,20 @@ async def execute_chat(request: ExecuteChatRequest):
 
 
 @router.post("/chat/context", response_model=BuildContextResponse)
-async def build_context(request: BuildContextRequest):
+async def build_context(
+    request: BuildContextRequest, user: CurrentUser = Depends(get_current_user)
+):
     """Build context for a notebook based on context configuration."""
     try:
-        # Verify notebook exists
-        notebook = await Notebook.get(request.notebook_id)
-        if not notebook:
-            raise HTTPException(status_code=404, detail="Notebook not found")
+        # Verify the notebook exists and is readable (T5)
+        notebook = await check_notebook_read(user, request.notebook_id)
 
+        # T5: only items linked to a notebook the caller may read may enter
+        # the context — the builder rejects out-of-scope ids before fetching.
         context_data, total_content = await build_notebook_context(
-            notebook, request.context_config
+            notebook,
+            request.context_config,
+            permitted_notebook_ids=set(await permitted_notebook_ids(user)),
         )
 
         char_count = len(total_content)

@@ -1,9 +1,19 @@
 from typing import List, Literal, Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from loguru import logger
 
+from api.access import (
+    CurrentUser,
+    check_note_read,
+    check_note_write,
+    check_notebook_read,
+    check_notebook_write,
+    get_current_user,
+    permitted_notebook_ids,
+)
 from api.models import NoteCreate, NoteResponse, NoteUpdate
+from open_notebook.database.repository import ensure_record_id, repo_query
 from open_notebook.domain.notebook import Note
 from open_notebook.exceptions import (
     InvalidInputError,
@@ -16,19 +26,30 @@ router = APIRouter()
 
 @router.get("/notes", response_model=List[NoteResponse])
 async def get_notes(
+    user: CurrentUser = Depends(get_current_user),
     notebook_id: Optional[str] = Query(None, description="Filter by notebook ID"),
 ):
-    """Get all notes with optional notebook filtering."""
+    """Get all notes the caller may read, with optional notebook filtering."""
     try:
         if notebook_id:
-            # Get notes for a specific notebook
-            from open_notebook.domain.notebook import Notebook
-
-            notebook = await Notebook.get(notebook_id)
+            # T5: reading a notebook's notes requires read access to it.
+            notebook = await check_notebook_read(user, notebook_id)
             notes = await notebook.get_notes()
         else:
-            # Get all notes
-            notes = await Note.get_all(order_by="updated desc")
+            # T5: the global list is filtered inside the query — only notes
+            # linked (via artifact) to a permitted notebook.
+            permitted = await permitted_notebook_ids(user)
+            if not permitted:
+                return []
+            rows = await repo_query(
+                """
+                SELECT * FROM note
+                WHERE id IN (SELECT VALUE in FROM artifact WHERE out IN $ids)
+                ORDER BY updated DESC
+                """,
+                {"ids": [ensure_record_id(i) for i in permitted]},
+            )
+            notes = [Note(**row) for row in rows]
 
         return [
             NoteResponse(
@@ -53,9 +74,15 @@ async def get_notes(
 
 
 @router.post("/notes", response_model=NoteResponse)
-async def create_note(note_data: NoteCreate):
+async def create_note(
+    note_data: NoteCreate, user: CurrentUser = Depends(get_current_user)
+):
     """Create a new note."""
     try:
+        # T5: adding a note to a notebook requires write access to it.
+        if note_data.notebook_id:
+            await check_notebook_write(user, note_data.notebook_id)
+
         # Auto-generate title if not provided and it's an AI note
         title = note_data.title
         if not title and note_data.note_type == "ai" and note_data.content:
@@ -90,10 +117,6 @@ async def create_note(note_data: NoteCreate):
 
         # Add to notebook if specified
         if note_data.notebook_id:
-            from open_notebook.domain.notebook import Notebook
-
-            # Verify the notebook exists (raises NotFoundError -> 404)
-            await Notebook.get(note_data.notebook_id)
             await new_note.add_to_notebook(note_data.notebook_id)
 
         return NoteResponse(
@@ -119,10 +142,12 @@ async def create_note(note_data: NoteCreate):
 
 
 @router.get("/notes/{note_id}", response_model=NoteResponse)
-async def get_note(note_id: str):
+async def get_note(
+    note_id: str, user: CurrentUser = Depends(get_current_user)
+):
     """Get a specific note by ID."""
     try:
-        note = await Note.get(note_id)
+        note = await check_note_read(user, note_id)
 
         return NoteResponse(
             id=note.id or "",
@@ -144,10 +169,14 @@ async def get_note(note_id: str):
 
 
 @router.put("/notes/{note_id}", response_model=NoteResponse)
-async def update_note(note_id: str, note_update: NoteUpdate):
+async def update_note(
+    note_id: str,
+    note_update: NoteUpdate,
+    user: CurrentUser = Depends(get_current_user),
+):
     """Update a note."""
     try:
-        note = await Note.get(note_id)
+        note = await check_note_write(user, note_id)
 
         # Update only provided fields
         if note_update.title is not None:
@@ -187,10 +216,12 @@ async def update_note(note_id: str, note_update: NoteUpdate):
 
 
 @router.delete("/notes/{note_id}")
-async def delete_note(note_id: str):
+async def delete_note(
+    note_id: str, user: CurrentUser = Depends(get_current_user)
+):
     """Delete a note."""
     try:
-        note = await Note.get(note_id)
+        note = await check_note_write(user, note_id)
 
         await note.delete()
 

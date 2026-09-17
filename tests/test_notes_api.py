@@ -16,8 +16,11 @@ class TestNoteCreation:
     """Test suite for Note API endpoints."""
 
     @patch("api.routers.notes.Note")
-    def test_create_note_returns_command_id(self, mock_note_cls, client):
+    def test_create_note_returns_command_id(
+        self, mock_note_cls, client, auth_session, auth_cookie
+    ):
         """Test that creating a note returns the embed command_id."""
+        auth_session()
         mock_note = AsyncMock()
         mock_note.id = "note:abc123"
         mock_note.title = "Test Note"
@@ -32,6 +35,7 @@ class TestNoteCreation:
         response = client.post(
             "/api/notes",
             json={"content": "Some content", "note_type": "human"},
+            cookies=auth_cookie,
         )
 
         assert response.status_code == 200
@@ -41,9 +45,10 @@ class TestNoteCreation:
 
     @patch("api.routers.notes.Note")
     def test_create_note_command_id_none_when_no_content_embedding(
-        self, mock_note_cls, client
+        self, mock_note_cls, client, auth_session, auth_cookie
     ):
         """Test that command_id is None when save returns None (no embedding)."""
+        auth_session()
         mock_note = AsyncMock()
         mock_note.id = "note:abc456"
         mock_note.title = "Empty Note"
@@ -58,6 +63,7 @@ class TestNoteCreation:
         response = client.post(
             "/api/notes",
             json={"content": "Some content", "note_type": "human"},
+            cookies=auth_cookie,
         )
 
         assert response.status_code == 200
@@ -68,9 +74,12 @@ class TestNoteCreation:
 class TestNoteUpdate:
     """Test suite for Note update endpoint."""
 
-    @patch("api.routers.notes.Note")
-    def test_update_note_returns_command_id(self, mock_note_cls, client):
+    @patch("api.routers.notes.check_note_write", new_callable=AsyncMock)
+    def test_update_note_returns_command_id(
+        self, mock_check, client, auth_session, auth_cookie
+    ):
         """Test that updating a note returns the embed command_id."""
+        auth_session()
         mock_note = AsyncMock()
         mock_note.id = "note:abc123"
         mock_note.title = "Test Note"
@@ -79,22 +88,24 @@ class TestNoteUpdate:
         mock_note.created = "2026-01-01T00:00:00Z"
         mock_note.updated = "2026-01-01T00:00:00Z"
         mock_note.save.return_value = "command:embed789"
-        mock_note_cls.get = AsyncMock(return_value=mock_note)
+        mock_check.return_value = mock_note
 
         response = client.put(
             "/api/notes/note:abc123",
             json={"content": "Updated content"},
+            cookies=auth_cookie,
         )
 
         assert response.status_code == 200
         data = response.json()
         assert data["command_id"] == "command:embed789"
 
-    @patch("api.routers.notes.Note")
+    @patch("api.routers.notes.check_note_write", new_callable=AsyncMock)
     def test_update_note_command_id_none_when_no_embedding(
-        self, mock_note_cls, client
+        self, mock_check, client, auth_session, auth_cookie
     ):
         """Test that command_id is None on update when no embedding is triggered."""
+        auth_session()
         mock_note = AsyncMock()
         mock_note.id = "note:abc123"
         mock_note.title = "Test Note"
@@ -103,11 +114,12 @@ class TestNoteUpdate:
         mock_note.created = "2026-01-01T00:00:00Z"
         mock_note.updated = "2026-01-01T00:00:00Z"
         mock_note.save.return_value = None
-        mock_note_cls.get = AsyncMock(return_value=mock_note)
+        mock_check.return_value = mock_note
 
         response = client.put(
             "/api/notes/note:abc123",
             json={"title": "Updated Title"},
+            cookies=auth_cookie,
         )
 
         assert response.status_code == 200

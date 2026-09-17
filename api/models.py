@@ -41,7 +41,9 @@ class NotebookScopeMixin(BaseModel):
 
     Both `notebook_id` (single, the shape #574 proposed and existing clients
     already send) and `notebook_ids` (several) are accepted; `scope_notebook_ids`
-    merges them. An empty scope means the whole knowledge base.
+    merges them. An empty scope means "all notebooks the caller is permitted
+    to read" (T5: the server intersects with the authorized scope); ids
+    outside that scope are silently dropped.
     """
 
     notebook_id: Optional[str] = Field(

@@ -1,10 +1,15 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from loguru import logger
 
+from api.access import (
+    CurrentUser,
+    check_note_write,
+    check_source_write,
+    get_current_user,
+)
 from api.command_service import CommandService
 from api.models import EmbedRequest, EmbedResponse
 from open_notebook.ai.models import model_manager
-from open_notebook.domain.notebook import Note, Source
 from open_notebook.exceptions import (
     NotFoundError,
     OpenNotebookError,
@@ -14,7 +19,9 @@ router = APIRouter()
 
 
 @router.post("/embed", response_model=EmbedResponse)
-async def embed_content(embed_request: EmbedRequest):
+async def embed_content(
+    embed_request: EmbedRequest, user: CurrentUser = Depends(get_current_user)
+):
     """Embed content for vector search."""
     try:
         # Check if embedding model is available
@@ -42,13 +49,24 @@ async def embed_content(embed_request: EmbedRequest):
                 # Import commands to ensure they're registered
                 import commands.embedding_commands  # noqa: F401
 
-                # Submit type-specific command
+                # T5: authorize BEFORE the job is queued — the async path
+                # never loads the object, so this is the only guard against
+                # guessing ids into the embedding pipeline. The caller's team
+                # rides the payload so the worker can revalidate at run time.
                 if item_type == "source":
+                    await check_source_write(user, item_id)
                     command_name = "embed_source"
-                    command_input = {"source_id": item_id}
+                    command_input = {
+                        "source_id": item_id,
+                        "expected_team_id": user.team_id or None,
+                    }
                 else:  # note
+                    await check_note_write(user, item_id)
                     command_name = "embed_note"
-                    command_input = {"note_id": item_id}
+                    command_input = {
+                        "note_id": item_id,
+                        "expected_team_id": user.team_id or None,
+                    }
 
                 command_id = await CommandService.submit_command_job(
                     "open_notebook",
@@ -79,16 +97,16 @@ async def embed_content(embed_request: EmbedRequest):
 
             command_id = None
 
-            # Get the item and submit embedding job
+            # Get the item (T5: write check) and submit embedding job
             if item_type == "source":
-                source_item = await Source.get(item_id)
+                source_item = await check_source_write(user, item_id)
 
                 # Submit embed_source job (returns command_id for tracking)
                 command_id = await source_item.vectorize()
                 message = "Source embedding job submitted"
 
             elif item_type == "note":
-                note_item = await Note.get(item_id)
+                note_item = await check_note_write(user, item_id)
 
                 # Note.save() internally submits embed_note command and
                 # returns command_id. Unlike Source.vectorize(), save()'s

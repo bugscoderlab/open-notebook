@@ -1,6 +1,7 @@
 from datetime import datetime
 from unittest.mock import AsyncMock, patch
 
+import pytest
 from fastapi.testclient import TestClient
 
 from open_notebook.domain.transformation import Transformation
@@ -10,6 +11,13 @@ def _client() -> TestClient:
     from api.main import app
 
     return TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def _authenticated_admin(auth_session):
+    """T5: config routers require a session cookie; these suites assert
+    config behavior, not authorization."""
+    auth_session()
 
 
 def _transformation(model_id: str | None = None) -> Transformation:

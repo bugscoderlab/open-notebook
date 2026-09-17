@@ -41,8 +41,14 @@ class PodcastService:
         notebook_id: Optional[str] = None,
         content: Optional[str] = None,
         briefing_suffix: Optional[str] = None,
+        owner: Optional[Dict[str, Any]] = None,
     ) -> str:
-        """Submit a podcast generation job for background processing"""
+        """Submit a podcast generation job for background processing.
+
+        T5: ``owner`` carries the team-ownership fields (organization/team/
+        visibility/created_by) stamped onto the created episode — the worker
+        revalidates the notebook scope before processing.
+        """
         try:
             # Validate episode profile exists
             episode_profile = await EpisodeProfile.get_by_name(episode_profile_name)
@@ -77,13 +83,17 @@ class PodcastService:
                 )
 
             # Prepare command arguments (speaker profile as record ID)
-            command_args = {
+            command_args: Dict[str, Any] = {
                 "episode_profile": episode_profile_name,
                 "speaker_profile": str(speaker_profile.id),
                 "episode_name": episode_name,
                 "content": str(content),
                 "briefing_suffix": briefing_suffix,
             }
+            # T5: carry team ownership into the job payload so the worker
+            # stamps it on the episode (and can revalidate the scope).
+            if owner:
+                command_args["owner"] = owner
 
             # Ensure command modules are imported before submitting
             # This is needed because submit_command validates against local registry
@@ -137,9 +147,22 @@ class PodcastService:
             raise HTTPException(status_code=500, detail="Failed to get job status")
 
     @staticmethod
-    async def list_episodes() -> list:
-        """List all podcast episodes"""
+    async def list_episodes(permitted_ids: Optional[list] = None) -> list:
+        """List podcast episodes, optionally SQL-filtered to a permitted id set (T5)."""
         try:
+            if permitted_ids is not None:
+                from open_notebook.database.repository import (
+                    ensure_record_id,
+                    repo_query,
+                )
+
+                if not permitted_ids:
+                    return []
+                rows = await repo_query(
+                    "SELECT * FROM episode WHERE id IN $ids ORDER BY created DESC",
+                    {"ids": [ensure_record_id(i) for i in permitted_ids]},
+                )
+                return [PodcastEpisode(**row) for row in rows]
             episodes = await PodcastEpisode.get_all(order_by="created desc")
             return episodes
         except Exception as e:

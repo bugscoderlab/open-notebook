@@ -1,0 +1,9 @@
+-- Migration 28 down: remove team-access ownership from podcast episodes.
+
+REMOVE INDEX IF EXISTS episode_team_visibility ON TABLE episode;
+
+REMOVE FIELD IF EXISTS notebook ON TABLE episode;
+REMOVE FIELD IF EXISTS organization ON TABLE episode;
+REMOVE FIELD IF EXISTS team ON TABLE episode;
+REMOVE FIELD IF EXISTS visibility ON TABLE episode;
+REMOVE FIELD IF EXISTS created_by ON TABLE episode;

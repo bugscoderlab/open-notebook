@@ -26,45 +26,69 @@ def client():
 
 
 class TestSourcesRouterDoesNotLeakExceptionText:
-    def test_list_sources_failure_returns_generic_message(self, client):
+    @patch("api.routers.sources.permitted_source_ids", new_callable=AsyncMock)
+    def test_list_sources_failure_returns_generic_message(
+        self, mock_permitted, client, auth_session, auth_cookie
+    ):
+        auth_session()
+        mock_permitted.return_value = ["source:1"]
         with patch(
             "api.routers.sources.repo_query",
             new=AsyncMock(side_effect=RuntimeError(SECRET)),
         ):
-            response = client.get("/api/sources")
+            response = client.get("/api/sources", cookies=auth_cookie)
 
         assert response.status_code == 500
         assert SECRET not in response.text
         assert response.json()["detail"] == "Error fetching sources"
 
-    def test_delete_source_failure_returns_generic_message(self, client):
+    def test_delete_source_failure_returns_generic_message(
+        self, client, auth_session, auth_cookie
+    ):
+        auth_session()
         mock_source = AsyncMock()
+        mock_source.team_id = None
+        mock_source.organization_id = None
         mock_source.delete = AsyncMock(side_effect=RuntimeError(SECRET))
 
         with patch(
             "api.routers.sources.Source.get", new=AsyncMock(return_value=mock_source)
         ):
-            response = client.delete("/api/sources/source:abc123")
+            response = client.delete(
+                "/api/sources/source:abc123", cookies=auth_cookie
+            )
 
         assert response.status_code == 500
         assert SECRET not in response.text
         assert response.json()["detail"] == "Error deleting source"
 
-    def test_get_source_insights_failure_returns_generic_message(self, client):
+    def test_get_source_insights_failure_returns_generic_message(
+        self, client, auth_session, auth_cookie
+    ):
+        auth_session()
         mock_source = AsyncMock()
+        mock_source.team_id = None
+        mock_source.organization_id = None
         mock_source.get_insights = AsyncMock(side_effect=RuntimeError(SECRET))
 
         with patch(
             "api.routers.sources.Source.get", new=AsyncMock(return_value=mock_source)
         ):
-            response = client.get("/api/sources/source:abc123/insights")
+            response = client.get(
+                "/api/sources/source:abc123/insights", cookies=auth_cookie
+            )
 
         assert response.status_code == 500
         assert SECRET not in response.text
         assert response.json()["detail"] == "Error fetching insights"
 
-    def test_update_source_failure_returns_generic_message(self, client):
+    def test_update_source_failure_returns_generic_message(
+        self, client, auth_session, auth_cookie
+    ):
+        auth_session()
         mock_source = AsyncMock()
+        mock_source.team_id = None
+        mock_source.organization_id = None
         mock_source.save = AsyncMock(side_effect=RuntimeError(SECRET))
         mock_source.asset = None
 
@@ -72,7 +96,9 @@ class TestSourcesRouterDoesNotLeakExceptionText:
             "api.routers.sources.Source.get", new=AsyncMock(return_value=mock_source)
         ):
             response = client.put(
-                "/api/sources/source:abc123", json={"title": "New Title"}
+                "/api/sources/source:abc123",
+                json={"title": "New Title"},
+                cookies=auth_cookie,
             )
 
         assert response.status_code == 500
@@ -85,10 +111,15 @@ class TestInvalidInputErrorsStillReturnTheirOwnSafeMessage:
     user-facing validation text) - not the raw-exception-leak pattern this
     fix targets, and must be untouched."""
 
-    def test_update_source_invalid_input_still_returns_its_message(self, client):
+    def test_update_source_invalid_input_still_returns_its_message(
+        self, client, auth_session, auth_cookie
+    ):
         from open_notebook.exceptions import InvalidInputError
 
+        auth_session()
         mock_source = AsyncMock()
+        mock_source.team_id = None
+        mock_source.organization_id = None
         mock_source.save = AsyncMock(
             side_effect=InvalidInputError("Title cannot be empty")
         )
@@ -98,7 +129,9 @@ class TestInvalidInputErrorsStillReturnTheirOwnSafeMessage:
             "api.routers.sources.Source.get", new=AsyncMock(return_value=mock_source)
         ):
             response = client.put(
-                "/api/sources/source:abc123", json={"title": "x"}
+                "/api/sources/source:abc123",
+                json={"title": "x"},
+                cookies=auth_cookie,
             )
 
         assert response.status_code == 400

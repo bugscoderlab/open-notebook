@@ -1,8 +1,17 @@
 from typing import List, Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from loguru import logger
 
+from api.access import (
+    CurrentUser,
+    check_notebook_read,
+    check_notebook_write,
+    check_source_write,
+    get_current_user,
+    permitted_notebook_ids,
+    permitted_source_ids,
+)
 from api.models import (
     NotebookCreate,
     NotebookDeletePreview,
@@ -12,7 +21,7 @@ from api.models import (
     RecentlyViewedResponse,
 )
 from open_notebook.database.repository import ensure_record_id, repo_query
-from open_notebook.domain.notebook import Notebook, Source
+from open_notebook.domain.notebook import Notebook
 from open_notebook.exceptions import (
     InvalidInputError,
     NotFoundError,
@@ -60,10 +69,11 @@ def _recently_viewed_source(row: dict) -> RecentlyViewedResponse:
 
 @router.get("/notebooks", response_model=List[NotebookResponse])
 async def get_notebooks(
+    user: CurrentUser = Depends(get_current_user),
     archived: Optional[bool] = Query(None, description="Filter by archived status"),
     order_by: str = Query("updated desc", description="Order by field and direction"),
 ):
-    """Get all notebooks with optional filtering and ordering."""
+    """Get all notebooks the caller may read, with optional filtering."""
     try:
         # Validate order_by against allowlist to prevent SurrealQL injection
         allowed_fields = {"name", "created", "updated"}
@@ -90,16 +100,25 @@ async def get_notebooks(
                 detail=f"Invalid order_by format: '{order_by}'. Expected 'field' or 'field direction'",
             )
 
+        # T5: the list is filtered inside the query by the caller's permitted
+        # scope — never the whole knowledge base.
+        permitted = await permitted_notebook_ids(user)
+        if not permitted:
+            return []
+
         # Build the query with counts
         query = f"""
             SELECT *,
             count(<-reference.in) as source_count,
             count(<-artifact.in) as note_count
             FROM notebook
+            WHERE id IN $permitted_ids
             ORDER BY {validated_order_by}
         """
 
-        result = await repo_query(query)
+        result = await repo_query(
+            query, {"permitted_ids": [ensure_record_id(i) for i in permitted]}
+        )
 
         # Filter by archived status if specified
         if archived is not None:
@@ -130,14 +149,20 @@ async def get_notebooks(
 
 
 @router.post("/notebooks", response_model=NotebookResponse)
-async def create_notebook(notebook: NotebookCreate):
-    """Create a new notebook."""
+async def create_notebook(
+    notebook: NotebookCreate, user: CurrentUser = Depends(get_current_user)
+):
+    """Create a new notebook in the caller's team."""
     try:
-        new_notebook = Notebook(
+        # T5: the team is always the caller's own — a client cannot submit a
+        # foreign team_id.
+        new_notebook = await Notebook.create(
             name=notebook.name,
             description=notebook.description,
+            organization_id=user.organization_id,
+            team_id=user.team_id,
+            created_by=user.id,
         )
-        await new_notebook.save()
 
         return NotebookResponse(
             id=new_notebook.id or "",
@@ -164,29 +189,43 @@ async def create_notebook(notebook: NotebookCreate):
 
 @router.get("/recently-viewed", response_model=List[RecentlyViewedResponse])
 async def get_recently_viewed(
+    user: CurrentUser = Depends(get_current_user),
     limit: int = Query(12, ge=1, le=50, description="Number of items to return"),
 ):
-    """Get recently viewed notebooks and sources, newest first."""
+    """Get recently viewed notebooks and sources, newest first (permitted only)."""
     try:
+        permitted_notebooks = await permitted_notebook_ids(user)
+        permitted_sources = await permitted_source_ids(user)
+        if not permitted_notebooks and not permitted_sources:
+            return []
+
         notebooks = await repo_query(
             """
             SELECT id, name AS title, last_viewed_at
             FROM notebook
             WHERE last_viewed_at != NONE AND last_viewed_at != NULL
+              AND id IN $permitted_ids
             ORDER BY last_viewed_at DESC
             LIMIT $limit
             """,
-            {"limit": limit},
+            {
+                "limit": limit,
+                "permitted_ids": [ensure_record_id(i) for i in permitted_notebooks],
+            },
         )
         sources = await repo_query(
             """
             SELECT id, title, last_viewed_at
             FROM source
             WHERE last_viewed_at != NONE AND last_viewed_at != NULL
+              AND id IN $permitted_ids
             ORDER BY last_viewed_at DESC
             LIMIT $limit
             """,
-            {"limit": limit},
+            {
+                "limit": limit,
+                "permitted_ids": [ensure_record_id(i) for i in permitted_sources],
+            },
         )
 
         items = [
@@ -211,10 +250,12 @@ async def get_recently_viewed(
 @router.get(
     "/notebooks/{notebook_id}/delete-preview", response_model=NotebookDeletePreview
 )
-async def get_notebook_delete_preview(notebook_id: str):
+async def get_notebook_delete_preview(
+    notebook_id: str, user: CurrentUser = Depends(get_current_user)
+):
     """Get a preview of what will be deleted when this notebook is deleted."""
     try:
-        notebook = await Notebook.get(notebook_id)
+        notebook = await check_notebook_write(user, notebook_id)
 
         preview = await notebook.get_delete_preview()
 
@@ -240,9 +281,14 @@ async def get_notebook_delete_preview(notebook_id: str):
 
 
 @router.get("/notebooks/{notebook_id}", response_model=NotebookResponse)
-async def get_notebook(notebook_id: str):
+async def get_notebook(
+    notebook_id: str, user: CurrentUser = Depends(get_current_user)
+):
     """Get a specific notebook by ID."""
     try:
+        # T5: 404 when the notebook is outside the caller's permitted scope.
+        await check_notebook_read(user, notebook_id)
+
         # Query with counts for single notebook
         query = """
             SELECT *,
@@ -280,10 +326,14 @@ async def get_notebook(notebook_id: str):
 
 
 @router.put("/notebooks/{notebook_id}", response_model=NotebookResponse)
-async def update_notebook(notebook_id: str, notebook_update: NotebookUpdate):
+async def update_notebook(
+    notebook_id: str,
+    notebook_update: NotebookUpdate,
+    user: CurrentUser = Depends(get_current_user),
+):
     """Update a notebook."""
     try:
-        notebook = await Notebook.get(notebook_id)
+        notebook = await check_notebook_write(user, notebook_id)
 
         # Update only provided fields
         if notebook_update.name is not None:
@@ -344,31 +394,31 @@ async def update_notebook(notebook_id: str, notebook_update: NotebookUpdate):
 
 
 @router.post("/notebooks/{notebook_id}/sources/{source_id}")
-async def add_source_to_notebook(notebook_id: str, source_id: str):
+async def add_source_to_notebook(
+    notebook_id: str,
+    source_id: str,
+    user: CurrentUser = Depends(get_current_user),
+):
     """Add an existing source to a notebook (create the reference)."""
     try:
-        # Verify the notebook and source exist (raises NotFoundError -> 404)
-        await Notebook.get(notebook_id)
-        await Source.get(source_id)
+        # T5: writes to both objects are required; the same-team link rule
+        # is enforced by Source.add_to_notebook.
+        await check_notebook_write(user, notebook_id)
+        source = await check_source_write(user, source_id)
 
-        # Check if reference already exists (idempotency)
+        # Check if reference already exists (idempotency). reference edges
+        # point in=source → out=notebook.
         existing_ref = await repo_query(
-            "SELECT * FROM reference WHERE out = $source_id AND in = $notebook_id",
+            "SELECT * FROM reference WHERE out = $notebook_id AND in = $source_id",
             {
                 "notebook_id": ensure_record_id(notebook_id),
                 "source_id": ensure_record_id(source_id),
             },
         )
 
-        # If reference doesn't exist, create it
+        # If reference doesn't exist, create it (with link validation)
         if not existing_ref:
-            await repo_query(
-                "RELATE $source_id->reference->$notebook_id",
-                {
-                    "notebook_id": ensure_record_id(notebook_id),
-                    "source_id": ensure_record_id(source_id),
-                },
-            )
+            await source.add_to_notebook(notebook_id)
 
         return {"message": "Source linked to notebook successfully"}
     except HTTPException:
@@ -387,11 +437,16 @@ async def add_source_to_notebook(notebook_id: str, source_id: str):
 
 
 @router.delete("/notebooks/{notebook_id}/sources/{source_id}")
-async def remove_source_from_notebook(notebook_id: str, source_id: str):
+async def remove_source_from_notebook(
+    notebook_id: str,
+    source_id: str,
+    user: CurrentUser = Depends(get_current_user),
+):
     """Remove a source from a notebook (delete the reference)."""
     try:
-        # Verify the notebook exists (raises NotFoundError -> 404)
-        await Notebook.get(notebook_id)
+        # T5: writes to both objects are required.
+        await check_notebook_write(user, notebook_id)
+        await check_source_write(user, source_id)
 
         # Delete the reference record linking source to notebook
         await repo_query(
@@ -421,6 +476,7 @@ async def remove_source_from_notebook(notebook_id: str, source_id: str):
 @router.delete("/notebooks/{notebook_id}", response_model=NotebookDeleteResponse)
 async def delete_notebook(
     notebook_id: str,
+    user: CurrentUser = Depends(get_current_user),
     delete_exclusive_sources: bool = Query(
         False,
         description="Whether to delete sources that belong only to this notebook",
@@ -434,7 +490,7 @@ async def delete_notebook(
     to this notebook (not linked to any other notebooks).
     """
     try:
-        notebook = await Notebook.get(notebook_id)
+        notebook = await check_notebook_write(user, notebook_id)
 
         result = await notebook.delete(
             delete_exclusive_sources=delete_exclusive_sources

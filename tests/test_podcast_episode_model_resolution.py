@@ -17,6 +17,28 @@ from api.routers.podcasts import get_podcast_episode, list_podcast_episodes
 from open_notebook.ai.models import Model
 from open_notebook.podcasts.models import PodcastEpisode
 
+
+def _admin_user():
+    from api.access import CurrentUser
+
+    return CurrentUser(
+        id="app_user:test",
+        email="test@example.com",
+        organization_id="organization:default",
+        team_id="team:hr",
+        role="admin",
+    )
+
+
+@pytest.fixture(autouse=True)
+def _episode_scope(monkeypatch):
+    """T5: characterization tests assert shapes, not authorization — pin the
+    permitted episode scope."""
+    monkeypatch.setattr(
+        "api.routers.podcasts.permitted_episode_ids",
+        AsyncMock(return_value=["episode:any"]),
+    )
+
 MODEL_INFO = {
     "model:outline": {"provider": "openai", "name": "gpt-4o"},
     "model:transcript": {"provider": "anthropic", "name": "claude-sonnet"},
@@ -174,7 +196,7 @@ class TestListEpisodesModelResolution:
     async def test_referenced_episode_gets_resolved_display_fields(self):
         patches = _list_patches([referenced_episode()])
         with patches[0], patches[1], patches[2]:
-            response = await list_podcast_episodes()
+            response = await list_podcast_episodes(user=_admin_user())
 
         ep = response[0].episode_profile
         sp = response[0].speaker_profile
@@ -189,7 +211,7 @@ class TestListEpisodesModelResolution:
     async def test_legacy_episode_keeps_historical_strings_untouched(self):
         patches = _list_patches([legacy_episode()])
         with patches[0], patches[1], patches[2]:
-            response = await list_podcast_episodes()
+            response = await list_podcast_episodes(user=_admin_user())
 
         ep = response[0].episode_profile
         sp = response[0].speaker_profile
@@ -205,7 +227,7 @@ class TestListEpisodesModelResolution:
     async def test_unresolvable_reference_leaves_display_fields_absent(self):
         patches = _list_patches([unresolvable_episode()])
         with patches[0], patches[1], patches[2]:
-            response = await list_podcast_episodes()
+            response = await list_podcast_episodes(user=_admin_user())
 
         ep = response[0].episode_profile
         sp = response[0].speaker_profile
@@ -223,7 +245,7 @@ class TestListEpisodesModelResolution:
         ]
         patches = _list_patches(episodes)
         with patches[0], patches[1], patches[2]:
-            response = await list_podcast_episodes()
+            response = await list_podcast_episodes(user=_admin_user())
 
         assert len(response) == 3
         assert response[0].episode_profile["outline_model_name"] == "gpt-4o"
@@ -253,7 +275,7 @@ class TestListEpisodesModelResolution:
             ) as mock_batch,
             patch.object(Model, "get", new=AsyncMock()) as mock_get,
         ):
-            response = await list_podcast_episodes()
+            response = await list_podcast_episodes(user=_admin_user())
 
         mock_batch.assert_awaited_once()
         mock_get.assert_not_called()
@@ -280,7 +302,7 @@ class TestListEpisodesModelResolution:
                 new=AsyncMock(side_effect=RuntimeError("db down")),
             ),
         ):
-            response = await list_podcast_episodes()
+            response = await list_podcast_episodes(user=_admin_user())
 
         assert len(response) == 1
         assert "outline_model_provider" not in response[0].episode_profile
@@ -293,7 +315,7 @@ class TestGetEpisodeModelResolution:
 
         with (
             patch(
-                "api.routers.podcasts.PodcastService.get_episode",
+                "api.routers.podcasts.check_episode_read",
                 new=AsyncMock(return_value=episode),
             ),
             patch.object(
@@ -309,7 +331,7 @@ class TestGetEpisodeModelResolution:
                 new=AsyncMock(return_value=MODEL_INFO),
             ) as mock_batch,
         ):
-            response = await get_podcast_episode("episode:ref")
+            response = await get_podcast_episode("episode:ref", user=_admin_user())
 
         mock_batch.assert_awaited_once()
         assert response.episode_profile["outline_model_name"] == "gpt-4o"

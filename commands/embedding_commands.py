@@ -140,6 +140,12 @@ class RebuildEmbeddingsInput(CommandInput):
     include_sources: bool = True
     include_notes: bool = True
     include_insights: bool = True
+    # T5: permitted notebook scope recorded at submit time. None = global
+    # (admin-only). The worker filters every collection query with it and the
+    # router-side counts use the same set. Note the payload is trusted beyond
+    # existence/coherence checks: embed/ask re-check their own item scope at
+    # run time, and the router is the only submit path.
+    notebook_ids: Optional[List[str]] = None
 
 
 class RebuildEmbeddingsOutput(CommandOutput):
@@ -175,6 +181,10 @@ class EmbedNoteInput(CommandInput):
     """Input for embedding a single note."""
 
     note_id: str
+    # T5: the caller's team recorded at submit time (API-gated paths only).
+    # The worker revalidates the note's parent notebooks against it before
+    # processing; absent = legacy/domain-submitted job, no revalidation.
+    expected_team_id: Optional[str] = None
 
 
 class EmbedNoteOutput(CommandOutput):
@@ -205,6 +215,9 @@ class EmbedSourceInput(CommandInput):
     """Input for embedding a source (creates multiple chunk embeddings)."""
 
     source_id: str
+    # T5: the caller's team recorded at submit time (API-gated paths only);
+    # the worker revalidates before processing. Absent = legacy job.
+    expected_team_id: Optional[str] = None
 
 
 class EmbedSourceOutput(CommandOutput):
@@ -218,6 +231,42 @@ class EmbedSourceOutput(CommandOutput):
 
 
 @command("embed_note", app="open_notebook", retry=EMBED_RETRY_CONFIG)
+async def _revalidate_source_team(source_id: str, expected_team_id: Optional[str]) -> None:
+    """T5 worker-side revalidation: the source's team must still match the
+    caller's team recorded at submit time (raises ValueError -> permanent
+    failure, no retry). Unclassified sources pass — they were admin-reachable
+    at submit and stay admin-only at every read path."""
+    if not expected_team_id:
+        return
+    rows = await repo_query("SELECT team FROM $id", {"id": ensure_record_id(source_id)})
+    if not rows:
+        raise ValueError(f"Source {source_id} no longer exists")
+    team = str(rows[0]["team"]) if rows[0].get("team") else None
+    if team and team != expected_team_id:
+        raise ValueError(
+            f"Source {source_id} changed team after the job was submitted; aborting"
+        )
+
+
+async def _revalidate_note_team(note_id: str, expected_team_id: Optional[str]) -> None:
+    """T5 worker-side revalidation for notes (which carry no team field):
+    every classified parent notebook must still belong to the caller's team."""
+    if not expected_team_id:
+        return
+    rows = await repo_query(
+        "SELECT out.team AS team FROM artifact WHERE in = $id AND out.team IS NOT NONE",
+        {"id": ensure_record_id(note_id)},
+    )
+    if not rows:
+        return  # unclassified note: nothing to revalidate against
+    foreign = [str(r["team"]) for r in rows if str(r["team"]) != expected_team_id]
+    if foreign:
+        raise ValueError(
+            f"Note {note_id} is linked to a notebook outside the caller's team "
+            "after the job was submitted; aborting"
+        )
+
+
 async def embed_note_command(input_data: EmbedNoteInput) -> EmbedNoteOutput:
     """
     Generate and store embedding for a single note.
@@ -235,6 +284,9 @@ async def embed_note_command(input_data: EmbedNoteInput) -> EmbedNoteOutput:
     - Uses exponential-jitter backoff (1-60s)
     - Does NOT retry permanent failures (ValueError for validation errors)
     """
+    # T5: revalidate the recorded caller scope before doing any work
+    # (raises ValueError -> permanent failure, no retry).
+    await _revalidate_note_team(input_data.note_id, input_data.expected_team_id)
 
     async def embed() -> Tuple[Dict[str, Any], str]:
         return await _embed_markdown_record(
@@ -322,6 +374,9 @@ async def embed_source_command(input_data: EmbedSourceInput) -> EmbedSourceOutpu
     - Uses exponential-jitter backoff (1-60s)
     - Does NOT retry permanent failures (ValueError for validation errors)
     """
+    # T5: revalidate the recorded caller scope before doing any work
+    # (raises ValueError -> permanent failure, no retry).
+    await _revalidate_source_team(input_data.source_id, input_data.expected_team_id)
 
     async def embed() -> Tuple[Dict[str, Any], str]:
         # 1. Load source
@@ -504,27 +559,62 @@ async def collect_items_for_rebuild(
     include_sources: bool,
     include_notes: bool,
     include_insights: bool,
+    notebook_ids: Optional[List[str]] = None,
 ) -> Dict[str, List[str]]:
     """
     Collect items to rebuild based on mode and include flags.
+
+    T5: when ``notebook_ids`` is given (non-admin permitted scope), only
+    items linked to those notebooks are collected — sources/insights via the
+    ``reference`` edge, notes via the ``artifact`` edge.
 
     Returns:
         Dict with keys: 'sources', 'notes', 'insights' containing lists of item IDs
     """
     items: Dict[str, List[str]] = {"sources": [], "notes": [], "insights": []}
 
+    scoped_sources: Optional[List[str]] = None
+    scoped_notes: Optional[List[str]] = None
+    if notebook_ids is not None:
+        if not notebook_ids:
+            return items  # empty permitted scope: nothing to rebuild
+        record_ids = [ensure_record_id(i) for i in notebook_ids]
+        if include_sources or include_insights:
+            rows = await repo_query(
+                "SELECT VALUE in FROM reference WHERE out IN $ids", {"ids": record_ids}
+            )
+            scoped_sources = [str(row) for row in rows]
+        if include_notes:
+            rows = await repo_query(
+                "SELECT VALUE in FROM artifact WHERE out IN $ids", {"ids": record_ids}
+            )
+            scoped_notes = [str(row) for row in rows]
+
     if include_sources:
         if mode == "existing":
             # Query sources with embeddings (via source_embedding table)
-            result = await repo_query(
-                """
-                RETURN array::distinct(
-                    SELECT VALUE source.id
-                    FROM source_embedding
-                    WHERE embedding != none AND array::len(embedding) > 0
+            if scoped_sources is None:
+                result = await repo_query(
+                    """
+                    RETURN array::distinct(
+                        SELECT VALUE source.id
+                        FROM source_embedding
+                        WHERE embedding != none AND array::len(embedding) > 0
+                    )
+                    """
                 )
-                """
-            )
+            else:
+                result = await repo_query(
+                    """
+                    RETURN array::distinct(
+                        SELECT VALUE source.id
+                        FROM source_embedding
+                        WHERE embedding != none AND array::len(embedding) > 0
+                          AND source IN $scoped
+                    )
+                    """,
+                    {"scoped": [ensure_record_id(i) for i in scoped_sources]},
+                )
             # RETURN returns the array directly as the result (not nested)
             if result:
                 items["sources"] = [str(item) for item in result]
@@ -532,39 +622,47 @@ async def collect_items_for_rebuild(
                 items["sources"] = []
         else:  # mode == "all"
             # Query all sources with non-empty content
-            result = await repo_query(
-                "SELECT id FROM source WHERE full_text != none AND string::trim(full_text) != ''"
-            )
+            if scoped_sources is None:
+                result = await repo_query(
+                    "SELECT id FROM source WHERE full_text != none AND string::trim(full_text) != ''"
+                )
+            else:
+                result = await repo_query(
+                    "SELECT id FROM source WHERE full_text != none AND string::trim(full_text) != '' AND id IN $scoped",
+                    {"scoped": [ensure_record_id(i) for i in scoped_sources]},
+                )
             items["sources"] = [str(item["id"]) for item in result] if result else []
 
         logger.info(f"Collected {len(items['sources'])} sources for rebuild")
 
     if include_notes:
         if mode == "existing":
-            # Query notes with embeddings
-            result = await repo_query(
-                "SELECT id FROM note WHERE embedding != none AND array::len(embedding) > 0"
-            )
+            base = "SELECT id FROM note WHERE embedding != none AND array::len(embedding) > 0"
         else:  # mode == "all"
-            # Query all notes with non-empty content
+            base = "SELECT id FROM note WHERE content != none AND string::trim(content) != ''"
+        if scoped_notes is not None:
             result = await repo_query(
-                "SELECT id FROM note WHERE content != none AND string::trim(content) != ''"
+                f"{base} AND id IN $scoped",
+                {"scoped": [ensure_record_id(i) for i in scoped_notes]},
             )
+        else:
+            result = await repo_query(base)
 
         items["notes"] = [str(item["id"]) for item in result] if result else []
         logger.info(f"Collected {len(items['notes'])} notes for rebuild")
 
     if include_insights:
         if mode == "existing":
-            # Query insights with embeddings
-            result = await repo_query(
-                "SELECT id FROM source_insight WHERE embedding != none AND array::len(embedding) > 0"
-            )
+            base = "SELECT id FROM source_insight WHERE embedding != none AND array::len(embedding) > 0"
         else:  # mode == "all"
-            # Query all insights with non-empty content
+            base = "SELECT id FROM source_insight WHERE content != none AND string::trim(content) != ''"
+        if scoped_sources is not None:
             result = await repo_query(
-                "SELECT id FROM source_insight WHERE content != none AND string::trim(content) != ''"
+                f"{base} AND source IN $scoped",
+                {"scoped": [ensure_record_id(i) for i in scoped_sources]},
             )
+        else:
+            result = await repo_query(base)
 
         items["insights"] = [str(item["id"]) for item in result] if result else []
         logger.info(f"Collected {len(items['insights'])} insights for rebuild")
@@ -642,12 +740,14 @@ async def rebuild_embeddings_command(
 
         logger.info(f"Embedding model configured: {EMBEDDING_MODEL}")
 
-        # Collect items to process (returns IDs only)
+        # Collect items to process (returns IDs only) — scoped to the
+        # permitted notebooks recorded at submit time (T5)
         items = await collect_items_for_rebuild(
             input_data.mode,
             input_data.include_sources,
             input_data.include_notes,
             input_data.include_insights,
+            notebook_ids=input_data.notebook_ids,
         )
 
         total_items = (

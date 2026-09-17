@@ -1,6 +1,7 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from loguru import logger
 
+from api.access import CurrentUser, get_current_user, require_admin
 from api.models import SettingsResponse, SettingsUpdate
 from open_notebook.domain.content_settings import ContentSettings
 from open_notebook.exceptions import (
@@ -8,7 +9,7 @@ from open_notebook.exceptions import (
     OpenNotebookError,
 )
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(get_current_user)])  # T5: authenticated
 
 
 @router.get("/settings", response_model=SettingsResponse)
@@ -39,7 +40,9 @@ async def get_settings():
 
 
 @router.put("/settings", response_model=SettingsResponse)
-async def update_settings(settings_update: SettingsUpdate):
+async def update_settings(settings_update: SettingsUpdate,
+    admin: CurrentUser = Depends(require_admin),  # T5: admin-only mutation
+):
     """Update application settings."""
     try:
         settings: ContentSettings = await ContentSettings.get_instance()  # type: ignore[assignment]

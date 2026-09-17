@@ -39,35 +39,50 @@ def _boom(*_args, **_kwargs):
 
 
 # (router, patch target, method, url, json body) — one per fixed router.
+# scope_patch: extra patches needed where T5 computes the permitted scope
+# before the target under test is reached.
 CASES = [
-    ("chat", "api.routers.chat.Notebook.get", "GET", "/api/chat/sessions?notebook_id=notebook:1", None),
-    ("source_chat", "api.routers._chat_shared.Source.get", "GET", "/api/sources/xyz/chat/sessions", None),
-    ("sources", "api.routers.sources.repo_query", "GET", "/api/sources", None),
-    ("notebooks", "api.routers.notebooks.repo_query", "GET", "/api/notebooks", None),
-    ("notes", "api.routers.notes.Note.get_all", "GET", "/api/notes", None),
-    ("models", "api.routers.models.Model.get_all", "GET", "/api/models", None),
-    ("commands", "api.routers.commands.CommandService.get_command_status", "GET", "/api/commands/jobs/command:abc", None),
-    ("credentials", "api.routers.credentials.Credential.get_all", "GET", "/api/credentials", None),
-    ("embedding", "api.routers.embedding.model_manager.get_embedding_model", "POST", "/api/embed", {"item_id": "source:1", "item_type": "source"}),
-    ("embedding_rebuild", "api.routers.embedding_rebuild.repo_query", "POST", "/api/embeddings/rebuild", {"mode": "existing"}),
-    ("episode_profiles", "api.routers.episode_profiles.EpisodeProfile.get_all", "GET", "/api/episode-profiles", None),
-    ("insights", "api.routers.insights.SourceInsight.get", "GET", "/api/insights/source_insight:1", None),
-    ("podcasts", "api.routers.podcasts.PodcastService.list_episodes", "GET", "/api/podcasts/episodes", None),
-    ("search", "api.routers.search.text_search", "POST", "/api/search", {"query": "hello", "type": "text"}),
-    ("settings", "api.routers.settings.ContentSettings.get_instance", "GET", "/api/settings", None),
-    ("speaker_profiles", "api.routers.speaker_profiles.SpeakerProfile.get_all", "GET", "/api/speaker-profiles", None),
-    ("transformations", "api.routers.transformations.Transformation.get_all", "GET", "/api/transformations", None),
+    ("chat", "api.routers.chat.Notebook.get", "GET", "/api/chat/sessions?notebook_id=notebook:1", None, []),
+    ("source_chat", "api.routers._chat_shared.Source.get", "GET", "/api/sources/xyz/chat/sessions", None, []),
+    ("sources", "api.routers.sources.repo_query", "GET", "/api/sources", None,
+     [("api.routers.sources.permitted_source_ids", ["source:1"])]),
+    ("notebooks", "api.routers.notebooks.repo_query", "GET", "/api/notebooks", None,
+     [("api.routers.notebooks.permitted_notebook_ids", ["notebook:1"])]),
+    ("notes", "api.routers.notes.repo_query", "GET", "/api/notes", None,
+     [("api.routers.notes.permitted_notebook_ids", ["notebook:1"])]),
+    ("models", "api.routers.models.Model.get_all", "GET", "/api/models", None, []),
+    ("commands", "api.routers.commands.CommandService.get_command_status", "GET", "/api/commands/jobs/command:abc", None, []),
+    ("credentials", "api.routers.credentials.Credential.get_all", "GET", "/api/credentials", None, []),
+    ("embedding", "api.routers.embedding.model_manager.get_embedding_model", "POST", "/api/embed", {"item_id": "source:1", "item_type": "source"}, []),
+    ("embedding_rebuild", "api.routers.embedding_rebuild.repo_query", "POST", "/api/embeddings/rebuild", {"mode": "existing"}, []),
+    ("episode_profiles", "api.routers.episode_profiles.EpisodeProfile.get_all", "GET", "/api/episode-profiles", None, []),
+    ("insights", "open_notebook.domain.notebook.SourceInsight.get", "GET", "/api/insights/source_insight:1", None, []),
+    ("podcasts", "api.routers.podcasts.PodcastService.list_episodes", "GET", "/api/podcasts/episodes", None, []),
+    ("search", "api.routers.search.text_search", "POST", "/api/search", {"query": "hello", "type": "text"},
+     [("api.access.permitted_notebook_ids", ["notebook:1"])]),
+    ("settings", "api.routers.settings.ContentSettings.get_instance", "GET", "/api/settings", None, []),
+    ("speaker_profiles", "api.routers.speaker_profiles.SpeakerProfile.get_all", "GET", "/api/speaker-profiles", None, []),
+    ("transformations", "api.routers.transformations.Transformation.get_all", "GET", "/api/transformations", None, []),
 ]
 
 
 @pytest.mark.parametrize(
-    "router, target, method, url, body",
+    "router, target, method, url, body, scope_patches",
     CASES,
     ids=[case[0] for case in CASES],
 )
-def test_configuration_error_maps_to_422(client, router, target, method, url, body):
-    with patch(target, new=AsyncMock(side_effect=_boom)):
-        response = client.request(method, url, json=body)
+def test_configuration_error_maps_to_422(
+    client, auth_session, auth_cookie, router, target, method, url, body, scope_patches
+):
+    auth_session()
+    from contextlib import ExitStack
+
+    with ExitStack() as stack:
+        stack.enter_context(patch(target, new=AsyncMock(side_effect=_boom)))
+        for patch_target, return_value in scope_patches:
+            mock = AsyncMock(return_value=return_value)
+            stack.enter_context(patch(patch_target, new=mock))
+        response = client.request(method, url, json=body, cookies=auth_cookie)
 
     assert response.status_code == 422, (
         f"{router}: expected ConfigurationError to reach the global handler "
@@ -80,12 +95,17 @@ class TestNotFoundErrorPropagation:
     """NotFoundError raised by the domain layer maps to 404 where the router
     has no dedicated `except NotFoundError` arm (it used to become a 500)."""
 
-    def test_get_credential_missing_returns_404(self, client):
+    def test_get_credential_missing_returns_404(
+        self, client, auth_session, auth_cookie
+    ):
+        auth_session()
         with patch(
             "api.routers.credentials.Credential.get",
             new=AsyncMock(side_effect=NotFoundError("Credential not found")),
         ):
-            response = client.get("/api/credentials/credential:missing")
+            response = client.get(
+                "/api/credentials/credential:missing", cookies=auth_cookie
+            )
 
         assert response.status_code == 404
         assert response.json()["detail"] == "Credential not found"
@@ -96,18 +116,25 @@ class TestUnsupportedTypeErrorPropagation:
     dedicated global handler, instead of falling through to the base
     OpenNotebookError handler's 500 (#975)."""
 
-    def test_unsupported_type_maps_to_415(self, client):
+    def test_unsupported_type_maps_to_415(self, client, auth_session, auth_cookie):
         from open_notebook.exceptions import UnsupportedTypeException
 
-        with patch(
-            "api.routers.sources.repo_query",
-            new=AsyncMock(
-                side_effect=UnsupportedTypeException(
-                    "Unsupported file type: application/zip"
-                )
+        auth_session()
+        with (
+            patch(
+                "api.routers.sources.repo_query",
+                new=AsyncMock(
+                    side_effect=UnsupportedTypeException(
+                        "Unsupported file type: application/zip"
+                    )
+                ),
+            ),
+            patch(
+                "api.routers.sources.permitted_source_ids",
+                new=AsyncMock(return_value=["source:1"]),
             ),
         ):
-            response = client.get("/api/sources")
+            response = client.get("/api/sources", cookies=auth_cookie)
 
         assert response.status_code == 415
         assert "application/zip" in response.json()["detail"]
@@ -119,12 +146,19 @@ class TestUntypedExceptionsStillSanitized:
 
     SECRET = "password authentication failed for db-primary"
 
-    def test_runtime_error_stays_generic_500(self, client):
-        with patch(
-            "api.routers.sources.repo_query",
-            new=AsyncMock(side_effect=RuntimeError(self.SECRET)),
+    def test_runtime_error_stays_generic_500(self, client, auth_session, auth_cookie):
+        auth_session()
+        with (
+            patch(
+                "api.routers.sources.repo_query",
+                new=AsyncMock(side_effect=RuntimeError(self.SECRET)),
+            ),
+            patch(
+                "api.routers.sources.permitted_source_ids",
+                new=AsyncMock(return_value=["source:1"]),
+            ),
         ):
-            response = client.get("/api/sources")
+            response = client.get("/api/sources", cookies=auth_cookie)
 
         assert response.status_code == 500
         assert self.SECRET not in response.text

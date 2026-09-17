@@ -74,7 +74,10 @@ class TestFormParsingReturns422:
 
         return TestClient(app)
 
-    def test_51_notebooks_via_form_returns_422(self, client):
+    def test_51_notebooks_via_form_returns_422(
+        self, client, auth_session, auth_cookie
+    ):
+        auth_session()
         import json as _json
 
         response = client.post(
@@ -84,22 +87,31 @@ class TestFormParsingReturns422:
                 "content": "probe",
                 "notebooks": _json.dumps(make_ids(51, "notebook")),
             },
+            cookies=auth_cookie,
         )
         assert response.status_code == 422
         assert "Invalid source data" in response.json()["detail"]
 
-    def test_invalid_notebooks_json_returns_422(self, client):
+    def test_invalid_notebooks_json_returns_422(
+        self, client, auth_session, auth_cookie
+    ):
+        auth_session()
         response = client.post(
             "/api/sources",
             data={"type": "text", "content": "probe", "notebooks": "not-json["},
+            cookies=auth_cookie,
         )
         assert response.status_code == 422
         assert "notebooks" in response.json()["detail"]
 
-    def test_invalid_transformations_json_returns_422(self, client):
+    def test_invalid_transformations_json_returns_422(
+        self, client, auth_session, auth_cookie
+    ):
+        auth_session()
         response = client.post(
             "/api/sources",
             data={"type": "text", "content": "probe", "transformations": "]bad"},
+            cookies=auth_cookie,
         )
         assert response.status_code == 422
         assert "transformations" in response.json()["detail"]

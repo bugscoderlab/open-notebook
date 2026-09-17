@@ -1,6 +1,6 @@
 """Tests for recently viewed notebooks and sources."""
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -17,10 +17,16 @@ def client():
 
 
 class TestRecentlyViewedApi:
+    @patch("api.routers.notebooks.permitted_source_ids", new_callable=AsyncMock)
+    @patch("api.routers.notebooks.permitted_notebook_ids", new_callable=AsyncMock)
     @patch("api.routers.notebooks.repo_query", new_callable=AsyncMock)
     def test_recently_viewed_returns_mixed_items_newest_first(
-        self, mock_repo_query, client
+        self, mock_repo_query, mock_permitted_nb, mock_permitted_src, client,
+        auth_session, auth_cookie,
     ):
+        auth_session()
+        mock_permitted_nb.return_value = ["notebook:old"]
+        mock_permitted_src.return_value = ["source:new"]
         mock_repo_query.side_effect = [
             [
                 {
@@ -38,7 +44,7 @@ class TestRecentlyViewedApi:
             ],
         ]
 
-        response = client.get("/api/recently-viewed")
+        response = client.get("/api/recently-viewed", cookies=auth_cookie)
 
         assert response.status_code == 200
         assert response.json() == [
@@ -56,8 +62,16 @@ class TestRecentlyViewedApi:
             },
         ]
 
+    @patch("api.routers.notebooks.permitted_source_ids", new_callable=AsyncMock)
+    @patch("api.routers.notebooks.permitted_notebook_ids", new_callable=AsyncMock)
     @patch("api.routers.notebooks.repo_query", new_callable=AsyncMock)
-    def test_recently_viewed_honors_limit(self, mock_repo_query, client):
+    def test_recently_viewed_honors_limit(
+        self, mock_repo_query, mock_permitted_nb, mock_permitted_src, client,
+        auth_session, auth_cookie,
+    ):
+        auth_session()
+        mock_permitted_nb.return_value = ["notebook:1", "notebook:2"]
+        mock_permitted_src.return_value = ["source:1", "source:2"]
         mock_repo_query.side_effect = [
             [
                 {
@@ -85,26 +99,39 @@ class TestRecentlyViewedApi:
             ],
         ]
 
-        response = client.get("/api/recently-viewed?limit=2")
+        response = client.get("/api/recently-viewed?limit=2", cookies=auth_cookie)
 
         assert response.status_code == 200
         data = response.json()
         assert [item["id"] for item in data] == ["source:1", "notebook:1"]
         assert len(data) == 2
-        assert mock_repo_query.await_args_list[0].args[1] == {"limit": 2}
-        assert mock_repo_query.await_args_list[1].args[1] == {"limit": 2}
+        assert mock_repo_query.await_args_list[0].args[1]["limit"] == 2
+        assert mock_repo_query.await_args_list[1].args[1]["limit"] == 2
 
+    @patch("api.routers.notebooks.permitted_source_ids", new_callable=AsyncMock)
+    @patch("api.routers.notebooks.permitted_notebook_ids", new_callable=AsyncMock)
     @patch("api.routers.notebooks.repo_query", new_callable=AsyncMock)
-    def test_recently_viewed_empty_when_no_view_history(self, mock_repo_query, client):
+    def test_recently_viewed_empty_when_no_view_history(
+        self, mock_repo_query, mock_permitted_nb, mock_permitted_src, client,
+        auth_session, auth_cookie,
+    ):
+        auth_session()
+        mock_permitted_nb.return_value = ["notebook:1"]
+        mock_permitted_src.return_value = ["source:1"]
         mock_repo_query.side_effect = [[], []]
 
-        response = client.get("/api/recently-viewed")
+        response = client.get("/api/recently-viewed", cookies=auth_cookie)
 
         assert response.status_code == 200
         assert response.json() == []
 
+    @patch("api.routers.notebooks.check_notebook_read", new_callable=AsyncMock)
     @patch("api.routers.notebooks.repo_query", new_callable=AsyncMock)
-    def test_get_notebook_stamps_last_viewed_at(self, mock_repo_query, client):
+    def test_get_notebook_stamps_last_viewed_at(
+        self, mock_repo_query, mock_check_read, client, auth_session, auth_cookie
+    ):
+        auth_session()
+        mock_check_read.return_value = MagicMock(id="notebook:1")
         mock_repo_query.side_effect = [
             [
                 {
@@ -121,7 +148,7 @@ class TestRecentlyViewedApi:
             [],
         ]
 
-        response = client.get("/api/notebooks/notebook:1")
+        response = client.get("/api/notebooks/notebook:1", cookies=auth_cookie)
 
         assert response.status_code == 200
         assert (
@@ -129,12 +156,15 @@ class TestRecentlyViewedApi:
             in (mock_repo_query.await_args_list[1].args[0])
         )
 
+    @patch("api.routers.sources.permitted_notebook_ids", new_callable=AsyncMock)
     @patch("api.routers.sources.Source.get_embedded_chunks", new_callable=AsyncMock)
     @patch("api.routers.sources.Source.get", new_callable=AsyncMock)
     @patch("api.routers.sources.repo_query", new_callable=AsyncMock)
     def test_get_source_stamps_last_viewed_at(
-        self, mock_repo_query, mock_get_source, mock_chunks, client
+        self, mock_repo_query, mock_get_source, mock_chunks, mock_permitted_nb,
+        client, auth_session, auth_cookie,
     ):
+        auth_session()
         mock_get_source.return_value = Source(
             id="source:1",
             title="Source",
@@ -143,10 +173,11 @@ class TestRecentlyViewedApi:
             created="2026-06-27T09:00:00Z",
             updated="2026-06-27T09:00:00Z",
         )
+        mock_permitted_nb.return_value = []
         mock_chunks.return_value = 0
         mock_repo_query.side_effect = [[], []]
 
-        response = client.get("/api/sources/source:1")
+        response = client.get("/api/sources/source:1", cookies=auth_cookie)
 
         assert response.status_code == 200
         assert (
@@ -154,10 +185,16 @@ class TestRecentlyViewedApi:
             in (mock_repo_query.await_args_list[0].args[0])
         )
 
+    @patch("api.routers.notebooks.permitted_source_ids", new_callable=AsyncMock)
+    @patch("api.routers.notebooks.permitted_notebook_ids", new_callable=AsyncMock)
     @patch("api.routers.notebooks.repo_query", new_callable=AsyncMock)
     def test_recently_viewed_reorders_after_notebook_is_viewed_again(
-        self, mock_repo_query, client
+        self, mock_repo_query, mock_permitted_nb, mock_permitted_src, client,
+        auth_session, auth_cookie,
     ):
+        auth_session()
+        mock_permitted_nb.return_value = ["notebook:1"]
+        mock_permitted_src.return_value = ["source:1"]
         mock_repo_query.side_effect = [
             [
                 {
@@ -175,7 +212,7 @@ class TestRecentlyViewedApi:
             ],
         ]
 
-        response = client.get("/api/recently-viewed")
+        response = client.get("/api/recently-viewed", cookies=auth_cookie)
 
         assert response.status_code == 200
         assert [item["id"] for item in response.json()] == ["notebook:1", "source:1"]
