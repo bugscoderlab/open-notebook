@@ -238,21 +238,35 @@ worker-stop:
 	pkill -f "surreal-commands-worker" || true
 
 worker-restart: worker-stop
-	@sleep 2
+	@deadline=$$(( $$(date +%s) + 10 )); \
+	while pgrep -f "surreal-commands-worker" > /dev/null 2>&1; do \
+		if [ "$$(date +%s)" -ge "$$deadline" ]; then \
+			echo "Worker still running after 10s; starting anyway."; \
+			break; \
+		fi; \
+		sleep 0.5; \
+	done
 	@$(MAKE) worker-start
 
 # === Service Management ===
 start-all:
 	@echo "🚀 Starting Open Notebook (Database + API + Worker + Frontend)..."
 	@echo "📊 Starting SurrealDB..."
-	@docker compose -f docker-compose.dev.yml up -d surrealdb
-	@sleep 3
+	@docker compose up -d surrealdb
+	@scripts/wait-http.sh http://localhost:8000/health 60 surrealdb
 	@echo "🔧 Starting API backend..."
 	@uv run run_api.py &
-	@sleep 3
+	@scripts/wait-http.sh http://localhost:5055/health 180 api
 	@echo "⚙️ Starting background worker..."
 	@uv run --env-file .env surreal-commands-worker --import-modules commands --max-tasks "$${OPEN_NOTEBOOK_WORKER_MAX_TASKS:-5}" &
-	@sleep 2
+	@deadline=$$(( $$(date +%s) + 30 )); \
+	until pgrep -f "surreal-commands-worker" > /dev/null 2>&1; do \
+		if [ "$$(date +%s)" -ge "$$deadline" ]; then \
+			echo "ERROR: worker did not start within 30s" >&2; \
+			exit 1; \
+		fi; \
+		sleep 1; \
+	done
 	@echo "🌐 Starting Next.js frontend..."
 	@echo "✅ All services started!"
 	@echo "📱 Frontend: http://localhost:3000"

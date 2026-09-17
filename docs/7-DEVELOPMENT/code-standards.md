@@ -300,6 +300,27 @@ Follow TypeScript best practices:
 - Log errors appropriately
 - Don't suppress errors silently
 
+## Waiting and Synchronization (Shell, CI, Tests)
+
+Never use a standalone `sleep N` to wait for something to be "probably done" — it waits too long when the thing is fast and not long enough when it is slow or crashed. Sleep is only acceptable **inside a bounded retry loop, between condition checks**.
+
+```sh
+# Bad — blind wait, then assume; also prints success if the API crashed
+sleep 3
+curl http://localhost:5055/health
+
+# Good — returns as soon as ready, fails loudly after the deadline
+scripts/wait-http.sh http://localhost:5055/health 180 api
+```
+
+Rules of thumb:
+
+- **HTTP services** (API, frontend, SurrealDB): poll the `/health` endpoint with a deadline — use the shared helper `scripts/wait-http.sh <url> <timeout> [name]`.
+- **Processes**: poll with `pgrep`/`kill -0` in a bounded loop; block with `wait $!` for backgrounded children.
+- **Log output**: match a readiness line (e.g. `herdr pane wait-output --match`) instead of timing guesses.
+- **CI / PR checks**: use blocking commands — `scripts/wait-for-pr.sh <pr> [timeout]` (wraps `gh pr checks --watch --fail-fast` with a deadline; exit 124 on timeout), `gh run watch --exit-status`, `docker compose up --wait` — never `sleep 300` then check.
+- **Test races**: synchronize with `threading.Barrier`, locks, or `asyncio.Event`. A `time.sleep` to "widen a race window" is probabilistic and flaky — make the interleaving deterministic instead (see `tests/test_upload_toctou_race.py`).
+
 ## Code Quality Tools
 
 We use these tools to maintain code quality:
@@ -365,6 +386,7 @@ Before submitting code for review, ensure:
 - [ ] Error handling is appropriate
 - [ ] Tests are included and passing
 - [ ] No debug code (console.logs, print statements) left behind
+- [ ] No standalone `sleep` waits — condition checks with deadlines instead (see above)
 - [ ] Commit messages are clear and follow conventions
 - [ ] Documentation is updated if needed
 

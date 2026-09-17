@@ -25,12 +25,22 @@ cd frontend && npm install && cd ..
 # Start API backend in background
 echo "Starting API backend (port 5055)..."
 uv run --env-file .env run_api.py &
-sleep 3
+scripts/wait-http.sh http://localhost:5055/health 180 api || {
+  echo "❌ API failed to become healthy — check the logs above." >&2
+  exit 1
+}
 
 # Start background worker in background
 echo "Starting background worker..."
 uv run --env-file .env surreal-commands-worker --import-modules commands --max-tasks "${OPEN_NOTEBOOK_WORKER_MAX_TASKS:-5}" &
-sleep 2
+deadline=$((SECONDS + 30))
+until pgrep -f "surreal-commands-worker" > /dev/null 2>&1; do
+  if [ "$SECONDS" -ge "$deadline" ]; then
+    echo "❌ Worker did not start within 30s." >&2
+    exit 1
+  fi
+  sleep 1
+done
 
 # Start frontend (foreground)
 echo "Starting Next.js frontend (port 3000)..."
