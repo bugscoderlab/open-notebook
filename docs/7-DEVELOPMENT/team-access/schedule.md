@@ -19,9 +19,6 @@ generated section.
 <!-- BEGIN GENERATED SCHEDULE -->
 ```mermaid
 flowchart LR
-  subgraph "Wave 0"
-    n11["#11 T10: Verification & test pack"]
-  end
   n2 --> n3
   n2 --> n4
   n3 --> n5
@@ -42,11 +39,8 @@ flowchart LR
 gantt
   title team-access — one day per wave
   dateFormat X
-  section Wave 0
-  W0 :0, 86400
 ```
 
 | Wave | Tickets | Open external blockers |
 |---|---|---|
-| 0 | #11 | — |
 <!-- END GENERATED SCHEDULE -->
