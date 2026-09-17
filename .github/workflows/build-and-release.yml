@@ -16,8 +16,10 @@ permissions:
   packages: write
 
 env:
-  GHCR_IMAGE: ghcr.io/lfnovo/open-notebook
-  DOCKERHUB_IMAGE: lfnovo/open_notebook
+  # Images are published under the repository's own namespace (the fork must
+  # not push to the upstream author's ghcr/dockerhub namespaces).
+  GHCR_IMAGE: ghcr.io/${{ github.repository }}
+  DOCKERHUB_IMAGE: ${{ github.repository_owner }}/open_notebook
 
 jobs:
   extract-version:
