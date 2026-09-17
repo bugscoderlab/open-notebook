@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock
 import pytest
 from fastapi.testclient import TestClient
 
-from api import auth_service
+from api import auth_service, migration_service
 from open_notebook.domain.user import AppUser, Team, UserSession
 from open_notebook.exceptions import AuthenticationError
 
@@ -83,6 +83,11 @@ class TestLogin:
             return ("opaque-token", "csrf-token", datetime.now(timezone.utc))
 
         monkeypatch.setattr(auth_service, "issue_session", fake_issue_session)
+        # T6: member sign-in is gated on the classification pass — treat the
+        # organization as classified so this cookie-issuance test stays focused.
+        monkeypatch.setattr(
+            migration_service, "member_login_allowed", lambda org_id: _async(True)
+        )
 
         response = client.post(
             "/api/auth/login",

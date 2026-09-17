@@ -1,0 +1,2 @@
+-- Migration 29 down: drop the classification state field.
+REMOVE FIELD IF EXISTS classification_completed_at ON TABLE organization;

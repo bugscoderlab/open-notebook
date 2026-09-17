@@ -45,6 +45,7 @@ import {
   Command,
   Users,
   UsersRound,
+  FolderCog,
 } from 'lucide-react'
 
 // Prototype shell (T2) — section groups mirror the team-access prototype:
@@ -87,6 +88,7 @@ const getNavigation = (t: TFunction): { title: string; items: NavItem[] }[] => [
     items: [
       { name: t('navigation.users'), href: '/users', icon: Users, iconClass: undefined, requiresAdmin: true },
       { name: t('navigation.teams'), href: '/teams', icon: UsersRound, iconClass: undefined, requiresAdmin: true },
+      { name: t('navigation.migration'), href: '/migration', icon: FolderCog, iconClass: undefined, requiresAdmin: true },
       { name: t('navigation.settings'), href: '/settings', icon: Settings, iconClass: undefined },
       { name: t('navigation.models'), href: '/settings/models', icon: Bot, iconClass: undefined },
     ],

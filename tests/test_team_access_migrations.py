@@ -78,19 +78,21 @@ def test_migration_28_adds_ownership_fields_to_episode() -> None:
     assert "REMOVE INDEX IF EXISTS episode_team_visibility" in down
 
 
-def test_migration_manager_registers_28_up_and_down_migrations() -> None:
+def test_migration_manager_registers_29_up_and_down_migrations() -> None:
     manager = AsyncMigrationManager()
-    assert len(manager.up_migrations) == 28
-    assert len(manager.down_migrations) == 28
+    assert len(manager.up_migrations) == 29
+    assert len(manager.down_migrations) == 29
 
 
-@pytest.mark.parametrize("version", [26, 27, 28])
+@pytest.mark.parametrize("version", [26, 27, 28, 29])
 def test_new_migrations_parse_into_non_empty_sql(version: int) -> None:
     """AsyncMigration.from_file strips comments/blank lines; result must be non-trivial."""
     from open_notebook.database.async_migrate import AsyncMigration
 
     up = AsyncMigration.from_file(f"open_notebook/database/migrations/{version}.surrealql")
-    assert len(up.sql) > 100
+    # 26-28 are table batches (>100 chars); 29 is a single-field migration.
+    min_chars = 100 if version < 29 else 40
+    assert len(up.sql) > min_chars
     assert "DEFINE" in up.sql
     down = AsyncMigration.from_file(
         f"open_notebook/database/migrations/{version}_down.surrealql"

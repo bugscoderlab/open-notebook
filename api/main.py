@@ -35,6 +35,7 @@ from api.routers import (
     episode_profiles,
     insights,
     languages,
+    migration,
     models,
     notebooks,
     notes,
@@ -408,6 +409,7 @@ app.include_router(languages.router, prefix="/api", tags=["languages"])
 app.include_router(analytics.router, prefix="/api", tags=["analytics"])
 app.include_router(admin_users.router, prefix="/api", tags=["users"])
 app.include_router(admin_teams.router, prefix="/api", tags=["teams"])
+app.include_router(migration.router, prefix="/api", tags=["migration"])
 
 
 @app.get("/")

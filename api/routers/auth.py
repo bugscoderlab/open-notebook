@@ -8,7 +8,7 @@ from typing import Any, Dict, Optional
 from fastapi import APIRouter, Depends, Request, Response
 from pydantic import BaseModel, Field
 
-from api import admin_service, auth_service
+from api import admin_service, auth_service, migration_service
 from api.access import CurrentUser, Role, require_admin, require_csrf
 from open_notebook.domain.user import count_users, get_team_by_id
 from open_notebook.exceptions import AuthenticationError, ForbiddenError
@@ -64,6 +64,13 @@ async def login(request: Request, response: Response, body: LoginRequest) -> Non
     user = await auth_service.attempt_login(
         auth_service.client_ip(request), body.email, body.password
     )
+    # T6 gate: member/team_manager sign-in stays blocked until the content
+    # classification pass completes (TDD §12.11). Admin/CEO are exempt — the
+    # admin runs the migration; the CEO reads classified content anyway.
+    if user.role in ("member", "team_manager") and not (
+        await migration_service.member_login_allowed(user.organization_id)
+    ):
+        raise ForbiddenError(migration_service.MEMBER_LOGIN_BLOCKED)
     token, csrf_token, _ = await auth_service.issue_session(user.id or "")
     max_age = auth_service.SESSION_MAX_AGE_SECONDS
     # Session cookie: HttpOnly. CSRF cookie: deliberately readable — the

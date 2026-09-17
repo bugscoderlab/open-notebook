@@ -30,6 +30,7 @@ export interface AuthUser {
 export type AuthErrorCode =
   | 'invalid_credentials'
   | 'rate_limited'
+  | 'migration_pending'
   | 'network'
   | 'server'
   | 'unknown'
@@ -55,6 +56,9 @@ function classifyError(error: unknown): AuthErrorCode {
     const status = error.response?.status
     if (status === 401) return 'invalid_credentials'
     if (status === 429) return 'rate_limited'
+    // 403 on login can only be the T6 classification gate (member sign-in is
+    // disabled until the migration pass completes).
+    if (status === 403) return 'migration_pending'
     if (!error.response) return 'network'
     return 'server'
   }

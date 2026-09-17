@@ -124,9 +124,11 @@ export function LoginForm() {
       ? t('auth.invalidCredentials')
       : errorCode === 'rate_limited'
         ? t('auth.tooManyAttempts')
-        : errorCode === 'unknown'
-          ? t('errors.genericError')
-          : null
+        : errorCode === 'migration_pending'
+          ? t('auth.migrationPending')
+          : errorCode === 'unknown'
+            ? t('errors.genericError')
+            : null
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4">

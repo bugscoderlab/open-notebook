@@ -60,6 +60,7 @@ class Organization(ObjectModel):
     external_key: str = ""
     name: str = ""
     status: str = "active"
+    classification_completed_at: Optional[datetime] = None
 
     def _prepare_save_data(self) -> Dict[str, Any]:
         data = self.model_dump(by_alias=True)
@@ -157,6 +158,24 @@ async def count_users() -> int:
     if not records:
         return 0
     return int(records[0].get("n", 0))
+
+
+async def get_organization_by_id(organization_id: str) -> Optional[Organization]:
+    records = await repo_query(
+        "SELECT * FROM $id", {"id": ensure_record_id(organization_id)}
+    )
+    if not records:
+        return None
+    return Organization(**records[0])
+
+
+async def update_organization(organization_id: str, **changes: Any) -> None:
+    """Merge scalar changes into an organization (raw UPDATE — same pattern
+    as ``update_team``)."""
+    await repo_query(
+        "UPDATE $id MERGE $data",
+        {"id": ensure_record_id(organization_id), "data": dict(changes)},
+    )
 
 
 async def ensure_default_organization() -> str:
@@ -451,6 +470,7 @@ __all__ = [
     "create_user_session",
     "ensure_default_organization",
     "ensure_team",
+    "get_organization_by_id",
     "get_session_by_token_hash",
     "get_team_by_id",
     "get_team_by_slug",
@@ -463,6 +483,7 @@ __all__ = [
     "revoke_session",
     "touch_session",
     "touch_user_activity",
+    "update_organization",
     "update_team",
     "update_user",
     "verify_password",

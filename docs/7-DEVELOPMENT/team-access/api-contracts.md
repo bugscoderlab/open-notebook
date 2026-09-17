@@ -4,7 +4,7 @@ Frontend tracks mock against these shapes until the backend lands. Changes here 
 
 ## Auth & identity
 
-- `POST /api/auth/login` — body `{email, password}` → `204`; sets session cookie; failures: `429` (rate limited) or generic `401` (invalid credentials). Sets CSRF cookie.
+- `POST /api/auth/login` — body `{email, password}` → `204`; sets session cookie; failures: `429` (rate limited) or generic `401` (invalid credentials). Sets CSRF cookie. T6 adds one deliberate non-credential failure: `403` when a `member`/`team_manager` signs in before the content-classification pass has completed (the response `detail` explains the migration gate; admins and the CEO are exempt).
 - `POST /api/auth/logout` — `204`; requires CSRF header.
 - `GET /api/auth/me` → **AuthUser**:
   ```json
@@ -58,6 +58,13 @@ Frontend tracks mock against these shapes until the backend lands. Changes here 
   ```
   `denied`: only `{status: "denied", answer_text}` — no names/values/rankings, ever (AN-003/010).
 - `GET /api/analytics/queries/{id}` — the stored answer + rendered parameterized query (AN-009).
+
+## Migration (T6, admin-only)
+
+- `GET /api/migration/status` → `{completed, completed_at, flagged_notebooks, flagged_sources}` — `completed` is `organization.classification_completed_at` (migration 29); member/team_manager login is blocked until it is set. Completion is **one-way**: once set it is never cleared, so content uploaded later cannot lock members out again (ADR-013).
+- `GET /api/migration/items` → `{notebooks: [{id, name, reason, linked_teams}], sources: [{id, title, reason, linked_teams}]}` — teamless rows the pass cannot auto-place. `reason ∈ ambiguous_tokens | mixed_team_sources | cross_team_link | unclassified`; teamless rows are admin-only by the T5 policy (ADR-012), a flag needs no storage (ADR-013).
+- `POST /api/migration/run` → one idempotent classification pass: filename-token matching on sources (`hr|finance|executive|company_shared`, whole-word, case-insensitive), notebooks inherit from their linked sources, no-token ⇒ `company_shared` (Executive-owned; recorded deviation). Returns `{classified_sources, classified_notebooks, flagged_sources, flagged_notebooks, completed, actions}`.
+- `PATCH /api/migration/items/{kind}/{id}` (kind ∈ `notebook|source`) — `{team_id, visibility?}` → manual resolution; stamping the last flagged item completes the migration and enables member sign-in.
 
 ## Errors
 
