@@ -11,6 +11,15 @@ import { AlertCircle } from 'lucide-react'
 import { LoadingSpinner } from '@/components/common/LoadingSpinner'
 import { useTranslation } from '@/lib/hooks/use-translation'
 
+// Dev-only login shortcuts (admin `dev-seed` personas). Rendered only in
+// development builds — never ship these credentials to production.
+const DEV_ACCOUNTS = [
+  { email: 'aisha@company.com', password: 'password', label: 'Aisha · HR member' },
+  { email: 'daniel@company.com', password: 'password', label: 'Daniel · Finance manager' },
+  { email: 'mei@company.com', password: 'password', label: 'Mei · CEO' },
+  { email: 'alex@company.com', password: 'password', label: 'Alex · Admin' },
+]
+
 export function LoginForm() {
   const { t, language } = useTranslation()
   const [email, setEmail] = useState('')
@@ -176,6 +185,34 @@ export function LoginForm() {
             >
               {isSubmitting ? t('auth.signingIn') : t('auth.signIn')}
             </Button>
+
+            {process.env.NODE_ENV === 'development' && (
+              <div className="text-left border-t pt-3 space-y-2">
+                <div className="text-xs font-medium text-muted-foreground">
+                  {t('auth.devAccountsTitle')}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {DEV_ACCOUNTS.map((account) => (
+                    <button
+                      key={account.email}
+                      type="button"
+                      onClick={() => {
+                        setEmail(account.email)
+                        setPassword(account.password)
+                      }}
+                      disabled={isSubmitting}
+                      className="text-xs px-2.5 py-1.5 rounded-md border bg-muted/50 hover:bg-muted transition-colors disabled:opacity-50"
+                      title={account.email}
+                    >
+                      {account.label}
+                    </button>
+                  ))}
+                </div>
+                <div className="text-[10px] text-muted-foreground">
+                  {t('auth.devAccountsHint')}
+                </div>
+              </div>
+            )}
 
             {configInfo && (
               <div className="text-xs text-center text-muted-foreground pt-2 border-t">
