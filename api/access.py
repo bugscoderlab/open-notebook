@@ -1,21 +1,24 @@
 """Central access seam for team-access (TDD §7).
 
-Only the analytics surface is wired today (issue #9): ``get_current_user``
-feeds the analytics router, and ``ANALYTICS_AUTH_BYPASS`` (env-gated,
-default off) substitutes a fixed dev persona so the analytics endpoints are
-exercisable before native sessions land (T3/T5). When the bypass is off and
-no session auth exists yet, requests are rejected with 401.
+``get_current_user`` resolves the caller from the session cookie (ADR-010):
+the opaque token's SHA-256 hash is looked up in ``user_session`` and the
+user must be active. ``ANALYTICS_AUTH_BYPASS`` (env-gated, default off)
+still substitutes a fixed dev persona so the analytics endpoints remain
+exercisable without logging in; T9 removes the bypass. Router-level
+permission dependencies for the rest of the API land with T5.
 """
 
 import os
-from typing import Literal
+from typing import Literal, cast, get_args
 
-from fastapi import Depends
+from fastapi import Depends, Request
 from pydantic import BaseModel
 
+from api import auth_service
 from open_notebook.exceptions import AuthenticationError
 
 Role = Literal["member", "team_manager", "ceo", "admin"]
+_ROLE_VALUES: tuple[str, ...] = get_args(Role)
 
 
 class CurrentUser(BaseModel):
@@ -75,13 +78,23 @@ BYPASS_USER = CurrentUser(
 )
 
 
-async def get_current_user() -> CurrentUser:
-    """Resolve the caller. Native sessions (T3) replace the bypass later."""
+async def get_current_user(request: Request) -> CurrentUser:
+    """Resolve the caller from the session cookie (bypass first, dev-only)."""
     if analytics_auth_bypass_enabled():
         return await _bypass_user()
-    raise AuthenticationError(
-        "Authentication required. Set ANALYTICS_AUTH_BYPASS=true for local "
-        "development until native sessions land."
+    resolved = await auth_service.resolve_session(
+        request.cookies.get(auth_service.SESSION_COOKIE)
+    )
+    if resolved is None:
+        raise AuthenticationError("Authentication required")
+    user, _ = resolved
+    return CurrentUser(
+        id=user.id or "",
+        email=user.email,
+        display_name=user.display_name,
+        organization_id=user.organization_id,
+        team_id=user.team_id,
+        role=cast(Role, user.role if user.role in _ROLE_VALUES else "member"),
     )
 
 

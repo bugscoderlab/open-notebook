@@ -59,3 +59,8 @@ Frontend tracks mock against these shapes until the backend lands. Changes here 
 ## Errors
 
 - `401` unauthenticated · `403` authenticated but outside permitted scope · `404` unknown id · `422` validation · `429` rate limited. No stack traces in responses (existing behavior).
+
+## Auth notes
+
+- `GET /api/auth/status` (compatibility probe, pre-team-access): `{"auth_enabled": <any app_user exists>}`. The T3 frontend probes it to detect open mode (no users seeded yet → the app stays unlocked, matching the old dev default). Removal is deferred until the app requires users (after T6).
+- `POST /api/auth/invite` (admin) lands with T4 (Users & Teams admin).

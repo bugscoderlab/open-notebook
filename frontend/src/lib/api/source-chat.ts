@@ -1,5 +1,5 @@
 import apiClient from './client'
-import { getAuthToken } from '@/lib/auth-token'
+import { CSRF_HEADER_NAME, getCsrfToken } from '@/lib/csrf'
 import {
   SourceChatSession,
   SourceChatSessionWithMessages,
@@ -48,8 +48,9 @@ export const sourceChatApi = {
 
   // Messaging with streaming
   sendMessage: (sourceId: string, sessionId: string, data: SendMessageRequest) => {
-    // Get auth token using the same logic as apiClient interceptor
-    const token = getAuthToken()
+    // Cookie session: the browser sends the HttpOnly cookie (ADR-010); the
+    // mutation echoes the readable CSRF cookie, same as apiClient.
+    const csrf = getCsrfToken()
 
     // Use relative URL to leverage Next.js rewrites
     // This works both in dev (Next.js proxy) and production (Docker network)
@@ -58,9 +59,10 @@ export const sourceChatApi = {
     // Use fetch with ReadableStream for SSE
     return fetch(url, {
       method: 'POST',
+      credentials: 'include',
       headers: {
         'Content-Type': 'application/json',
-        ...(token && { 'Authorization': `Bearer ${token}` })
+        ...(csrf && { [CSRF_HEADER_NAME]: csrf })
       },
       body: JSON.stringify(data)
     }).then(response => {

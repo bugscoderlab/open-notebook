@@ -202,8 +202,11 @@ export const enUS = {
   },
   auth: {
     loginTitle: "Open Notebook",
-    loginDesc: "Enter your password to access the application",
+    loginDesc: "Sign in with your team account",
     passwordPlaceholder: "Password",
+    emailPlaceholder: "Email",
+    invalidCredentials: "Invalid email or password",
+    tooManyAttempts: "Too many login attempts. Try again later.",
     signingIn: "Signing in...",
     signIn: "Sign In",
     connectErrorHint: "Unable to connect to server. Please check if the API is running.",

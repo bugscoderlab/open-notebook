@@ -34,6 +34,12 @@ class AuthenticationError(OpenNotebookError):
     pass
 
 
+class ForbiddenError(OpenNotebookError):
+    """Raised when the caller is authenticated but not permitted (403)."""
+
+    pass
+
+
 class ConfigurationError(OpenNotebookError):
     """Raised when there's a configuration problem."""
 

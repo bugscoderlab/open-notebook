@@ -204,8 +204,11 @@ export const plPL = {
   },
   auth: {
     loginTitle: "Open Notebook",
-    loginDesc: "Wpisz hasło, aby uzyskać dostęp do aplikacji",
+    loginDesc: "Zaloguj się kontem zespołu",
     passwordPlaceholder: "Hasło",
+    emailPlaceholder: "E-mail",
+    invalidCredentials: "Nieprawidłowy e-mail lub hasło",
+    tooManyAttempts: "Zbyt wiele prób logowania. Spróbuj ponownie później.",
     signingIn: "Logowanie...",
     signIn: "Zaloguj się",
     connectErrorHint: "Nie można połączyć się z serwerem. Sprawdź, czy API jest uruchomione.",

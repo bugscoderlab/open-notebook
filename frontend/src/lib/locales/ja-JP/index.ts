@@ -204,8 +204,11 @@ export const jaJP = {
   },
   auth: {
     loginTitle: "Open Notebook",
-    loginDesc: "パスワードを入力してアプリケーションにアクセス",
+    loginDesc: "チームアカウントでサインイン",
     passwordPlaceholder: "パスワード",
+    emailPlaceholder: "メールアドレス",
+    invalidCredentials: "メールアドレスまたはパスワードが無効です",
+    tooManyAttempts: "ログイン試行回数が上限を超えました。しばらくしてから再試行してください。",
     signingIn: "サインイン中...",
     signIn: "サインイン",
     connectErrorHint: "サーバーに接続できません。APIが起動しているか確認してください。",

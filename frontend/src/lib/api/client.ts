@@ -1,9 +1,15 @@
 import axios, { AxiosResponse } from 'axios'
 import { getApiUrl } from '@/lib/config'
-import { getAuthToken } from '@/lib/auth-token'
+import { CSRF_HEADER_NAME, getCsrfToken } from '@/lib/csrf'
 
 // API client with runtime-configurable base URL
 // The base URL is fetched from the API config endpoint on first request
+//
+// Session auth is a cookie, not a header (ADR-010): withCredentials lets the
+// browser send the HttpOnly session cookie (same-origin always; cross-origin
+// only when the operator scopes CORS_ORIGINS to the frontend origin). There
+// is deliberately no Authorization handling here — nothing token-shaped is
+// readable or writable from JavaScript.
 //
 // Request timeout defaults to 10 minutes (600000ms) to accommodate slow LLM
 // operations (transformations, insights, synchronous chat) on slower hardware
@@ -28,10 +34,23 @@ export const apiClient = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
-  withCredentials: false,
+  withCredentials: true,
 })
 
-// Request interceptor to add base URL and auth header
+/**
+ * Hook for session-death handling: on any 401 the response interceptor calls
+ * this handler (the auth store clears the identity; the dashboard guard then
+ * redirects to /login). Registered by `@/lib/stores/auth-store` to avoid a
+ * store ↔ client import cycle.
+ */
+type UnauthorizedHandler = () => void
+let unauthorizedHandler: UnauthorizedHandler | null = null
+
+export function setUnauthorizedHandler(handler: UnauthorizedHandler | null): void {
+  unauthorizedHandler = handler
+}
+
+// Request interceptor to add base URL, CSRF header, and content types
 apiClient.interceptors.request.use(async (config) => {
   // Set the base URL dynamically from runtime config
   if (!config.baseURL) {
@@ -39,32 +58,33 @@ apiClient.interceptors.request.use(async (config) => {
     config.baseURL = `${apiUrl}/api`
   }
 
-  const token = getAuthToken()
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`
+  // Mutations echo the readable CSRF cookie (double-submit pattern, ADR-010).
+  // The backend enforces it on logout today and on every mutation from T5.
+  const method = config.method?.toLowerCase()
+  if (method && ['post', 'put', 'patch', 'delete'].includes(method)) {
+    const csrf = getCsrfToken()
+    if (csrf) {
+      config.headers[CSRF_HEADER_NAME] = csrf
+    }
   }
 
   // Handle FormData vs JSON content types
   if (config.data instanceof FormData) {
     // Remove any Content-Type header to let browser set multipart boundary
     delete config.headers['Content-Type']
-  } else if (config.method && ['post', 'put', 'patch'].includes(config.method.toLowerCase())) {
+  } else if (method && ['post', 'put', 'patch'].includes(method)) {
     config.headers['Content-Type'] = 'application/json'
   }
 
   return config
 })
 
-// Response interceptor for error handling
+// Response interceptor for session-death handling
 apiClient.interceptors.response.use(
   (response: AxiosResponse) => response,
   (error) => {
     if (error.response?.status === 401) {
-      // Clear auth and redirect to login
-      if (typeof window !== 'undefined') {
-        localStorage.removeItem('auth-storage')
-        window.location.href = '/login'
-      }
+      unauthorizedHandler?.()
     }
     return Promise.reject(error)
   }

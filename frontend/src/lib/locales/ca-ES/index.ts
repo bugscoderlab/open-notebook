@@ -204,8 +204,11 @@ export const caES = {
   },
   auth: {
     loginTitle: "Open Notebook",
-    loginDesc: "Introdueix la teva contrasenya per accedir a l'aplicació",
+    loginDesc: "Inicia sessió amb el teu compte d'equip",
     passwordPlaceholder: "Contrasenya",
+    emailPlaceholder: "Correu electrònic",
+    invalidCredentials: "Correu electrònic o contrasenya no vàlids",
+    tooManyAttempts: "Massa intents d'inici de sessió. Torna-ho a provar més tard.",
     signingIn: "S'està iniciant la sessió...",
     signIn: "Inicia la sessió",
     connectErrorHint: "No es pot connectar al servidor. Comprova si l'API s'està executant.",

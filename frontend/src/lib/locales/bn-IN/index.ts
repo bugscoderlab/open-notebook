@@ -204,8 +204,11 @@ export const bnIN = {
   },
   auth: {
     loginTitle: "ওপেন নোটবুক",
-    loginDesc: "অ্যাপ্লিকেশন অ্যাক্সেস করতে আপনার পাসওয়ার্ড লিখুন",
+    loginDesc: "আপনার টিম অ্যাকাউন্ট দিয়ে সাইন ইন করুন",
     passwordPlaceholder: "পাসওয়ার্ড",
+    emailPlaceholder: "ইমেইল",
+    invalidCredentials: "ভুল ইমেইল বা পাসওয়ার্ড",
+    tooManyAttempts: "অনেকবার লগইন করার চেষ্টা হয়েছে। পরে আবার চেষ্টা করুন।",
     signingIn: "সাইন ইন করা হচ্ছে...",
     signIn: "সাইন ইন",
     connectErrorHint: "সার্ভারে সংযোগ করতে অক্ষম। API চালু আছে কিনা চেক করুন।",

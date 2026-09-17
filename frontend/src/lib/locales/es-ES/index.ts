@@ -204,8 +204,11 @@ export const esES = {
   },
   auth: {
     loginTitle: "Open Notebook",
-    loginDesc: "Ingresa tu contraseña para acceder a la aplicación",
+    loginDesc: "Inicia sesión con tu cuenta de equipo",
     passwordPlaceholder: "Contraseña",
+    emailPlaceholder: "Correo electrónico",
+    invalidCredentials: "Correo electrónico o contraseña no válidos",
+    tooManyAttempts: "Demasiados intentos de inicio de sesión. Inténtalo de nuevo más tarde.",
     signingIn: "Iniciando sesión...",
     signIn: "Iniciar sesión",
     connectErrorHint: "No se puede conectar al servidor. Por favor, verifica si la API está funcionando.",

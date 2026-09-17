@@ -204,8 +204,11 @@ export const trTR = {
   },
   auth: {
     loginTitle: "Open Notebook",
-    loginDesc: "Uygulamaya erişmek için şifrenizi girin",
+    loginDesc: "Ekip hesabınızla oturum açın",
     passwordPlaceholder: "Şifre",
+    emailPlaceholder: "E-posta",
+    invalidCredentials: "Geçersiz e-posta veya şifre",
+    tooManyAttempts: "Çok fazla oturum açma denemesi. Lütfen daha sonra tekrar deneyin.",
     signingIn: "Giriş yapılıyor...",
     signIn: "Giriş Yap",
     connectErrorHint: "Sunucuya bağlanılamıyor. API'nin çalışıp çalışmadığını kontrol edin.",

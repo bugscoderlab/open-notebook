@@ -204,8 +204,11 @@ export const ptBR = {
   },
   auth: {
     loginTitle: "Open Notebook",
-    loginDesc: "Digite sua senha para acessar o aplicativo",
+    loginDesc: "Entre com a conta da sua equipe",
     passwordPlaceholder: "Senha",
+    emailPlaceholder: "E-mail",
+    invalidCredentials: "E-mail ou senha inválidos",
+    tooManyAttempts: "Muitas tentativas de login. Tente novamente mais tarde.",
     signingIn: "Entrando...",
     signIn: "Entrar",
     connectErrorHint: "Não foi possível conectar ao servidor. Verifique se a API está rodando.",

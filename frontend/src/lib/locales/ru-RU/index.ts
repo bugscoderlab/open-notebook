@@ -204,8 +204,11 @@ export const ruRU = {
   },
   auth: {
     loginTitle: "Open Notebook",
-    loginDesc: "Введите пароль для доступа к приложению",
+    loginDesc: "Войдите с помощью учётной записи команды",
     passwordPlaceholder: "Пароль",
+    emailPlaceholder: "Электронная почта",
+    invalidCredentials: "Неверная электронная почта или пароль",
+    tooManyAttempts: "Слишком много попыток входа. Попробуйте позже.",
     signingIn: "Вход...",
     signIn: "Войти",
     connectErrorHint: "Не удаётся подключиться к серверу. Проверьте, запущен ли API.",

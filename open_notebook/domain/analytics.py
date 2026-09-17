@@ -22,14 +22,13 @@ from open_notebook.database.repository import (
     parse_record_ids,
     repo_query,
 )
+from open_notebook.domain.user import ensure_default_organization, ensure_team
 
 SALES_DATASET_NAME = "Sales 2026"
 SALES_DATASET_TEAM_SLUG = "finance"
 # connection_ref names an env-configured DSN key — raw credentials are never
 # stored in SurrealDB (ADR-009).
 SALES_DATASET_CONNECTION_REF = "ANALYTICS_DATABASE_URL"
-DEFAULT_ORGANIZATION_EXTERNAL_KEY = "org-open-notebook-default"
-DEFAULT_ORGANIZATION_NAME = "Open Notebook"
 
 
 class Dataset(BaseModel):
@@ -147,52 +146,6 @@ async def create_query_log(
     return AnalyticsQueryLog.from_record(result[0])
 
 
-async def _ensure_default_organization() -> str:
-    records = await repo_query(
-        "SELECT * FROM organization WHERE external_key = $key LIMIT 1",
-        {"key": DEFAULT_ORGANIZATION_EXTERNAL_KEY},
-    )
-    if records:
-        return str(records[0]["id"])
-    async with db_connection() as conn:
-        result = parse_record_ids(
-            await conn.query(
-                "CREATE organization CONTENT $data",
-                {
-                    "data": {
-                        "external_key": DEFAULT_ORGANIZATION_EXTERNAL_KEY,
-                        "name": DEFAULT_ORGANIZATION_NAME,
-                        "status": "active",
-                    }
-                },
-            )
-        )
-    return str(result[0]["id"])
-
-
-async def _ensure_team(organization_id: str, slug: str, name: str) -> str:
-    records = await repo_query(
-        "SELECT * FROM team WHERE slug = $slug LIMIT 1", {"slug": slug}
-    )
-    if records:
-        return str(records[0]["id"])
-    async with db_connection() as conn:
-        result = parse_record_ids(
-            await conn.query(
-                "CREATE team CONTENT $data",
-                {
-                    "data": {
-                        "organization": RecordID.parse(organization_id),
-                        "slug": slug,
-                        "name": name,
-                        "active": True,
-                    }
-                },
-            )
-        )
-    return str(result[0]["id"])
-
-
 async def ensure_sales_2026_dataset() -> Optional[Dataset]:
     """Idempotently register the finance-owned "Sales 2026" dataset.
 
@@ -208,8 +161,8 @@ async def ensure_sales_2026_dataset() -> Optional[Dataset]:
     if existing:
         return Dataset.from_record(existing[0])
 
-    organization_id = await _ensure_default_organization()
-    team_id = await _ensure_team(organization_id, SALES_DATASET_TEAM_SLUG, "Finance")
+    organization_id = await ensure_default_organization()
+    team_id = await ensure_team(organization_id, SALES_DATASET_TEAM_SLUG, "Finance")
     async with db_connection() as conn:
         result = parse_record_ids(
             await conn.query(

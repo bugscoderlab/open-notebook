@@ -204,8 +204,11 @@ export const zhTW = {
   },
   auth: {
     loginTitle: "Open Notebook",
-    loginDesc: "輸入密碼以存取應用程式",
+    loginDesc: "使用你的團隊帳戶登入",
     passwordPlaceholder: "密碼",
+    emailPlaceholder: "電郵",
+    invalidCredentials: "電郵或密碼無效",
+    tooManyAttempts: "登入嘗試次數過多，請稍後再試。",
     signingIn: "正在登入...",
     signIn: "登入",
     connectErrorHint: "無法連線至伺服器。請檢查 API 是否正在運行。",

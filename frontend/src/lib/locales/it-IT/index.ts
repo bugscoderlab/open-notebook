@@ -204,8 +204,11 @@ export const itIT = {
   },
   auth: {
     loginTitle: "Open Notebook",
-    loginDesc: "Inserisci la password per accedere all'applicazione",
+    loginDesc: "Accedi con il tuo account di team",
     passwordPlaceholder: "Password",
+    emailPlaceholder: "Email",
+    invalidCredentials: "Email o password non valide",
+    tooManyAttempts: "Troppi tentativi di accesso. Riprova più tardi.",
     signingIn: "Accesso in corso...",
     signIn: "Accedi",
     connectErrorHint: "Impossibile connettersi al server. Verifica che l'API sia in esecuzione.",

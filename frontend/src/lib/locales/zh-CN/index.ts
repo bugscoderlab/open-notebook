@@ -204,8 +204,11 @@ export const zhCN = {
   },
   auth: {
     loginTitle: "Open Notebook",
-    loginDesc: "输入密码以访问应用程序",
+    loginDesc: "使用你的团队账户登录",
     passwordPlaceholder: "密码",
+    emailPlaceholder: "邮箱",
+    invalidCredentials: "邮箱或密码无效",
+    tooManyAttempts: "登录尝试次数过多，请稍后再试。",
     signingIn: "正在登录...",
     signIn: "登录",
     connectErrorHint: "无法连接到服务器。请检查 API 是否正在运行。",

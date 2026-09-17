@@ -20,7 +20,6 @@ from fastapi.responses import JSONResponse
 from loguru import logger
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from api.auth import PasswordAuthMiddleware
 from api.middleware import MaxBodySizeMiddleware, get_max_upload_size_bytes
 from api.routers import (
     analytics,
@@ -52,6 +51,7 @@ from open_notebook.exceptions import (
     AuthenticationError,
     ConfigurationError,
     ExternalServiceError,
+    ForbiddenError,
     InvalidInputError,
     NetworkError,
     NotFoundError,
@@ -233,24 +233,14 @@ if CORS_IS_DEFAULT_WILDCARD:
 else:
     logger.info(f"CORS allowed origins: {CORS_ALLOWED_ORIGINS}")
 
-# Add password authentication middleware first
-# Exclude /api/auth/status and /api/config from authentication
-app.add_middleware(
-    PasswordAuthMiddleware,
-    excluded_paths=[
-        "/",
-        "/health",
-        "/docs",
-        "/openapi.json",
-        "/redoc",
-        "/api/auth/status",
-        "/api/config",
-    ],
-)
+# Auth is cookie-session based (ADR-010): no global auth middleware. Public
+# endpoints (/, /health, /docs, /api/auth/*) need no protection; protected
+# surfaces resolve the caller from the session cookie via router-level
+# dependencies (api.access.get_current_user; enforcement on every router
+# lands with T5).
 
-# Reject oversized request bodies before they reach auth or routing - added
-# after PasswordAuthMiddleware (so it wraps around it) so a too-large request
-# is rejected before spending any work checking credentials.
+# Reject oversized request bodies before routing so a too-large request is
+# rejected before spending any work on it.
 logger.info(
     f"Max request body size: {MAX_UPLOAD_SIZE_BYTES / (1024 * 1024):g}MB "
     "(set OPEN_NOTEBOOK_MAX_UPLOAD_SIZE_MB to change)"
@@ -264,11 +254,10 @@ app.add_middleware(MaxBodySizeMiddleware, max_body_size=MAX_UPLOAD_SIZE_BYTES)
 # origins: combining allow_origins=["*"] with allow_credentials=True makes
 # Starlette reflect the request's Origin header verbatim (browsers reject a
 # literal "*" alongside credentials), which defeats the origin allowlist.
-# The frontend never sends credentialed requests (withCredentials: false)
-# and auth is a Bearer header, not a cookie, so this isn't independently
-# exploitable today - but there's no reason to allow it for any wildcard
-# case. Once an operator explicitly scopes CORS_ORIGINS to real origins,
-# credentialed cross-origin requests to those origins are safe to allow.
+# Session auth is a SameSite=Lax cookie: same-origin browser requests carry
+# it without any CORS involvement. Cross-origin deployments must set
+# CORS_ORIGINS to the real frontend origin(s) — then (and only then) does
+# allow_credentials flip to True so the cookie actually arrives.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ALLOWED_ORIGINS,
@@ -319,6 +308,15 @@ async def invalid_input_error_handler(request: Request, exc: InvalidInputError):
 async def authentication_error_handler(request: Request, exc: AuthenticationError):
     return JSONResponse(
         status_code=401,
+        content={"detail": str(exc)},
+        headers=_cors_headers(request),
+    )
+
+
+@app.exception_handler(ForbiddenError)
+async def forbidden_error_handler(request: Request, exc: ForbiddenError):
+    return JSONResponse(
+        status_code=403,
         content={"detail": str(exc)},
         headers=_cors_headers(request),
     )

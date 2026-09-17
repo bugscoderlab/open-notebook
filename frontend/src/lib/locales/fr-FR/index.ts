@@ -204,8 +204,11 @@ export const frFR = {
   },
   auth: {
     loginTitle: "Open Notebook",
-    loginDesc: "Entrez votre mot de passe pour accéder à l'application",
+    loginDesc: "Connectez-vous avec votre compte d'équipe",
     passwordPlaceholder: "Mot de passe",
+    emailPlaceholder: "E-mail",
+    invalidCredentials: "E-mail ou mot de passe invalide",
+    tooManyAttempts: "Trop de tentatives de connexion. Réessayez plus tard.",
     signingIn: "Connexion...",
     signIn: "Se connecter",
     connectErrorHint: "Impossible de se connecter au serveur. Veuillez vérifier si l'API est lancée.",

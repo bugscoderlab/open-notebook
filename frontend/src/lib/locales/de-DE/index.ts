@@ -207,8 +207,11 @@ export const deDE = {
   },
   auth: {
     loginTitle: "Open Notebook",
-    loginDesc: "Gib dein Passwort ein, um auf die Anwendung zuzugreifen",
+    loginDesc: "Melde dich mit deinem Team-Konto an",
     passwordPlaceholder: "Passwort",
+    emailPlaceholder: "E-Mail",
+    invalidCredentials: "Ungültige E-Mail oder Passwort",
+    tooManyAttempts: "Zu viele Anmeldeversuche. Bitte später erneut versuchen.",
     signingIn: "Anmelden...",
     signIn: "Anmelden",
     connectErrorHint: "Keine Verbindung zum Server möglich. Bitte prüfe, ob die API läuft.",
