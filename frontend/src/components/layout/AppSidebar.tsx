@@ -25,6 +25,7 @@ import {
 import { ThemeToggle } from '@/components/common/ThemeToggle'
 import { LanguageToggle } from '@/components/common/LanguageToggle'
 import { AccessGuard } from '@/components/shell/access-guard'
+import { useCurrentUser } from '@/lib/hooks/use-current-user'
 import type { TFunction } from 'i18next'
 import { useTranslation } from '@/lib/hooks/use-translation'
 import {
@@ -42,12 +43,28 @@ import {
   Plus,
   Wrench,
   Command,
+  Users,
+  UsersRound,
 } from 'lucide-react'
 
 // Prototype shell (T2) — section groups mirror the team-access prototype:
 // KNOWLEDGE / CREATE / SYSTEM. Models stays at /settings/models as a nested
 // settings item.
-const getNavigation = (t: TFunction) => [
+//
+// Role awareness (T4): `requiresAdmin` items (Users/Teams) render only for
+// admins; `hideFromNonAdmins` items (Advanced) render for admins and in open
+// mode (no users seeded yet — there is no non-admin to hide it from). The
+// backend enforces 403 independently of these flags.
+type NavItem = {
+  name: string
+  href: string
+  icon: React.ComponentType<{ className?: string }>
+  iconClass?: string
+  requiresAdmin?: boolean
+  hideFromNonAdmins?: boolean
+}
+
+const getNavigation = (t: TFunction): { title: string; items: NavItem[] }[] => [
   {
     title: t('navigation.knowledge'),
     items: [
@@ -62,17 +79,19 @@ const getNavigation = (t: TFunction) => [
     items: [
       { name: t('navigation.podcasts'), href: '/podcasts', icon: Mic, iconClass: undefined },
       { name: t('navigation.transformations'), href: '/transformations', icon: Shuffle, iconClass: undefined },
-      { name: t('navigation.advanced'), href: '/advanced', icon: Wrench, iconClass: undefined },
+      { name: t('navigation.advanced'), href: '/advanced', icon: Wrench, iconClass: undefined, hideFromNonAdmins: true },
     ],
   },
   {
     title: t('navigation.system'),
     items: [
+      { name: t('navigation.users'), href: '/users', icon: Users, iconClass: undefined, requiresAdmin: true },
+      { name: t('navigation.teams'), href: '/teams', icon: UsersRound, iconClass: undefined, requiresAdmin: true },
       { name: t('navigation.settings'), href: '/settings', icon: Settings, iconClass: undefined },
       { name: t('navigation.models'), href: '/settings/models', icon: Bot, iconClass: undefined },
     ],
   },
-] as const
+]
 
 // The tri-hue mark recomposed in the owned palette: fern / gold / teal.
 function LogoPebbles({ className }: { className?: string }) {
@@ -89,9 +108,22 @@ type CreateTarget = 'source' | 'notebook' | 'podcast'
 
 export function AppSidebar() {
   const { t } = useTranslation()
-  const navigation = getNavigation(t)
   const pathname = usePathname()
   const { logout } = useAuth()
+  const { user } = useCurrentUser()
+  const isAdmin = user?.role === 'admin'
+  // T4 role-aware nav: admins see everything; non-admins never see
+  // Users/Teams; Advanced additionally stays visible in open mode (no
+  // identity yet — there is no non-admin to hide it from).
+  const isItemVisible = (item: NavItem) => {
+    if (item.requiresAdmin) return isAdmin
+    if (item.hideFromNonAdmins) return isAdmin || user === null
+    return true
+  }
+  const navigation = getNavigation(t).map((section) => ({
+    ...section,
+    items: section.items.filter(isItemVisible),
+  }))
   const { isCollapsed, toggleCollapse } = useSidebarStore()
   const { openSourceDialog, openNotebookDialog, openPodcastDialog } = useCreateDialogs()
   // Prototype shell (T2): at ≤950px the sidebar becomes a 76px icon rail,

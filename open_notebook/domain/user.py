@@ -300,6 +300,70 @@ async def get_team_by_id(team_id: str) -> Optional[Team]:
     return Team(**records[0])
 
 
+async def create_team(
+    *,
+    organization_id: str,
+    slug: str,
+    name: str,
+    description: Optional[str] = None,
+    manager_id: Optional[str] = None,
+) -> Team:
+    """Create a team (raw CREATE — record fields need RecordID values)."""
+    data: Dict[str, Any] = {
+        "organization": ensure_record_id(organization_id),
+        "slug": slug,
+        "name": name,
+        "description": description,
+        "manager": ensure_record_id(manager_id) if manager_id else None,
+        "active": True,
+    }
+    async with db_connection() as conn:
+        result = parse_record_ids(
+            await conn.query("CREATE team CONTENT $data", {"data": data})
+        )
+    return Team(**result[0])
+
+
+async def update_team(team_id: str, **changes: Any) -> None:
+    """Merge scalar changes into a team. ``manager_id`` is converted to a
+    record reference (same raw-UPDATE pattern as ``update_user``)."""
+    payload: Dict[str, Any] = dict(changes)
+    if "manager_id" in payload:
+        manager = payload.pop("manager_id")
+        payload["manager"] = ensure_record_id(manager) if manager else None
+    await repo_query(
+        "UPDATE $id MERGE $data",
+        {"id": ensure_record_id(team_id), "data": payload},
+    )
+
+
+def _counts_by_ref(records: List[Dict[str, Any]]) -> Dict[str, int]:
+    """GROUP BY record-field results keyed by record id string."""
+    counts: Dict[str, int] = {}
+    for record in records:
+        ref = record.get("team")
+        if ref is None:
+            continue
+        counts[str(ref)] = int(record.get("n", 0))
+    return counts
+
+
+async def count_users_per_team() -> Dict[str, int]:
+    """Member counts per team id (``{team: x, n: y}`` GROUP BY rows)."""
+    records = await repo_query(
+        "SELECT team, count() AS n FROM app_user GROUP BY team"
+    )
+    return _counts_by_ref(records)
+
+
+async def count_notebooks_per_team() -> Dict[str, int]:
+    """Notebook counts per team id (notebooks without a team are excluded)."""
+    records = await repo_query(
+        "SELECT team, count() AS n FROM notebook GROUP BY team"
+    )
+    return _counts_by_ref(records)
+
+
 async def create_user_session(
     *,
     user_id: str,
@@ -379,7 +443,10 @@ __all__ = [
     "Team",
     "UserSession",
     "UserStatus",
+    "count_notebooks_per_team",
     "count_users",
+    "count_users_per_team",
+    "create_team",
     "create_user",
     "create_user_session",
     "ensure_default_organization",
@@ -396,6 +463,7 @@ __all__ = [
     "revoke_session",
     "touch_session",
     "touch_user_activity",
+    "update_team",
     "update_user",
     "verify_password",
 ]

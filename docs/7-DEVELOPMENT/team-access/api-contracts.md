@@ -22,8 +22,11 @@ Frontend tracks mock against these shapes until the backend lands. Changes here 
 ## Users & teams (admin)
 
 - `GET /api/users` — list with `{id, email, display_name, role, status, team_id, team_name, last_active_at}`
-- `PATCH /api/users/{id}` — `{team_id?, role?, status?}`; `status: disabled` revokes all sessions
-- `GET /api/teams`, `POST /api/teams`, `PATCH /api/teams/{id}` — `{slug, name, description, manager_id, active}`
+- `PATCH /api/users/{id}` — `{team_id?, role?, status?, temp_password?}`; `status: disabled` revokes all sessions; `temp_password` regenerates the sign-in password (the no-SMTP "resend invite" — the admin re-shares it out-of-band) and revokes all sessions
+- `GET /api/teams` — list with `{id, slug, name, description, manager_id, manager_name, active, member_count, notebook_count}`
+- `POST /api/teams` — `{slug, name, description?}` → `201`; slug unique, immutable afterwards (T6 classification tokens match on it)
+- `PATCH /api/teams/{id}` — `{name?, description?, manager_id?, active?}` (`manager_id: null` unassigns; `active: false` archives)
+- Mutations require the CSRF header (logout rule, ADR-010).
 - Non-admin → `403` on all of the above.
 
 ## Notebooks & sources (payload additions)
@@ -63,4 +66,4 @@ Frontend tracks mock against these shapes until the backend lands. Changes here 
 ## Auth notes
 
 - `GET /api/auth/status` (compatibility probe, pre-team-access): `{"auth_enabled": <any app_user exists>}`. The T3 frontend probes it to detect open mode (no users seeded yet → the app stays unlocked, matching the old dev default). Removal is deferred until the app requires users (after T6).
-- `POST /api/auth/invite` (admin) lands with T4 (Users & Teams admin).
+- `POST /api/auth/invite` (admin) — implemented in T4 (see Users & teams above).

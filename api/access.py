@@ -15,7 +15,7 @@ from fastapi import Depends, Request
 from pydantic import BaseModel
 
 from api import auth_service
-from open_notebook.exceptions import AuthenticationError
+from open_notebook.exceptions import AuthenticationError, ForbiddenError
 
 Role = Literal["member", "team_manager", "ceo", "admin"]
 _ROLE_VALUES: tuple[str, ...] = get_args(Role)
@@ -96,6 +96,24 @@ async def get_current_user(request: Request) -> CurrentUser:
         team_id=user.team_id,
         role=cast(Role, user.role if user.role in _ROLE_VALUES else "member"),
     )
+
+
+async def require_admin(user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
+    """Admin-only dependency (T4): users/teams management, invites.
+
+    The backend check is authoritative — the role-aware nav only hides the
+    entries client-side (frozen contract: non-admin → 403).
+    """
+    if user.role != "admin":
+        raise ForbiddenError("Admin access required")
+    return user
+
+
+def require_csrf(request: Request) -> None:
+    """Mutation guard (ADR-010): the x-csrf-token header must match the CSRF
+    cookie. Shared by the admin routers and POST /auth/invite (T4)."""
+    if not auth_service.csrf_matches(request):
+        raise ForbiddenError("CSRF token missing or invalid")
 
 
 async def get_permitted_dataset_ids(

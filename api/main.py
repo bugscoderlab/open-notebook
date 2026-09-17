@@ -22,6 +22,8 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from api.middleware import MaxBodySizeMiddleware, get_max_upload_size_bytes
 from api.routers import (
+    admin_teams,
+    admin_users,
     analytics,
     auth,
     capabilities,
@@ -404,6 +406,8 @@ app.include_router(providers.router, prefix="/api", tags=["providers"])
 app.include_router(capabilities.router, prefix="/api", tags=["capabilities"])
 app.include_router(languages.router, prefix="/api", tags=["languages"])
 app.include_router(analytics.router, prefix="/api", tags=["analytics"])
+app.include_router(admin_users.router, prefix="/api", tags=["users"])
+app.include_router(admin_teams.router, prefix="/api", tags=["teams"])
 
 
 @app.get("/")

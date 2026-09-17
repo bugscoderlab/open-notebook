@@ -4,6 +4,8 @@ import { describe, it, expect, vi, afterEach } from 'vitest'
 import { usePathname } from 'next/navigation'
 import { AppSidebar } from './AppSidebar'
 import { useSidebarStore } from '@/lib/stores/sidebar-store'
+import { useAuthStore } from '@/lib/stores/auth-store'
+import type { AuthUser } from '@/lib/stores/auth-store'
 
 // Mock Tooltip components to avoid Radix UI async issues in tests
 vi.mock('@/components/ui/tooltip', () => ({
@@ -81,5 +83,59 @@ describe('AppSidebar', () => {
 
     // In collapsed mode, app name shouldn't be visible (as text)
     expect(screen.queryByText('common.appName')).toBeNull()
+  })
+})
+
+// T4 role-aware nav: Users/Teams are admin-only nav entries; Advanced is
+// hidden from non-admins. The mocked t() returns keys, so nav items are
+// looked up by their translation keys. Identity comes from the real
+// auth store (useCurrentUser) — set it directly per case.
+describe('AppSidebar role-aware navigation (T4)', () => {
+  const adminUser: AuthUser = {
+    id: 'app_user:alex',
+    email: 'alex@company.com',
+    display_name: 'Alex Admin',
+    role: 'admin',
+    team: { id: 'team:executive', slug: 'executive', name: 'Executive' },
+  }
+
+  afterEach(() => {
+    useAuthStore.setState({ user: null })
+  })
+
+  it('admin sees Users, Teams and Advanced', () => {
+    useAuthStore.setState({ user: adminUser })
+
+    render(<AppSidebar />)
+
+    expect(screen.getByText('navigation.users')).toBeDefined()
+    expect(screen.getByText('navigation.teams')).toBeDefined()
+    expect(screen.getByText('navigation.advanced')).toBeDefined()
+  })
+
+  it.each(['member', 'team_manager', 'ceo'] as const)(
+    '%s never sees Users/Teams nav entries and never sees Advanced',
+    (role) => {
+      useAuthStore.setState({ user: { ...adminUser, id: `app_user:${role}`, role } })
+
+      render(<AppSidebar />)
+
+      expect(screen.queryByText('navigation.users')).toBeNull()
+      expect(screen.queryByText('navigation.teams')).toBeNull()
+      expect(screen.queryByText('navigation.advanced')).toBeNull()
+      // Regular entries stay visible.
+      expect(screen.getByText('navigation.notebooks')).toBeDefined()
+      expect(screen.getByText('navigation.settings')).toBeDefined()
+    }
+  )
+
+  it('open mode (no identity yet) hides Users/Teams but keeps Advanced', () => {
+    useAuthStore.setState({ user: null })
+
+    render(<AppSidebar />)
+
+    expect(screen.queryByText('navigation.users')).toBeNull()
+    expect(screen.queryByText('navigation.teams')).toBeNull()
+    expect(screen.getByText('navigation.advanced')).toBeDefined()
   })
 })

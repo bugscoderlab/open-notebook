@@ -3,12 +3,13 @@
 Frozen contract: docs/7-DEVELOPMENT/team-access/api-contracts.md (Auth & identity).
 """
 
-from typing import Literal, Optional
+from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Request, Response
+from fastapi import APIRouter, Depends, Request, Response
 from pydantic import BaseModel, Field
 
-from api import auth_service
+from api import admin_service, auth_service
+from api.access import CurrentUser, Role, require_admin, require_csrf
 from open_notebook.domain.user import count_users, get_team_by_id
 from open_notebook.exceptions import AuthenticationError, ForbiddenError
 
@@ -41,7 +42,7 @@ class AuthUserResponse(BaseModel):
     id: Optional[str]
     email: str
     display_name: str
-    role: Literal["member", "team_manager", "ceo", "admin"]
+    role: Role
     team: Optional[AuthTeamResponse]
 
 
@@ -109,6 +110,33 @@ async def me(request: Request) -> AuthUserResponse:
             if team
             else None
         ),
+    )
+
+
+class InviteRequest(BaseModel):
+    """Admin invite payload (T4): no email is sent — the admin hands the temp
+    password to the new user out-of-band."""
+
+    email: str = Field(min_length=3, max_length=320)
+    display_name: str = Field(min_length=1, max_length=200)
+    team_id: str = Field(min_length=1)
+    role: Role = "member"
+    temp_password: str = Field(min_length=8, max_length=1024)
+
+
+@router.post("/invite", response_model=Dict[str, Any], status_code=201)
+async def invite(
+    body: InviteRequest,
+    admin: CurrentUser = Depends(require_admin),
+    _: None = Depends(require_csrf),
+) -> Dict[str, Any]:
+    """Create an invited user (admin only, CSRF-checked; frozen contract)."""
+    return await admin_service.invite_user(
+        email=body.email,
+        display_name=body.display_name,
+        team_id=body.team_id,
+        role=body.role,
+        temp_password=body.temp_password,
     )
 
 
