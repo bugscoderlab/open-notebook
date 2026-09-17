@@ -583,6 +583,60 @@ class MigrationResult(BaseModel):
 # Notebook delete cascade models
 # Credential models
 
+# Analytics models (frozen contract: docs/7-DEVELOPMENT/team-access/api-contracts.md)
+class AnalyticsDatasetResponse(BaseModel):
+    id: str
+    name: str
+    team_id: Optional[str] = None
+    team_name: str = ""
+    source_type: str = "postgres"
+    freshness_at: Optional[str] = None
+
+
+class AnalyticsAskRequest(BaseModel):
+    question: str = Field(..., description="Analytics question", min_length=1)
+    dataset_id: Optional[str] = Field(
+        None, description="Dataset to query (defaults to the first permitted one)"
+    )
+    include_refunds: bool = Field(
+        False, description="Include refunded/voided transactions in the scope"
+    )
+
+
+class AnalyticsKpi(BaseModel):
+    label: str
+    value: str
+    note: str = ""
+
+
+class AnalyticsTable(BaseModel):
+    columns: List[str]
+    rows: List[List[Any]]
+
+
+class AnalyticsChart(BaseModel):
+    kind: str
+    title: str
+    items: List[Dict[str, Any]]
+
+
+class AnalyticsScope(BaseModel):
+    dataset: str
+    period: str
+    refunds: str
+
+
+class AnalyticsAnswerResponse(BaseModel):
+    query_id: Optional[str] = None
+    status: Literal["ok", "denied", "no_data"]
+    answer_text: str
+    kpis: List[AnalyticsKpi] = Field(default_factory=list)
+    table: Optional[AnalyticsTable] = None
+    chart: Optional[AnalyticsChart] = None
+    scope: Optional[AnalyticsScope] = None
+    freshness_at: Optional[str] = None
+    query_template: Optional[str] = None
+
 # Kept in sync with the provider registry
 # (open_notebook/ai/provider_registry.py PROVIDERS — the backend source of
 # truth). A Literal can't be built at runtime, so this is the one remaining

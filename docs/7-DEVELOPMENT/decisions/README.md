@@ -52,5 +52,6 @@ What this makes easier, what it makes harder, what to watch. (bullets)
 | [ADR-008](ADR-008-notebook-scoped-search.md) | Notebook scope is an optional filter on the existing search functions | Accepted |
 | [ADR-009](ADR-009-analytics-postgres-stack.md) | Analytics runs on PostgreSQL via SQLAlchemy/Alembic, scoped to one module | Accepted |
 | [ADR-010](ADR-010-cookie-session-auth.md) | Per-user cookie sessions replace the shared-password middleware | Accepted |
+| [ADR-011](ADR-011-analytics-intent-classification.md) | Analytics intent/explanation: LLM-assisted with deterministic fallback; bound IN-list expansion | Accepted |
 | [PDR-001](PDR-001-single-user-first.md) | Single-user first; don't preclude multi-user | Accepted |
 | [PDR-002](PDR-002-provider-agnostic-core.md) | Provider-agnostic core by default | Accepted |
