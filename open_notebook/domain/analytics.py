@@ -70,6 +70,7 @@ class AnalyticsQueryLog(BaseModel):
     duration_ms: Optional[int] = None
     row_count: Optional[int] = None
     status: str = ""
+    generated_sql: Optional[str] = None
     created: Optional[datetime] = None
 
     @classmethod
@@ -83,6 +84,7 @@ class AnalyticsQueryLog(BaseModel):
             duration_ms=record.get("duration_ms"),
             row_count=record.get("row_count"),
             status=record.get("status", ""),
+            generated_sql=record.get("generated_sql"),
             created=record.get("created"),
         )
 
@@ -128,11 +130,14 @@ async def create_query_log(
     duration_ms: Optional[int],
     row_count: Optional[int],
     status: str,
+    generated_sql: Optional[str] = None,
 ) -> AnalyticsQueryLog:
-    """Insert an analytics_query_log audit record (migration 27 schema).
+    """Insert an analytics_query_log audit record (migration 27/31 schema).
 
     ``dataset_id`` is None for denials that never reached a dataset
-    (AN-010 injection refusals, no-permitted-dataset denials)."""
+    (AN-010 injection refusals, no-permitted-dataset denials).
+    ``generated_sql`` is the validated placeholder-form SQL for text-to-SQL
+    answers (ADR-015) — never bound values; template-path rows keep None."""
     data: Dict[str, Any] = {
         "user": ensure_record_id(user_id),
         "dataset": ensure_record_id(dataset_id) if dataset_id else None,
@@ -141,6 +146,7 @@ async def create_query_log(
         "duration_ms": duration_ms,
         "row_count": row_count,
         "status": status,
+        "generated_sql": generated_sql,
     }
     async with db_connection() as conn:
         result = parse_record_ids(

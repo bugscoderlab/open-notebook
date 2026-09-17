@@ -236,6 +236,29 @@ class TestTextToSqlPath:
         assert answer.status == "ok"
         assert len(answer.kpis) > 0
 
+    async def test_query_log_displays_validated_placeholder_sql(
+        self, seeded, tmp_path, monkeypatch
+    ):
+        """AN-009: the log entry shows the generated SQL — placeholders only,
+        never bound team literal values."""
+        _write_schema_artifact(tmp_path, monkeypatch)
+        with patch(
+            "open_notebook.analytics.text_to_sql.generate_sql",
+            new=AsyncMock(return_value=SCRIPTED_SQL),
+        ):
+            answer = await _ask(seeded, "who spend on full groom?")
+
+        from open_notebook.analytics.service import get_query
+
+        record = await get_query(answer.query_id)
+        assert record is not None
+        assert record["query_template"] is not None
+        assert "authorized_team_ids" in record["query_template"]
+        assert "Finance" not in record["query_template"]
+        assert record["template_id"] is None
+        assert record["status"] == "ok"
+        assert record["row_count"] == len(answer.table["rows"])
+
     async def test_missing_artifact_falls_back_without_calling_model(
         self, seeded, tmp_path, monkeypatch
     ):

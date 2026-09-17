@@ -1,0 +1,6 @@
+-- Migration 31: analytics_query_log gains generated_sql (ADR-015, ticket #27).
+-- Text-to-SQL answers audit the validated generated query in placeholder
+-- form (named placeholders only — never bound team values, never rewritten
+-- literals beyond what the model wrote). Template-path rows keep NONE here
+-- and keep rendering from the template registry.
+DEFINE FIELD IF NOT EXISTS generated_sql ON TABLE analytics_query_log TYPE option<string>;

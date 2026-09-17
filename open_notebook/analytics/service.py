@@ -33,7 +33,7 @@ from open_notebook.analytics.query_templates import (
     parse_period,
 )
 from open_notebook.domain import analytics as analytics_domain
-from open_notebook.domain.analytics import Dataset
+from open_notebook.domain.analytics import AnalyticsQueryLog, Dataset
 from open_notebook.exceptions import InvalidInputError
 from open_notebook.utils.text_utils import clean_thinking_content, extract_text_content
 
@@ -582,6 +582,7 @@ async def _answer_from_generated(
             duration_ms=attempt.duration_ms,
             row_count=0,
             status="no_data",
+            generated_sql=attempt.sql,
         )
         return AnalyticsAnswer(
             status="no_data",
@@ -609,6 +610,7 @@ async def _answer_from_generated(
         duration_ms=attempt.duration_ms,
         row_count=len(json_rows),
         status="ok",
+        generated_sql=attempt.sql,
     )
     columns = list(json_rows[0].keys())
     return AnalyticsAnswer(
@@ -679,9 +681,7 @@ async def get_query(query_id: str) -> Optional[Dict[str, Any]]:
         "row_count": log.row_count,
         "status": log.status,
         "created": log.created.isoformat() if log.created else None,
-        "query_template": (
-            _render_template_for_display(log.template_id) if log.template_id else None
-        ),
+        "query_template": _display_query_for_log(log),
     }
 
 
@@ -690,6 +690,15 @@ def _render_template_for_display(template_id: str) -> Optional[str]:
         return get_template(template_id).sql
     except KeyError:
         return None
+
+
+def _display_query_for_log(log: AnalyticsQueryLog) -> Optional[str]:
+    """AN-009 display SQL: generated placeholder SQL wins; else template text."""
+    if log.generated_sql:
+        return log.generated_sql
+    if log.template_id:
+        return _render_template_for_display(log.template_id)
+    return None
 
 
 async def refresh_dataset_freshness(dataset_id: str) -> None:
