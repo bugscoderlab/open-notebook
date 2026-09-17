@@ -20,9 +20,6 @@ generated section.
 ```mermaid
 flowchart LR
   subgraph "Wave 0"
-    n10["#10 T9: Analytics permissions + mode UI"]
-  end
-  subgraph "Wave 1"
     n11["#11 T10: Verification & test pack"]
   end
   n2 --> n3
@@ -47,12 +44,9 @@ gantt
   dateFormat X
   section Wave 0
   W0 :0, 86400
-  section Wave 1
-  W1 :86400, 172800
 ```
 
 | Wave | Tickets | Open external blockers |
 |---|---|---|
-| 0 | #10 | — |
-| 1 | #11 | — |
+| 0 | #11 | — |
 <!-- END GENERATED SCHEDULE -->
