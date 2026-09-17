@@ -22,7 +22,7 @@ jobs:
         package: [open-notebook]
     steps:
       - name: Delete untagged versions
-        uses: actions/delete-package-versions@e46fc0d98fcf0b49dc53a66ad40cbb01c7be9b0d # v5.0.0
+        uses: actions/delete-package-versions@4dbb860504f6d0cde296a192842138c03915746a # v5.0.0
         with:
           package-name: ${{ matrix.package }}
           package-type: container
@@ -31,7 +31,7 @@ jobs:
           min-versions-to-keep: 3
 
       - name: Delete old tagged versions
-        uses: actions/delete-package-versions@e46fc0d98fcf0b49dc53a66ad40cbb01c7be9b0d # v5.0.0
+        uses: actions/delete-package-versions@4dbb860504f6d0cde296a192842138c03915746a # v5.0.0
         with:
           package-name: ${{ matrix.package }}
           package-type: container
