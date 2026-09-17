@@ -46,6 +46,12 @@ WHERE service = 'Nonexistent Service'
 
 GATE_REJECTED_SQL = "SELECT * FROM sales_transactions WHERE status = 'completed'"
 
+BAD_COLUMN_SQL = """
+SELECT bogus_column
+FROM sales_transactions
+WHERE data_team IN (:authorized_team_ids)
+"""
+
 SCHEMA_ROWS = [
     {"table_name": "sales_transactions", "column_name": "transaction_id", "data_type": "integer", "ordinal_position": 1},
     {"table_name": "sales_transactions", "column_name": "transaction_date", "data_type": "date", "ordinal_position": 2},
@@ -245,6 +251,101 @@ class TestTextToSqlPath:
         generate_sql.assert_not_called()
         assert answer.status == "ok"
         assert len(answer.kpis) > 0
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+class TestRetryLoop:
+    """Bounded agent loop: rejections/errors/emptiness fed back, max 3 tries."""
+
+    async def test_gate_rejection_feedback_then_success(
+        self, seeded, tmp_path, monkeypatch
+    ):
+        _write_schema_artifact(tmp_path, monkeypatch)
+        generate_sql = AsyncMock(side_effect=[GATE_REJECTED_SQL, SCRIPTED_SQL])
+        with patch(
+            "open_notebook.analytics.text_to_sql.generate_sql", new=generate_sql
+        ):
+            answer = await _ask(seeded, "who spend on full groom?")
+
+        assert answer.status == "ok"
+        assert generate_sql.call_count == 2
+        feedback = generate_sql.call_args_list[1].kwargs["feedback"]
+        assert any("missing_team_filter" in note for note in feedback)
+
+    async def test_execution_error_feedback_then_success(
+        self, seeded, tmp_path, monkeypatch
+    ):
+        _write_schema_artifact(tmp_path, monkeypatch)
+        generate_sql = AsyncMock(side_effect=[BAD_COLUMN_SQL, SCRIPTED_SQL])
+        with patch(
+            "open_notebook.analytics.text_to_sql.generate_sql", new=generate_sql
+        ):
+            answer = await _ask(seeded, "who spend on full groom?")
+
+        assert answer.status == "ok"
+        assert generate_sql.call_count == 2
+        feedback = generate_sql.call_args_list[1].kwargs["feedback"]
+        assert any("failed to execute" in note for note in feedback)
+
+    async def test_zero_rows_feedback_then_success(self, seeded, tmp_path, monkeypatch):
+        _write_schema_artifact(tmp_path, monkeypatch)
+        generate_sql = AsyncMock(side_effect=[NO_ROWS_SQL, SCRIPTED_SQL])
+        with patch(
+            "open_notebook.analytics.text_to_sql.generate_sql", new=generate_sql
+        ):
+            answer = await _ask(seeded, "who spend on full groom?")
+
+        assert answer.status == "ok"
+        assert generate_sql.call_count == 2
+        feedback = generate_sql.call_args_list[1].kwargs["feedback"]
+        assert any("0 rows" in note for note in feedback)
+
+    async def test_exhausted_rejections_raise_guidance(
+        self, seeded, tmp_path, monkeypatch
+    ):
+        _write_schema_artifact(tmp_path, monkeypatch)
+        from open_notebook.exceptions import InvalidInputError
+
+        generate_sql = AsyncMock(
+            side_effect=[GATE_REJECTED_SQL, GATE_REJECTED_SQL, GATE_REJECTED_SQL]
+        )
+        with patch(
+            "open_notebook.analytics.text_to_sql.generate_sql", new=generate_sql
+        ):
+            with pytest.raises(InvalidInputError, match="missing_team_filter"):
+                await _ask(seeded, "show me everything")
+        assert generate_sql.call_count == 3
+
+    async def test_exhausted_execution_errors_raise_guidance(
+        self, seeded, tmp_path, monkeypatch
+    ):
+        _write_schema_artifact(tmp_path, monkeypatch)
+        from open_notebook.exceptions import InvalidInputError
+
+        generate_sql = AsyncMock(
+            side_effect=[BAD_COLUMN_SQL, BAD_COLUMN_SQL, BAD_COLUMN_SQL]
+        )
+        with patch(
+            "open_notebook.analytics.text_to_sql.generate_sql", new=generate_sql
+        ):
+            with pytest.raises(InvalidInputError, match="execution_error"):
+                await _ask(seeded, "who spend on full groom?")
+        assert generate_sql.call_count == 3
+
+    async def test_exhausted_zero_rows_is_honest_no_data(
+        self, seeded, tmp_path, monkeypatch
+    ):
+        _write_schema_artifact(tmp_path, monkeypatch)
+        generate_sql = AsyncMock(side_effect=[NO_ROWS_SQL, NO_ROWS_SQL, NO_ROWS_SQL])
+        with patch(
+            "open_notebook.analytics.text_to_sql.generate_sql", new=generate_sql
+        ):
+            answer = await _ask(seeded, "who bought a nonexistent service?")
+
+        assert generate_sql.call_count == 3
+        assert answer.status == "no_data"
+        assert "won't invent" in answer.answer_text
 
 
 class TestGenerationPrompt:
