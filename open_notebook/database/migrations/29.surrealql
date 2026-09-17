@@ -1,0 +1,5 @@
+-- Migration 29: content-classification state on organization (T6).
+-- The classification pass (filename-token auto-classification) stamps this
+-- when no flagged/unclassified content remains; member/team_manager login
+-- stays blocked until it is set (spec #1, TDD §12.11).
+DEFINE FIELD IF NOT EXISTS classification_completed_at ON TABLE organization TYPE option<datetime>;

@@ -11,13 +11,14 @@ set the variable explicitly:
 import os
 
 import pytest
+from conftest import requires_analytics_pg
 from sqlalchemy import inspect
 from sqlalchemy.ext.asyncio import create_async_engine
 
-pytestmark = pytest.mark.skipif(
-    not os.environ.get("ANALYTICS_TEST_DATABASE_URL"),
-    reason="ANALYTICS_TEST_DATABASE_URL not set",
-)
+pytestmark = [
+    pytest.mark.integration,
+    requires_analytics_pg(),
+]
 
 ALEMBIC_INI = "open_notebook/analytics/alembic.ini"
 

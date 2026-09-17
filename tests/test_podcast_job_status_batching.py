@@ -16,6 +16,29 @@ from api.routers.podcasts import list_podcast_episodes
 from open_notebook.podcasts.models import PodcastEpisode
 
 
+def _admin_user():
+    from api.access import CurrentUser
+
+    return CurrentUser(
+        id="app_user:test",
+        email="test@example.com",
+        organization_id="organization:default",
+        team_id="team:hr",
+        role="admin",
+    )
+
+
+@pytest.fixture(autouse=True)
+def _episode_scope(monkeypatch):
+    """T5: characterization tests assert shapes, not authorization — pin the
+    permitted episode scope."""
+    monkeypatch.setattr(
+        "api.routers.podcasts.permitted_episode_ids",
+        AsyncMock(return_value=["episode:any"]),
+    )
+
+
+
 def make_episode(command=None, audio_file=None, **overrides):
     defaults = dict(
         id=f"episode:{overrides.pop('suffix', 'x')}",
@@ -112,7 +135,7 @@ class TestListPodcastEpisodesUsesBatchedLookup:
                 PodcastEpisode, "get_job_detail", new=AsyncMock()
             ) as mock_per_episode,
         ):
-            response = await list_podcast_episodes()
+            response = await list_podcast_episodes(user=_admin_user())
 
         mock_batch.assert_awaited_once()
         mock_per_episode.assert_not_called()
@@ -136,7 +159,7 @@ class TestListPodcastEpisodesUsesBatchedLookup:
                 new=AsyncMock(return_value={}),
             ),
         ):
-            response = await list_podcast_episodes()
+            response = await list_podcast_episodes(user=_admin_user())
 
         assert response[0].job_status == "unknown"
 
@@ -157,7 +180,7 @@ class TestListPodcastEpisodesUsesBatchedLookup:
                 new=AsyncMock(side_effect=RuntimeError("db down")),
             ),
         ):
-            response = await list_podcast_episodes()
+            response = await list_podcast_episodes(user=_admin_user())
 
         assert len(response) == 3
         assert all(item.job_status == "unknown" for item in response)
@@ -179,7 +202,7 @@ class TestListPodcastEpisodesUsesBatchedLookup:
                 new=AsyncMock(return_value={}),
             ) as mock_batch,
         ):
-            response = await list_podcast_episodes()
+            response = await list_podcast_episodes(user=_admin_user())
 
         # No command anywhere -> batch call still happens (with an empty
         # list) but must not error, and the episode is reported completed.
@@ -201,7 +224,7 @@ class TestListPodcastEpisodesUsesBatchedLookup:
                 new=AsyncMock(return_value={}),
             ),
         ):
-            response = await list_podcast_episodes()
+            response = await list_podcast_episodes(user=_admin_user())
 
         assert response == []
 
@@ -223,7 +246,7 @@ class TestListPodcastEpisodesUsesBatchedLookup:
                 new=AsyncMock(return_value=batch_result),
             ),
         ):
-            response = await list_podcast_episodes()
+            response = await list_podcast_episodes(user=_admin_user())
 
         assert response[0].job_status == "failed"
         assert response[0].error_message == "kaboom"

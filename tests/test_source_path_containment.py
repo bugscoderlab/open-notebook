@@ -21,6 +21,18 @@ from open_notebook.config import UPLOADS_FOLDER
 from open_notebook.domain.notebook import Asset, Source
 
 
+def _admin_user():
+    from api.access import CurrentUser
+
+    return CurrentUser(
+        id="app_user:test",
+        email="test@example.com",
+        organization_id="organization:default",
+        team_id="team:hr",
+        role="admin",
+    )
+
+
 def make_source(file_path=None, **overrides):
     defaults = dict(
         id="source:test123",
@@ -114,7 +126,7 @@ class TestResolveSourceFileRejectsSiblingDirectoryBypass:
             from fastapi import HTTPException
 
             with pytest.raises(HTTPException) as exc_info:
-                await _resolve_source_file("source:test123")
+                await _resolve_source_file(_admin_user(), "source:test123")
             assert exc_info.value.status_code == 403
 
     @pytest.mark.asyncio
@@ -132,7 +144,9 @@ class TestResolveSourceFileRejectsSiblingDirectoryBypass:
         with patch(
             "api.routers.sources.Source.get", new=AsyncMock(return_value=source)
         ):
-            resolved_path, filename = await _resolve_source_file("source:test123")
+            resolved_path, filename = await _resolve_source_file(
+                _admin_user(), "source:test123"
+            )
 
         assert filename == "document.pdf"
         assert resolved_path == str(legit_file.resolve())
@@ -142,8 +156,9 @@ class TestDownloadEndpointRejectsSiblingDirectoryBypass:
     """End-to-end through the actual HTTP endpoint."""
 
     def test_download_returns_403_for_sibling_directory_file(
-        self, client, tmp_path, monkeypatch
+        self, client, tmp_path, monkeypatch, auth_session, auth_cookie
     ):
+        auth_session()
         real_root = tmp_path / "uploads"
         real_root.mkdir()
         monkeypatch.setattr("api.routers.sources.UPLOADS_FOLDER", str(real_root))
@@ -157,7 +172,9 @@ class TestDownloadEndpointRejectsSiblingDirectoryBypass:
         with patch(
             "api.routers.sources.Source.get", new=AsyncMock(return_value=source)
         ):
-            response = client.get("/api/sources/source:test123/download")
+            response = client.get(
+                "/api/sources/source:test123/download", cookies=auth_cookie
+            )
 
         assert response.status_code == 403
 

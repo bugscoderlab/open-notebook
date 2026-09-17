@@ -5,6 +5,7 @@ Normative rules for working on the Python backend. Architecture and design ratio
 ## Commands
 
 - Run API: `uv run uvicorn api.main:app --port 5055` (Swagger at http://localhost:5055/docs)
+- First admin + teams: `uv run python -m open_notebook.admin bootstrap --email … --password …` (refuses when users exist); dev-only personas (password `password`): `uv run python -m open_notebook.admin dev-seed`
 - Background jobs need the worker: `make worker-start` (`surreal-commands-worker --import-modules commands`)
 - Tests: `uv run pytest tests/`
 - Lint/typecheck: `ruff check . --fix` and `uv run python -m mypy .`
@@ -14,8 +15,9 @@ Normative rules for working on the Python backend. Architecture and design ratio
 - Structure is routes → services → models. Routers stay thin; business logic goes in `*_service.py`.
 - Provider metadata (env vars, modalities, test models, discovery URLs, docs links) lives in the registry: `open_notebook/ai/provider_registry.py` `PROVIDERS`. `TEST_MODELS`, `PROVIDER_ENV_CONFIG`, `PROVIDER_MODALITIES` and `OPENAI_COMPAT_PROVIDERS` are derived from it, and `GET /api/providers` exposes it. Adding a provider = add it to the registry, plus **one** manual copy: the `SupportedProvider` Literal in `api/models.py` (typing can't be derived at runtime) — enforced by `tests/test_credential_provider_validation.py`. The frontend consumes `GET /api/providers` at runtime (`useProviders()`), so it needs no edit; the registry declaration order is the display order.
 - NEVER return API key values from any endpoint — metadata only.
+- Auth is per-user cookie sessions (ADR-010): `api/routers/auth.py` (login/logout/me) + `api/auth_service.py` (token issue/resolve, rate limiting); `api/access.py` is the enforcement seam (ADR-012): `get_current_user`, the `can_read_team`/`can_write_team` policy, `permitted_*_ids` scopes, and the `check_*` per-object guards. Every content/config router consumes it (T5); public surface is `/`, `/health`, `/docs`, `/api/auth/*`, `/api/config`, `/api/languages`, `/api/capabilities`. `OPEN_NOTEBOOK_PASSWORD` no longer exists.
 - Every user-supplied URL field must go through `validate_url()` (`open_notebook/utils/url_validation.py`, async) for SSRF protection. Private IPs/localhost are intentionally allowed (self-hosted Ollama, LM Studio).
-- Errors: raise typed exceptions from `open_notebook.exceptions` — global handlers map them to HTTP status codes (`NotFoundError`→404, `InvalidInputError`→400, `AuthenticationError`→401, `RateLimitError`→429, `ConfigurationError`→422, `NetworkError`/`ExternalServiceError`→502, `OpenNotebookError`→500). Don't raise bare `HTTPException` for domain errors.
+- Errors: raise typed exceptions from `open_notebook.exceptions` — global handlers map them to HTTP status codes (`NotFoundError`→404, `InvalidInputError`→400, `AuthenticationError`→401, `ForbiddenError`→403, `RateLimitError`→429, `ConfigurationError`→422, `NetworkError`/`ExternalServiceError`→502, `OpenNotebookError`→500). Don't raise bare `HTTPException` for domain errors.
 - Requests over `OPEN_NOTEBOOK_MAX_UPLOAD_SIZE_MB` (default 100) are rejected by `MaxBodySizeMiddleware` before auth/routing.
 - CORS is open by default (`CORS_ORIGINS`); `allow_credentials` flips to `True` only when origins are explicit. No rate limiting built in.
 
@@ -44,6 +46,7 @@ Normative rules for working on the Python backend. Architecture and design ratio
 - `ObjectModel.get()` is polymorphic via ID prefix — the subclass must be imported first or resolution fails.
 - `RecordModel` subclasses are singletons — call `clear_instance()` in tests.
 - Relationship strings passed to `relate()` must match the schema (`reference`, `artifact`, `refers_to`).
+- Record-typed fields (`organization`, `team`, `user`, `manager`, …) reject plain-string values on the `repo_create`/`repo_update` path — write them via raw `CREATE/UPDATE … CONTENT` with `ensure_record_id` (pattern: `create_user`/`update_user`/`create_user_session` in `open_notebook/domain/user.py`).
 
 ## Database (`open_notebook/database/`)
 
@@ -75,6 +78,12 @@ Normative rules for working on the Python backend. Architecture and design ratio
 | `OPEN_NOTEBOOK_MAX_UPLOAD_SIZE_MB` | Upload cap (default 100) |
 | `LANGGRAPH_CHECKPOINT_FILE` | Chat history SQLite path |
 | `CORS_ORIGINS` | Restrict before production |
+| `ANALYTICS_DATABASE_URL` | Analytics Postgres DSN (default: Postgres.app `open_notebook_analytics`); the only Postgres the app connects to |
+| `ANALYTICS_TEST_DATABASE_URL` | Scratch Postgres for the analytics integration tests (not read by the app — tests point `ANALYTICS_DATABASE_URL` at it) |
+
+## Analytics (`open_notebook/analytics/`)
+
+The one module allowed to import sqlalchemy/asyncpg (ADR-009). Structure: `engine.py` (cached async engine, `NullPool`, read-only runner with 15s statement timeout + 500-row cap), `query_templates.py` (allowlisted parameterized templates + keyword intent fallback), `service.py` (pipeline: classify → template → server-controlled filters → execute → explain). The LLM never writes SQL; dataset registry + query log live in SurrealDB (`open_notebook/domain/analytics.py`). See ADR-011 for the intent-classification and IN-list-expansion decisions.
 
 ## Deep dives
 

@@ -12,6 +12,13 @@ def client():
     return TestClient(app)
 
 
+@pytest.fixture(autouse=True)
+def _authenticated_admin(auth_session):
+    """T5: config routers require a session cookie; these suites assert
+    config behavior, not authorization."""
+    auth_session()
+
+
 class TestModelCreation:
     """Test suite for Model Creation endpoint."""
 
@@ -129,7 +136,7 @@ class TestModelsProviderAvailability:
     def test_blank_anthropic_compatible_env_vars_are_unavailable(
         self, mock_esperanto, mock_env, mock_has_credential, client
     ):
-        def env_side_effect(key):
+        def env_side_effect(key, *args, **kwargs):
             if key in {
                 "ANTHROPIC_COMPATIBLE_BASE_URL",
                 "ANTHROPIC_COMPATIBLE_API_KEY",
@@ -154,7 +161,7 @@ class TestModelsProviderAvailability:
         """Test that OPENAI_COMPATIBLE_BASE_URL enables all 4 modes."""
 
         # Mock environment: only generic var is set
-        def env_side_effect(key):
+        def env_side_effect(key, *args, **kwargs):
             if key == "OPENAI_COMPATIBLE_BASE_URL":
                 return "http://localhost:1234/v1"
             return None
@@ -194,7 +201,7 @@ class TestModelsProviderAvailability:
         """Test mode-specific env vars (LLM + EMBEDDING) enable only those 2 modes."""
 
         # Mock environment: only LLM and EMBEDDING specific vars are set
-        def env_side_effect(key):
+        def env_side_effect(key, *args, **kwargs):
             if key == "OPENAI_COMPATIBLE_BASE_URL_LLM":
                 return "http://localhost:1234/v1"
             if key == "OPENAI_COMPATIBLE_BASE_URL_EMBEDDING":
@@ -234,7 +241,7 @@ class TestModelsProviderAvailability:
         """Test that openai-compatible is not available when no env vars are set."""
 
         # Mock environment: no openai-compatible vars are set
-        def env_side_effect(key):
+        def env_side_effect(key, *args, **kwargs):
             return None
 
         mock_env.side_effect = env_side_effect
@@ -265,7 +272,7 @@ class TestModelsProviderAvailability:
         """Test mixed config: generic + mode-specific (generic should enable all)."""
 
         # Mock environment: both generic and mode-specific vars are set
-        def env_side_effect(key):
+        def env_side_effect(key, *args, **kwargs):
             if key == "OPENAI_COMPATIBLE_BASE_URL":
                 return "http://localhost:1234/v1"
             if key == "OPENAI_COMPATIBLE_BASE_URL_LLM":
@@ -305,7 +312,7 @@ class TestModelsProviderAvailability:
         """Test individual mode-specific var (LLM only)."""
 
         # Mock environment: only LLM specific var is set
-        def env_side_effect(key):
+        def env_side_effect(key, *args, **kwargs):
             if key == "OPENAI_COMPATIBLE_BASE_URL_LLM":
                 return "http://localhost:1234/v1"
             return None
@@ -335,7 +342,7 @@ class TestModelsProviderAvailability:
         """Test individual mode-specific var (EMBEDDING only)."""
 
         # Mock environment: only EMBEDDING specific var is set
-        def env_side_effect(key):
+        def env_side_effect(key, *args, **kwargs):
             if key == "OPENAI_COMPATIBLE_BASE_URL_EMBEDDING":
                 return "http://localhost:8080/v1"
             return None
@@ -365,7 +372,7 @@ class TestModelsProviderAvailability:
         """Test individual mode-specific var (STT only)."""
 
         # Mock environment: only STT specific var is set
-        def env_side_effect(key):
+        def env_side_effect(key, *args, **kwargs):
             if key == "OPENAI_COMPATIBLE_BASE_URL_STT":
                 return "http://localhost:9000/v1"
             return None
@@ -395,7 +402,7 @@ class TestModelsProviderAvailability:
         """Test individual mode-specific var (TTS only)."""
 
         # Mock environment: only TTS specific var is set
-        def env_side_effect(key):
+        def env_side_effect(key, *args, **kwargs):
             if key == "OPENAI_COMPATIBLE_BASE_URL_TTS":
                 return "http://localhost:9000/v1"
             return None

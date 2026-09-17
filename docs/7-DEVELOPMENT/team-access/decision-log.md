@@ -14,6 +14,8 @@ The numbered, approved decisions from the grilling session (2026-09-16). The spe
 10. **Analytics UX**: Knowledge/Analytics mode switch on Ask & Search; parameterized SQL shown in the answer (AN-009); explainer = configured default chat model (no new setting); denial returns no names/values/rankings (AN-003/010).
 11. **Dev seed**: four personas — Aisha (HR member), Daniel (Finance team_manager), Mei (CEO), Alex (Admin) — all password `password`, dev-only, clearly marked never-for-production.
 12. **Debugging**: `opencode.json` at repo root with a Postgres MCP scoped to `open_notebook_analytics` (read-only).
+13. **Classification (T6)**: flags are teamlessness (no flag column — ADR-013); company-shared content is stamped Executive-owned; `member`/`team_manager` login is gated on `organization.classification_completed_at` (403 until set); completion is one-way and auto-recomputed when the flag set empties. → ADR-013
+14. **Analytics permissions (T9)**: `ANALYTICS_AUTH_BYPASS` deleted (not deprecated); AN-010 injection attempts are `denied` answers checked before everything else and audited with no dataset/template/rows; stored query logs enforce the same dataset ownership (404, no oracle; dataset-less logs are owner/admin/CEO only); no company-shared datasets in the MVP. → ADR-014
 
 ## Standing rules for the implementation run
 

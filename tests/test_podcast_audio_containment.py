@@ -42,6 +42,30 @@ def client():
     return TestClient(app)
 
 
+@pytest.fixture(autouse=True)
+def _authenticated_with_episode_scope(auth_session, monkeypatch):
+    """T5: these tests assert audio-path containment, not authorization.
+    Authenticate as admin and route the episode scope checks through
+    PodcastService.get_episode so per-test episode patches keep working."""
+
+    async def _check(user, episode_id):
+        from api.podcast_service import PodcastService
+
+        return await PodcastService.get_episode(episode_id)
+
+    auth_session()
+    monkeypatch.setattr(
+        "api.routers.podcasts.check_episode_read", AsyncMock(side_effect=_check)
+    )
+    monkeypatch.setattr(
+        "api.routers.podcasts.check_episode_write", AsyncMock(side_effect=_check)
+    )
+    monkeypatch.setattr(
+        "api.routers.podcasts.permitted_episode_ids",
+        AsyncMock(return_value=["episode:test123"]),
+    )
+
+
 class TestResolveContainedAudioPath:
     def test_relative_path_inside_root_resolves(self, tmp_path, monkeypatch):
         monkeypatch.setattr(

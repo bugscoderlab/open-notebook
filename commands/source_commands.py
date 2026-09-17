@@ -5,7 +5,7 @@ from langchain_core.runnables import RunnableConfig
 from loguru import logger
 from surreal_commands import CommandInput, CommandOutput, command
 
-from open_notebook.database.repository import ensure_record_id
+from open_notebook.database.repository import ensure_record_id, repo_query
 from open_notebook.domain.notebook import Source
 from open_notebook.domain.transformation import Transformation
 from open_notebook.exceptions import ConfigurationError, ContextLengthExceededError
@@ -76,6 +76,26 @@ async def process_source_command(
         source = await Source.get(input_data.source_id)
         if not source:
             raise ValueError(f"Source '{input_data.source_id}' not found")
+
+        # T5 worker-side revalidation: the source's team must match every
+        # target notebook's team (same rule the router enforces at link
+        # time) — catches permission revocation or team reassignment
+        # between submit and run. Unclassified items pass (T6 flags them).
+        notebook_rows = await repo_query(
+            "SELECT id, team FROM notebook WHERE id IN $ids",
+            {"ids": [ensure_record_id(i) for i in input_data.notebook_ids]},
+        )
+        for row in notebook_rows:
+            nb_team = str(row["team"]) if row.get("team") else None
+            if (
+                source.team_id
+                and nb_team
+                and nb_team != source.team_id
+            ):
+                raise ValueError(
+                    f"Source {source.id} belongs to a different team than "
+                    f"notebook {row['id']}; aborting processing"
+                )
 
         # Update source with command reference
         source.command = (

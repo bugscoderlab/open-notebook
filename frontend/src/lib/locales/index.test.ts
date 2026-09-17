@@ -155,6 +155,6 @@ describe('Unused Key Detection', () => {
         `Found ${unused.length} unused i18n key(s):\n${unused.join('\n')}`,
       ).toEqual([])
     },
-    60_000,
+    60_000, // full-suite parallel load pushes the corpus scan near 30s
   )
 })

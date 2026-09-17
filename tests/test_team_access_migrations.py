@@ -1,4 +1,4 @@
-"""Unit tests for the team-access SurrealDB migrations (26/27).
+"""Unit tests for the team-access SurrealDB migrations (26/27/28).
 
 These tests verify the migration *files* and their registration — they do not
 need a live database. Applying the migrations to a real SurrealDB is covered
@@ -21,8 +21,12 @@ EXPECTED_NEW_TABLES_26 = [
 ]
 
 
-def test_migrations_26_and_27_files_exist() -> None:
-    for name in ["26.surrealql", "26_down.surrealql", "27.surrealql", "27_down.surrealql"]:
+def test_migrations_26_27_28_files_exist() -> None:
+    for name in [
+        "26.surrealql", "26_down.surrealql",
+        "27.surrealql", "27_down.surrealql",
+        "28.surrealql", "28_down.surrealql",
+    ]:
         assert (MIGRATIONS_DIR / name).is_file(), f"missing migration file: {name}"
 
 
@@ -62,19 +66,33 @@ def test_migration_27_defines_analytics_metadata() -> None:
     assert "REMOVE TABLE IF EXISTS analytics_query_log" in down
 
 
-def test_migration_manager_registers_27_up_and_down_migrations() -> None:
+def test_migration_28_adds_ownership_fields_to_episode() -> None:
+    """T5: episodes derive team access from their source notebook."""
+    sql = (MIGRATIONS_DIR / "28.surrealql").read_text()
+    for field in ["notebook", "organization", "team", "visibility", "created_by"]:
+        assert f"DEFINE FIELD IF NOT EXISTS {field} ON TABLE episode" in sql
+    assert "episode_team_visibility" in sql
+    down = (MIGRATIONS_DIR / "28_down.surrealql").read_text()
+    for field in ["notebook", "organization", "team", "visibility", "created_by"]:
+        assert f"REMOVE FIELD IF EXISTS {field} ON TABLE episode" in down
+    assert "REMOVE INDEX IF EXISTS episode_team_visibility" in down
+
+
+def test_migration_manager_registers_30_up_and_down_migrations() -> None:
     manager = AsyncMigrationManager()
-    assert len(manager.up_migrations) == 27
-    assert len(manager.down_migrations) == 27
+    assert len(manager.up_migrations) == 30
+    assert len(manager.down_migrations) == 30
 
 
-@pytest.mark.parametrize("version", [26, 27])
+@pytest.mark.parametrize("version", [26, 27, 28, 29, 30])
 def test_new_migrations_parse_into_non_empty_sql(version: int) -> None:
     """AsyncMigration.from_file strips comments/blank lines; result must be non-trivial."""
     from open_notebook.database.async_migrate import AsyncMigration
 
     up = AsyncMigration.from_file(f"open_notebook/database/migrations/{version}.surrealql")
-    assert len(up.sql) > 100
+    # 26-28 are table batches (>100 chars); 29/30 are single-field migrations.
+    min_chars = 100 if version < 29 else 40
+    assert len(up.sql) > min_chars
     assert "DEFINE" in up.sql
     down = AsyncMigration.from_file(
         f"open_notebook/database/migrations/{version}_down.surrealql"

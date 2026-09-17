@@ -1,17 +1,25 @@
 from typing import List, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 from loguru import logger
 from pydantic import BaseModel
 
+from api.access import (
+    CurrentUser,
+    check_episode_read,
+    check_episode_write,
+    check_notebook_read,
+    get_current_user,
+    permitted_episode_ids,
+)
 from api.podcast_service import (
     PodcastGenerationRequest,
     PodcastGenerationResponse,
     PodcastService,
 )
 from open_notebook.ai.models import Model
-from open_notebook.exceptions import OpenNotebookError
+from open_notebook.exceptions import NotFoundError, OpenNotebookError
 from open_notebook.podcasts.audio_paths import resolve_contained_audio_path
 from open_notebook.podcasts.models import PodcastEpisode
 
@@ -122,12 +130,32 @@ class PodcastEpisodeResponse(BaseModel):
 
 
 @router.post("/podcasts/generate", response_model=PodcastGenerationResponse)
-async def generate_podcast(request: PodcastGenerationRequest):
+async def generate_podcast(
+    request: PodcastGenerationRequest, user: CurrentUser = Depends(get_current_user)
+):
     """
     Generate a podcast episode using Episode Profiles.
     Returns immediately with job ID for status tracking.
     """
     try:
+        # T5: when a notebook supplies the content, it must be readable; the
+        # episode inherits its team so the episodes list can be scoped.
+        owner: dict = {
+            "notebook_id": request.notebook_id,
+            "organization_id": user.organization_id,
+            "team_id": user.team_id,
+            "visibility": "team",
+            "created_by": user.id,
+        }
+        if request.notebook_id:
+            notebook = await check_notebook_read(user, request.notebook_id)
+            if notebook.team_id:
+                owner["team_id"] = notebook.team_id
+                owner["organization_id"] = (
+                    notebook.organization_id or user.organization_id
+                )
+                owner["visibility"] = notebook.visibility
+
         job_id = await PodcastService.submit_generation_job(
             episode_profile_name=request.episode_profile,
             speaker_profile_name=request.speaker_profile,
@@ -135,6 +163,7 @@ async def generate_podcast(request: PodcastGenerationRequest):
             notebook_id=request.notebook_id,
             content=request.content,
             briefing_suffix=request.briefing_suffix,
+            owner=owner,
         )
 
         return PodcastGenerationResponse(
@@ -157,9 +186,24 @@ async def generate_podcast(request: PodcastGenerationRequest):
 
 
 @router.get("/podcasts/jobs/{job_id}")
-async def get_podcast_job_status(job_id: str):
+async def get_podcast_job_status(
+    job_id: str, user: CurrentUser = Depends(get_current_user)
+):
     """Get the status of a podcast generation job"""
     try:
+        # T5: a job is only visible through the episode that references it —
+        # guessing a command id must not leak status.
+        from open_notebook.database.repository import ensure_record_id, repo_query
+
+        job_rows = await repo_query(
+            "SELECT id FROM episode WHERE command = $command LIMIT 1",
+            {"command": ensure_record_id(job_id)},
+        )
+        if job_rows:
+            await check_episode_read(user, str(job_rows[0]["id"]))
+        elif user.role != "admin":
+            raise NotFoundError("Job not found")
+
         status_data = await PodcastService.get_job_status(job_id)
         return status_data
 
@@ -175,10 +219,14 @@ async def get_podcast_job_status(job_id: str):
 
 
 @router.get("/podcasts/episodes", response_model=List[PodcastEpisodeResponse])
-async def list_podcast_episodes():
-    """List all podcast episodes"""
+async def list_podcast_episodes(
+    user: CurrentUser = Depends(get_current_user),
+):
+    """List podcast episodes the caller may read (T5: SQL-side scope)."""
     try:
-        episodes = await PodcastService.list_episodes()
+        episodes = await PodcastService.list_episodes(
+            permitted_ids=await permitted_episode_ids(user)
+        )
 
         # Batch-fetch job status for every episode with a command in one
         # query instead of one round trip per episode (see
@@ -260,10 +308,12 @@ async def list_podcast_episodes():
 
 
 @router.get("/podcasts/episodes/{episode_id}", response_model=PodcastEpisodeResponse)
-async def get_podcast_episode(episode_id: str):
+async def get_podcast_episode(
+    episode_id: str, user: CurrentUser = Depends(get_current_user)
+):
     """Get a specific podcast episode"""
     try:
-        episode = await PodcastService.get_episode(episode_id)
+        episode = await check_episode_read(user, episode_id)
 
         # Get job status and error message if available
         job_status = None
@@ -319,10 +369,13 @@ async def get_podcast_episode(episode_id: str):
 
 
 @router.get("/podcasts/episodes/{episode_id}/audio")
-async def stream_podcast_episode_audio(episode_id: str):
+async def stream_podcast_episode_audio(
+    episode_id: str, user: CurrentUser = Depends(get_current_user)
+):
     """Stream the audio file associated with a podcast episode"""
     try:
-        episode = await PodcastService.get_episode(episode_id)
+        # T5: permission is checked before the FileResponse is built.
+        episode = await check_episode_read(user, episode_id)
     except HTTPException:
         raise
     except OpenNotebookError:
@@ -353,10 +406,12 @@ async def stream_podcast_episode_audio(episode_id: str):
 
 
 @router.post("/podcasts/episodes/{episode_id}/retry")
-async def retry_podcast_episode(episode_id: str):
+async def retry_podcast_episode(
+    episode_id: str, user: CurrentUser = Depends(get_current_user)
+):
     """Retry a failed podcast episode by deleting it and submitting a new job"""
     try:
-        episode = await PodcastService.get_episode(episode_id)
+        episode = await check_episode_write(user, episode_id)
 
         # Validate episode is in a failed state
         detail = await episode.get_job_detail()
@@ -384,12 +439,20 @@ async def retry_podcast_episode(episode_id: str):
         # Delete the failed episode
         await episode.delete()
 
-        # Submit a new job
+        # Submit a new job — the replacement episode stays in the same team
+        owner = {
+            "notebook_id": episode.notebook_id,
+            "organization_id": episode.organization_id,
+            "team_id": episode.team_id,
+            "visibility": episode.visibility,
+            "created_by": user.id,
+        }
         job_id = await PodcastService.submit_generation_job(
             episode_profile_name=ep_profile_name,
             speaker_profile_name=sp_profile_name,
             episode_name=episode_name,
             content=content,
+            owner=owner,
         )
 
         return {"job_id": job_id, "message": "Retry submitted successfully"}
@@ -406,11 +469,13 @@ async def retry_podcast_episode(episode_id: str):
 
 
 @router.delete("/podcasts/episodes/{episode_id}")
-async def delete_podcast_episode(episode_id: str):
+async def delete_podcast_episode(
+    episode_id: str, user: CurrentUser = Depends(get_current_user)
+):
     """Delete a podcast episode and its associated audio file"""
     try:
-        # Get the episode first to check if it exists and get the audio file path
-        episode = await PodcastService.get_episode(episode_id)
+        # Get the episode first (T5: write check) and the audio file path
+        episode = await check_episode_write(user, episode_id)
 
         # Delete the physical audio file if it exists
         _delete_episode_audio(episode, episode_id)

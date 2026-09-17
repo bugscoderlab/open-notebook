@@ -1,0 +1,5 @@
+-- Migration 30 down: restore the migration 27 non-optional definition.
+-- Existing rows with dataset NONE would violate this; only run down before
+-- any dataset-less logs exist.
+REMOVE FIELD IF EXISTS dataset ON TABLE analytics_query_log;
+DEFINE FIELD dataset ON TABLE analytics_query_log TYPE record<dataset>;

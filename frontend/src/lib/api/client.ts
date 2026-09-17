@@ -1,9 +1,15 @@
 import axios, { AxiosResponse } from 'axios'
 import { getApiUrl } from '@/lib/config'
-import { getAuthToken } from '@/lib/auth-token'
+import { CSRF_HEADER_NAME, getCsrfToken } from '@/lib/csrf'
 
 // API client with runtime-configurable base URL
 // The base URL is fetched from the API config endpoint on first request
+//
+// Session auth is a cookie, not a header (ADR-010): withCredentials lets the
+// browser send the HttpOnly session cookie (same-origin always; cross-origin
+// only when the operator scopes CORS_ORIGINS to the frontend origin). There
+// is deliberately no Authorization handling here — nothing token-shaped is
+// readable or writable from JavaScript.
 //
 // Request timeout defaults to 10 minutes (600000ms) to accommodate slow LLM
 // operations (transformations, insights, synchronous chat) on slower hardware
@@ -28,43 +34,108 @@ export const apiClient = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
-  withCredentials: false,
+  withCredentials: true,
 })
 
-// Request interceptor to add base URL and auth header
+/**
+ * Hook for session-death handling: on any 401 the response interceptor calls
+ * this handler (the auth store clears the identity; the dashboard guard then
+ * redirects to /login). Registered by `@/lib/stores/auth-store` to avoid a
+ * store ↔ client import cycle.
+ */
+type UnauthorizedHandler = () => void
+let unauthorizedHandler: UnauthorizedHandler | null = null
+
+export function setUnauthorizedHandler(handler: UnauthorizedHandler | null): void {
+  unauthorizedHandler = handler
+}
+
+/**
+ * Resolve the axios baseURL for cookie sessions (ADR-010).
+ *
+ * Session cookies cannot travel on credentialed cross-origin requests when
+ * the API answers with wildcard CORS (`Allow-Origin: *` without
+ * `Allow-Credentials`) — the browser blocks the response and axios reports a
+ * "Network Error". That is the default topology in dev and single-container
+ * Docker: page on :3000, API on the SAME host at :5055. In that case the
+ * browser must go through the same-origin Next.js rewrites proxy (`/api` →
+ * INTERNAL_API_URL), which needs no CORS at all. The SSE fetches in
+ * search.ts/source-chat.ts already rely on this proxy for the same reason.
+ *
+ * Only a genuinely cross-host API_URL (e.g. api.example.com vs
+ * notebook.example.com) stays absolute — there the operator must scope
+ * CORS_ORIGINS to the frontend origin so the API answers with credentials
+ * allowed (see api/main.py CORS_ALLOW_CREDENTIALS).
+ *
+ * @param apiUrl configured API origin (may be '' = use the proxy)
+ * @param pageOrigin browser origin; omit on the server (absolute fallback)
+ */
+export function resolveApiBaseUrl(apiUrl: string, pageOrigin?: string): string {
+  if (!pageOrigin) {
+    return `${apiUrl}/api`
+  }
+  if (!apiUrl || isApiSameOrigin(apiUrl, pageOrigin)) {
+    return '/api'
+  }
+  return `${apiUrl}/api`
+}
+
+/**
+ * True when the configured API lives on the same hostname as the page
+ * (any port) — i.e. the browser can reach it through the same-origin
+ * Next.js rewrites proxy instead of a credentialed cross-origin request.
+ * Shared by the apiClient baseURL and the podcast asset URLs (media
+ * elements send no cross-origin credentials at all).
+ */
+export function isApiSameOrigin(apiUrl: string, pageOrigin?: string): boolean {
+  if (!apiUrl || !pageOrigin) {
+    return false
+  }
+  try {
+    return new URL(apiUrl).hostname === new URL(pageOrigin).hostname
+  } catch (error) {
+    console.warn('[api-client] Unparseable API URL or page origin:', error)
+    return false
+  }
+}
+
+// Request interceptor to add base URL, CSRF header, and content types
 apiClient.interceptors.request.use(async (config) => {
   // Set the base URL dynamically from runtime config
   if (!config.baseURL) {
     const apiUrl = await getApiUrl()
-    config.baseURL = `${apiUrl}/api`
+    const pageOrigin =
+      typeof window !== 'undefined' ? window.location.origin : undefined
+    config.baseURL = resolveApiBaseUrl(apiUrl, pageOrigin)
   }
 
-  const token = getAuthToken()
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`
+  // Mutations echo the readable CSRF cookie (double-submit pattern, ADR-010).
+  // The backend enforces it on logout today and on every mutation from T5.
+  const method = config.method?.toLowerCase()
+  if (method && ['post', 'put', 'patch', 'delete'].includes(method)) {
+    const csrf = getCsrfToken()
+    if (csrf) {
+      config.headers[CSRF_HEADER_NAME] = csrf
+    }
   }
 
   // Handle FormData vs JSON content types
   if (config.data instanceof FormData) {
     // Remove any Content-Type header to let browser set multipart boundary
     delete config.headers['Content-Type']
-  } else if (config.method && ['post', 'put', 'patch'].includes(config.method.toLowerCase())) {
+  } else if (method && ['post', 'put', 'patch'].includes(method)) {
     config.headers['Content-Type'] = 'application/json'
   }
 
   return config
 })
 
-// Response interceptor for error handling
+// Response interceptor for session-death handling
 apiClient.interceptors.response.use(
   (response: AxiosResponse) => response,
   (error) => {
     if (error.response?.status === 401) {
-      // Clear auth and redirect to login
-      if (typeof window !== 'undefined') {
-        localStorage.removeItem('auth-storage')
-        window.location.href = '/login'
-      }
+      unauthorizedHandler?.()
     }
     return Promise.reject(error)
   }

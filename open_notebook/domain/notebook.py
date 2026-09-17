@@ -1,28 +1,78 @@
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import Any, ClassVar, Dict, List, Literal, Optional, Union
+from typing import Any, ClassVar, Dict, List, Literal, Optional, Set, Union
 
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from surreal_commands import submit_command
 from surrealdb import RecordID
 
-from open_notebook.database.repository import ensure_record_id, repo_query
+from open_notebook.database.repository import (
+    db_connection,
+    ensure_record_id,
+    parse_record_ids,
+    repo_query,
+)
 from open_notebook.domain.base import ObjectModel
 from open_notebook.exceptions import (
     DatabaseOperationError,
+    ForbiddenError,
     InvalidInputError,
     NotFoundError,
 )
 
+# Edges through which content links to notebooks (validated before relate()).
+_NOTEBOOK_EDGES = {"reference": "source", "artifact": "note"}
+
+
+async def _linked_team_ids(item_id: str, edge: str) -> Set[str]:
+    """Team ids of the notebooks an item is already linked to (one query)."""
+    if edge not in _NOTEBOOK_EDGES:
+        raise InvalidInputError(f"Unknown notebook edge: {edge}")
+    rows = await repo_query(
+        f"SELECT out.team AS team FROM {edge} WHERE in = $id AND out.team IS NOT NONE",
+        {"id": ensure_record_id(item_id)},
+    )
+    return {str(row["team"]) for row in rows if row.get("team")}
+
+
+def _assert_same_team_link(
+    item_team_id: Optional[str],
+    item_visibility: Optional[str],
+    linked_team_ids: Set[str],
+    notebook: "Notebook",
+) -> None:
+    """T5 link rule: same-team only; company-shared only to company-shared.
+
+    Unclassified items (no team anywhere) link freely — the T6 migration
+    pass flags the resulting mixed-team notebooks for admin resolution.
+    """
+    involved = set(linked_team_ids)
+    if item_team_id:
+        involved.add(item_team_id)
+    if notebook.team_id and any(team != notebook.team_id for team in involved):
+        raise ForbiddenError("Cannot link content across teams")
+    if item_visibility == "company_shared" and notebook.visibility != "company_shared":
+        raise ForbiddenError(
+            "Company-shared content can only link to company-shared notebooks"
+        )
+
 
 class Notebook(ObjectModel):
     table_name: ClassVar[str] = "notebook"
+    nullable_fields: ClassVar[set[str]] = {"organization", "team", "created_by"}
+
+    model_config = ConfigDict(populate_by_name=True)
+
     name: str
     description: str
     archived: Optional[bool] = False
     last_viewed_at: Optional[datetime] = None
+    organization_id: Optional[str] = Field(default=None, alias="organization")
+    team_id: Optional[str] = Field(default=None, alias="team")
+    visibility: str = "team"
+    created_by: Optional[str] = Field(default=None, alias="created_by")
 
     @field_validator("name")
     @classmethod
@@ -30,6 +80,51 @@ class Notebook(ObjectModel):
         if not v.strip():
             raise InvalidInputError("Notebook name cannot be empty")
         return v
+
+    @classmethod
+    async def create(
+        cls,
+        *,
+        name: str,
+        description: str = "",
+        organization_id: Optional[str] = None,
+        team_id: Optional[str] = None,
+        created_by: Optional[str] = None,
+        visibility: str = "team",
+    ) -> "Notebook":
+        """Create a notebook stamped with its owning team (T5).
+
+        Raw ``CREATE ... CONTENT`` because record-typed fields
+        (organization/team/created_by) are rejected on the repo_create
+        path (see open_notebook/AGENTS.md, ``create_user`` pattern).
+        """
+        data: Dict[str, Any] = {
+            "name": name,
+            "description": description,
+            "archived": False,
+            "visibility": visibility,
+            "organization": ensure_record_id(organization_id) if organization_id else None,
+            "team": ensure_record_id(team_id) if team_id else None,
+            "created_by": ensure_record_id(created_by) if created_by else None,
+        }
+        async with db_connection() as conn:
+            result = parse_record_ids(
+                await conn.query("CREATE notebook CONTENT $data", {"data": data})
+            )
+        return cls(**result[0])
+
+    def _prepare_save_data(self) -> dict:
+        data = self.model_dump(by_alias=True)
+        # Record-typed fields need RecordID values (raw string refs are
+        # rejected by SurrealDB on the UPDATE ... MERGE path).
+        for key in ("organization", "team", "created_by"):
+            if data.get(key) is not None:
+                data[key] = ensure_record_id(data[key])
+        return {
+            key: value
+            for key, value in data.items()
+            if value is not None or key in self.__class__.nullable_fields
+        }
 
     async def get_sources(self, include_full_text: bool = False) -> List["Source"]:
         try:
@@ -404,9 +499,11 @@ class SourceInsight(ObjectModel):
 
 
 class Source(ObjectModel):
-    model_config = ConfigDict(arbitrary_types_allowed=True)
+    model_config = ConfigDict(arbitrary_types_allowed=True, populate_by_name=True)
 
     table_name: ClassVar[str] = "source"
+    nullable_fields: ClassVar[set[str]] = {"organization", "team", "created_by"}
+
     asset: Optional[Asset] = None
     title: Optional[str] = None
     topics: Optional[List[str]] = Field(default_factory=list)
@@ -415,6 +512,10 @@ class Source(ObjectModel):
     command: Optional[Union[str, RecordID]] = Field(
         default=None, description="Link to surreal-commands processing job"
     )
+    organization_id: Optional[str] = Field(default=None, alias="organization")
+    team_id: Optional[str] = Field(default=None, alias="team")
+    visibility: str = "team"
+    created_by: Optional[str] = Field(default=None, alias="created_by")
 
     @field_validator("command", mode="before")
     @classmethod
@@ -527,10 +628,46 @@ class Source(ObjectModel):
             logger.exception(e)
             raise DatabaseOperationError("Failed to fetch insights for source")
 
+    @classmethod
+    async def create(
+        cls,
+        *,
+        title: Optional[str] = None,
+        asset: Optional[Asset] = None,
+        organization_id: Optional[str] = None,
+        team_id: Optional[str] = None,
+        created_by: Optional[str] = None,
+        visibility: str = "team",
+    ) -> "Source":
+        """Create a source stamped with its owning team (T5).
+
+        Raw ``CREATE ... CONTENT`` for the record-typed fields (see
+        ``Notebook.create``).
+        """
+        data: Dict[str, Any] = {
+            "title": title,
+            "asset": asset.model_dump() if asset else None,
+            "topics": [],
+            "visibility": visibility,
+            "organization": ensure_record_id(organization_id) if organization_id else None,
+            "team": ensure_record_id(team_id) if team_id else None,
+            "created_by": ensure_record_id(created_by) if created_by else None,
+        }
+        async with db_connection() as conn:
+            result = parse_record_ids(
+                await conn.query("CREATE source CONTENT $data", {"data": data})
+            )
+        return cls(**result[0])
+
     async def add_to_notebook(self, notebook_id: str) -> Any:
         if not notebook_id:
             raise InvalidInputError("Notebook ID must be provided")
-        await Notebook.get(notebook_id)  # raises NotFoundError if invalid/missing
+        notebook = await Notebook.get(notebook_id)  # raises NotFoundError if invalid
+        if self.id:
+            linked = await _linked_team_ids(self.id, "reference")
+        else:
+            linked = set()
+        _assert_same_team_link(self.team_id, self.visibility, linked, notebook)
         return await self.relate("reference", notebook_id)
 
     async def vectorize(self) -> str:
@@ -634,14 +771,23 @@ class Source(ObjectModel):
             raise DatabaseOperationError(e)
 
     def _prepare_save_data(self) -> dict:
-        """Override to ensure command field is always RecordID format for database"""
-        data = super()._prepare_save_data()
+        """Override to ensure command and team fields are database-ready."""
+        data = self.model_dump(by_alias=True)
 
         # Ensure command field is RecordID format if not None
         if data.get("command") is not None:
             data["command"] = ensure_record_id(data["command"])
+        # Record-typed fields need RecordID values (raw string refs are
+        # rejected by SurrealDB on the UPDATE ... MERGE path).
+        for key in ("organization", "team", "created_by"):
+            if data.get(key) is not None:
+                data[key] = ensure_record_id(data[key])
 
-        return data
+        return {
+            key: value
+            for key, value in data.items()
+            if value is not None or key in self.__class__.nullable_fields
+        }
 
     async def delete(self) -> bool:
         """Delete source and clean up associated file, embeddings, and insights."""
@@ -735,7 +881,12 @@ class Note(ObjectModel):
     async def add_to_notebook(self, notebook_id: str) -> Any:
         if not notebook_id:
             raise InvalidInputError("Notebook ID must be provided")
-        await Notebook.get(notebook_id)  # raises NotFoundError if invalid/missing
+        notebook = await Notebook.get(notebook_id)  # raises NotFoundError if invalid
+        if self.id:
+            linked = await _linked_team_ids(self.id, "artifact")
+        else:
+            linked = set()
+        _assert_same_team_link(None, None, linked, notebook)
         return await self.relate("artifact", notebook_id)
 
     def get_context(

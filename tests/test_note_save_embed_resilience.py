@@ -105,12 +105,18 @@ class TestNoteSaveEmbedResilience:
 class TestEmbeddingEndpointNoteBranch:
     """api/routers/embedding.py: POST /api/embed with item_type=note."""
 
-    def test_returns_500_when_submission_fails_with_content(self, client):
+    def test_returns_500_when_submission_fails_with_content(
+        self, client, auth_session, auth_cookie
+    ):
+        auth_session()
         note = Note(title="Test", content="some content")
         object.__setattr__(note, "id", "note:abc123")
 
         with (
-            patch("api.routers.embedding.Note.get", new=AsyncMock(return_value=note)),
+            patch(
+                "api.routers.embedding.check_note_write",
+                new=AsyncMock(return_value=note),
+            ),
             patch.object(Note, "save", new=AsyncMock(return_value=None)),
             patch(
                 "open_notebook.ai.models.model_manager.get_embedding_model",
@@ -120,17 +126,22 @@ class TestEmbeddingEndpointNoteBranch:
             response = client.post(
                 "/api/embed",
                 json={"item_id": "note:abc123", "item_type": "note", "async_processing": False},
+                cookies=auth_cookie,
             )
 
         assert response.status_code == 500
         assert response.json()["detail"] == "Failed to submit note embedding job"
 
-    def test_succeeds_when_submission_works(self, client):
+    def test_succeeds_when_submission_works(self, client, auth_session, auth_cookie):
+        auth_session()
         note = Note(title="Test", content="some content")
         object.__setattr__(note, "id", "note:abc123")
 
         with (
-            patch("api.routers.embedding.Note.get", new=AsyncMock(return_value=note)),
+            patch(
+                "api.routers.embedding.check_note_write",
+                new=AsyncMock(return_value=note),
+            ),
             patch.object(
                 Note, "save", new=AsyncMock(return_value="command:abc123")
             ),
@@ -142,6 +153,7 @@ class TestEmbeddingEndpointNoteBranch:
             response = client.post(
                 "/api/embed",
                 json={"item_id": "note:abc123", "item_type": "note", "async_processing": False},
+                cookies=auth_cookie,
             )
 
         assert response.status_code == 200
@@ -149,14 +161,20 @@ class TestEmbeddingEndpointNoteBranch:
         assert body["success"] is True
         assert body["command_id"] == "command:abc123"
 
-    def test_succeeds_with_no_command_id_when_note_has_no_content(self, client):
+    def test_succeeds_with_no_command_id_when_note_has_no_content(
+        self, client, auth_session, auth_cookie
+    ):
+        auth_session()
         """A content-less note has nothing to embed - save() correctly
         returns None, and that must NOT be treated as a submission failure."""
         note = Note(title="Test", content=None)
         object.__setattr__(note, "id", "note:abc123")
 
         with (
-            patch("api.routers.embedding.Note.get", new=AsyncMock(return_value=note)),
+            patch(
+                "api.routers.embedding.check_note_write",
+                new=AsyncMock(return_value=note),
+            ),
             patch.object(Note, "save", new=AsyncMock(return_value=None)),
             patch(
                 "open_notebook.ai.models.model_manager.get_embedding_model",
@@ -166,6 +184,7 @@ class TestEmbeddingEndpointNoteBranch:
             response = client.post(
                 "/api/embed",
                 json={"item_id": "note:abc123", "item_type": "note", "async_processing": False},
+                cookies=auth_cookie,
             )
 
         assert response.status_code == 200

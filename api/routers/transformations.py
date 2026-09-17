@@ -1,8 +1,9 @@
 from typing import List
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from loguru import logger
 
+from api.access import CurrentUser, get_current_user, require_admin
 from api.models import (
     DefaultPromptResponse,
     DefaultPromptUpdate,
@@ -17,7 +18,7 @@ from open_notebook.domain.transformation import DefaultPrompts, Transformation
 from open_notebook.exceptions import InvalidInputError, OpenNotebookError
 from open_notebook.graphs.transformation import graph as transformation_graph
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(get_current_user)])  # T5: authenticated
 
 
 def _transformation_response(transformation: Transformation) -> TransformationResponse:
@@ -56,7 +57,10 @@ async def get_transformations():
 
 
 @router.post("/transformations", response_model=TransformationResponse)
-async def create_transformation(transformation_data: TransformationCreate):
+async def create_transformation(
+    transformation_data: TransformationCreate,
+    admin: CurrentUser = Depends(require_admin),  # T5: admin-only mutation
+):
     """Create a new transformation."""
     try:
         # Reject unknown model references up front (same check as execute);
@@ -91,7 +95,10 @@ async def create_transformation(transformation_data: TransformationCreate):
 
 
 @router.post("/transformations/execute", response_model=TransformationExecuteResponse)
-async def execute_transformation(execute_request: TransformationExecuteRequest):
+async def execute_transformation(
+    execute_request: TransformationExecuteRequest,
+    admin: CurrentUser = Depends(require_admin),  # T5: admin-only mutation
+):
     """Execute a transformation on input text."""
     try:
         # Validate transformation exists
@@ -158,7 +165,10 @@ async def get_default_prompt():
 
 
 @router.put("/transformations/default-prompt", response_model=DefaultPromptResponse)
-async def update_default_prompt(prompt_update: DefaultPromptUpdate):
+async def update_default_prompt(
+    prompt_update: DefaultPromptUpdate,
+    admin: CurrentUser = Depends(require_admin),  # T5: admin-only mutation
+):
     """Update the default transformation prompt."""
     try:
         default_prompts: DefaultPrompts = await DefaultPrompts.get_instance()  # type: ignore[assignment]
@@ -208,7 +218,9 @@ async def get_transformation(transformation_id: str):
     "/transformations/{transformation_id}", response_model=TransformationResponse
 )
 async def update_transformation(
-    transformation_id: str, transformation_update: TransformationUpdate
+    transformation_id: str,
+    transformation_update: TransformationUpdate,
+    admin: CurrentUser = Depends(require_admin),  # T5: admin-only mutation
 ):
     """Update a transformation."""
     try:
@@ -252,7 +264,10 @@ async def update_transformation(
 
 
 @router.delete("/transformations/{transformation_id}")
-async def delete_transformation(transformation_id: str):
+async def delete_transformation(
+    transformation_id: str,
+    admin: CurrentUser = Depends(require_admin),  # T5: admin-only mutation
+):
     """Delete a transformation."""
     try:
         transformation = await Transformation.get(transformation_id)

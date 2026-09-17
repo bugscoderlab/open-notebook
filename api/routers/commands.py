@@ -1,10 +1,11 @@
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from loguru import logger
 from pydantic import BaseModel, Field
 from surreal_commands import registry
 
+from api.access import CurrentUser, get_current_user, require_admin
 from api.command_service import CommandService
 from open_notebook.exceptions import OpenNotebookError
 
@@ -36,9 +37,12 @@ class CommandJobStatusResponse(BaseModel):
 
 
 @router.post("/commands/jobs", response_model=CommandJobResponse)
-async def execute_command(request: CommandExecutionRequest):
+async def execute_command(
+    request: CommandExecutionRequest, admin: CurrentUser = Depends(require_admin)
+):
     """
-    Submit a command for background processing.
+    Submit a command for background processing (T5: admin only — this is a
+    generic remote-job-execution surface).
     Returns immediately with job ID for status tracking.
 
     Example request:
@@ -79,8 +83,10 @@ async def execute_command(request: CommandExecutionRequest):
 
 
 @router.get("/commands/jobs/{job_id}", response_model=CommandJobStatusResponse)
-async def get_command_job_status(job_id: str):
-    """Get the status of a specific command job"""
+async def get_command_job_status(
+    job_id: str, user: CurrentUser = Depends(get_current_user)
+):
+    """Get the status of a specific command job (T5: authenticated)"""
     try:
         status_data = await CommandService.get_command_status(job_id)
         return CommandJobStatusResponse(**status_data)
@@ -98,6 +104,7 @@ async def get_command_job_status(job_id: str):
 
 @router.get("/commands/jobs", response_model=List[Dict[str, Any]])
 async def list_command_jobs(
+    user: CurrentUser = Depends(get_current_user),
     command_filter: Optional[str] = Query(None, description="Filter by command name"),
     status_filter: Optional[str] = Query(None, description="Filter by status"),
     limit: int = Query(50, description="Maximum number of jobs to return"),
@@ -121,8 +128,10 @@ async def list_command_jobs(
 
 
 @router.delete("/commands/jobs/{job_id}")
-async def cancel_command_job(job_id: str):
-    """Cancel a running command job"""
+async def cancel_command_job(
+    job_id: str, user: CurrentUser = Depends(get_current_user)
+):
+    """Cancel a running command job (T5: authenticated)"""
     try:
         success = await CommandService.cancel_command_job(job_id)
         return {"job_id": job_id, "cancelled": success}
@@ -139,8 +148,8 @@ async def cancel_command_job(job_id: str):
 
 
 @router.get("/commands/registry/debug")
-async def debug_registry():
-    """Debug endpoint to see what commands are registered"""
+async def debug_registry(user: CurrentUser = Depends(get_current_user)):
+    """Debug endpoint to see what commands are registered (T5: authenticated)"""
     try:
         # Get all registered commands
         all_items = registry.get_all_commands()

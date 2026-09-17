@@ -1,0 +1,14 @@
+-- Migration 28: team-access ownership on podcast episodes (T5).
+-- Episodes derive access from the notebook they were generated from; the
+-- router stamps these fields at generation time so the episodes list can
+-- be filtered without joining back through the (payload-only) job.
+-- Field naming follows the repo convention (record fields named by target
+-- table; domain models expose them as *_id via aliases).
+
+DEFINE FIELD IF NOT EXISTS notebook ON TABLE episode TYPE option<record<notebook>>;
+DEFINE FIELD IF NOT EXISTS organization ON TABLE episode TYPE option<record<organization>>;
+DEFINE FIELD IF NOT EXISTS team ON TABLE episode TYPE option<record<team>>;
+DEFINE FIELD IF NOT EXISTS visibility ON TABLE episode TYPE string DEFAULT 'team';
+DEFINE FIELD IF NOT EXISTS created_by ON TABLE episode TYPE option<record<app_user>>;
+
+DEFINE INDEX IF NOT EXISTS episode_team_visibility ON TABLE episode FIELDS team, visibility;

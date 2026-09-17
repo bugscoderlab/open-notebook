@@ -53,6 +53,13 @@ def client():
     return TestClient(app)
 
 
+@pytest.fixture(autouse=True)
+def _authenticated_admin(auth_session):
+    """T5: config routers require a session cookie; these suites assert
+    config behavior, not authorization."""
+    auth_session()
+
+
 class TestProviderRegistryIsTheSourceOfTruth:
     """The registry drives every backend surface; the Literal is the only
     manual copy and must match it."""

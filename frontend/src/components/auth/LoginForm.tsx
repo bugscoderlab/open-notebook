@@ -3,7 +3,6 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/lib/hooks/use-auth'
-import { useAuthStore } from '@/lib/stores/auth-store'
 import { getConfig } from '@/lib/config'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -14,10 +13,16 @@ import { useTranslation } from '@/lib/hooks/use-translation'
 
 export function LoginForm() {
   const { t, language } = useTranslation()
+  const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const { login, isLoading, error } = useAuth()
-  const { authRequired, checkAuthRequired, hasHydrated, isAuthenticated } = useAuthStore()
-  const [isCheckingAuth, setIsCheckingAuth] = useState(true)
+  const {
+    login,
+    isSubmitting,
+    error,
+    errorCode,
+    authEnabled,
+    isAuthenticated,
+  } = useAuth()
   const [configInfo, setConfigInfo] = useState<{ apiUrl: string; version: string; buildTime: string } | null>(null)
   const router = useRouter()
 
@@ -34,42 +39,17 @@ export function LoginForm() {
     })
   }, [])
 
-  // Check if authentication is required on mount
+  // Open mode (no users seeded): nothing to sign in against — go to the app.
   useEffect(() => {
-    if (!hasHydrated) {
-      return
+    if (authEnabled === false || (authEnabled === true && isAuthenticated)) {
+      router.push('/notebooks')
     }
+  }, [authEnabled, isAuthenticated, router])
 
-    const checkAuth = async () => {
-      try {
-        const required = await checkAuthRequired()
-
-        // If auth is not required, redirect to notebooks
-        if (!required) {
-          router.push('/notebooks')
-        }
-      } catch (error) {
-        console.error('Error checking auth requirement:', error)
-        // On error, assume auth is required to be safe
-      } finally {
-        setIsCheckingAuth(false)
-      }
-    }
-
-    // If we already know auth status, use it
-    if (authRequired !== null) {
-      if (!authRequired && isAuthenticated) {
-        router.push('/notebooks')
-      } else {
-        setIsCheckingAuth(false)
-      }
-    } else {
-      void checkAuth()
-    }
-  }, [hasHydrated, authRequired, checkAuthRequired, router, isAuthenticated])
-
-  // Show loading while checking if auth is required
-  if (!hasHydrated || isCheckingAuth) {
+  // Show a spinner only while the auth probe is still running cleanly, or a
+  // login request is in flight. A probe that FAILED (error set) must fall
+  // through to the connection-error card below — never spin forever.
+  if ((authEnabled === null && !error) || isSubmitting) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <LoadingSpinner />
@@ -77,8 +57,8 @@ export function LoginForm() {
     )
   }
 
-  // If we still don't know if auth is required (connection error), show error
-  if (authRequired === null) {
+  // The API was unreachable.
+  if (error && (errorCode === 'network' || errorCode === 'server')) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background p-4">
         <Card className="w-full max-w-md">
@@ -93,7 +73,7 @@ export function LoginForm() {
               <div className="flex items-start gap-2 text-destructive text-sm">
                 <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
                 <div className="flex-1">
-                  {error || t('auth.connectErrorHint')}
+                  {t('auth.connectErrorHint')}
                 </div>
               </div>
 
@@ -127,15 +107,28 @@ export function LoginForm() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (password.trim()) {
+    if (email.trim() && password) {
       try {
-        await login(password)
+        await login(email.trim(), password)
       } catch (error) {
         console.error('Unhandled error during login:', error)
-        // The auth store should handle most errors, but this catches any unhandled ones
       }
     }
   }
+
+  // Server messages are English generics; map stable codes to locale strings.
+  // 'unknown' falls back to the shared generic error — raw server detail is
+  // never rendered as UI text (i18n rule).
+  const errorMessage =
+    errorCode === 'invalid_credentials'
+      ? t('auth.invalidCredentials')
+      : errorCode === 'rate_limited'
+        ? t('auth.tooManyAttempts')
+        : errorCode === 'migration_pending'
+          ? t('auth.migrationPending')
+          : errorCode === 'unknown'
+            ? t('errors.genericError')
+            : null
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
@@ -150,27 +143,38 @@ export function LoginForm() {
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <Input
+                type="email"
+                autoComplete="username"
+                placeholder={t('auth.emailPlaceholder')}
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                disabled={isSubmitting}
+              />
+            </div>
+            <div>
+              <Input
                 type="password"
+                autoComplete="current-password"
                 placeholder={t('auth.passwordPlaceholder')}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                disabled={isLoading}
+                disabled={isSubmitting}
               />
             </div>
 
-            {error && (
+            {errorMessage && (
               <div className="flex items-center gap-2 text-destructive text-sm">
                 <AlertCircle className="h-4 w-4" />
-                {error}
+                {errorMessage}
               </div>
             )}
 
             <Button
               type="submit"
               className="w-full"
-              disabled={isLoading || !password.trim()}
+              disabled={isSubmitting || !email.trim() || !password}
             >
-              {isLoading ? t('auth.signingIn') : t('auth.signIn')}
+              {isSubmitting ? t('auth.signingIn') : t('auth.signIn')}
             </Button>
 
             {configInfo && (

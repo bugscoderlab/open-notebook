@@ -24,6 +24,7 @@ import { StreamingResponse } from '@/components/search/StreamingResponse'
 import { AdvancedModelsDialog } from '@/components/search/AdvancedModelsDialog'
 import { SaveToNotebooksDialog } from '@/components/search/SaveToNotebooksDialog'
 import { NotebookScopeSelector } from '@/components/search/NotebookScopeSelector'
+import { AnalyticsMode } from '@/components/search/AnalyticsMode'
 
 export default function SearchPage() {
   const { t } = useTranslation()
@@ -37,6 +38,10 @@ export default function SearchPage() {
   const [activeTab, setActiveTab] = useState<'ask' | 'search'>(
     urlMode === 'search' ? 'search' : 'ask'
   )
+
+  // Ask-tab mode: Knowledge (RAG over documents) vs Analytics (structured
+  // business data) — the prototype's modebar (issue #10/T9).
+  const [askMode, setAskMode] = useState<'knowledge' | 'analytics'>('knowledge')
 
   // Search state
   const [searchQuery, setSearchQuery] = useState(urlMode === 'search' ? urlQuery : '')
@@ -182,6 +187,32 @@ export default function SearchPage() {
           </div>
 
           <TabsContent value="ask" className="mt-6">
+            {/* Prototype modebar: Knowledge | Analytics (T9) */}
+            <div className="mb-4 inline-flex rounded-lg border" role="group" aria-label={t('searchPage.analyticsModeGroup')}>
+              {(
+                [
+                  { mode: 'knowledge', label: t('searchPage.modeKnowledge'), rounded: 'rounded-l-lg' },
+                  { mode: 'analytics', label: t('searchPage.modeAnalytics'), rounded: 'rounded-r-lg' },
+                ] as const
+              ).map(({ mode, label, rounded }) => (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => setAskMode(mode)}
+                  className={`px-4 py-2 text-sm font-semibold ${rounded} transition-colors ${
+                    askMode === mode
+                      ? 'bg-primary text-primary-foreground'
+                      : 'text-muted-foreground hover:bg-muted'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            {askMode === 'analytics' ? (
+              <AnalyticsMode />
+            ) : (
             <Card>
               <CardHeader>
                 <CardTitle className="text-lg">{t('searchPage.askYourKb')}</CardTitle>
@@ -318,6 +349,7 @@ export default function SearchPage() {
                 )}
               </CardContent>
             </Card>
+            )}
           </TabsContent>
 
           <TabsContent value="search" className="mt-6">

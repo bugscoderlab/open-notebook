@@ -1,5 +1,5 @@
 import apiClient from './client'
-import { getAuthToken } from '@/lib/auth-token'
+import { CSRF_HEADER_NAME, getCsrfToken } from '@/lib/csrf'
 import {
   SourceChatSession,
   SourceChatSessionWithMessages,
@@ -48,19 +48,20 @@ export const sourceChatApi = {
 
   // Messaging with streaming
   sendMessage: (sourceId: string, sessionId: string, data: SendMessageRequest) => {
-    // Get auth token using the same logic as apiClient interceptor
-    const token = getAuthToken()
+    // Cookie session: credentials + CSRF header, same as apiClient. Relative
+    // URL on purpose — same-origin proxy policy: see client.ts
+    // (resolveApiBaseUrl); SSE fetch calls can't use the axios interceptor.
+    const csrf = getCsrfToken()
 
-    // Use relative URL to leverage Next.js rewrites
-    // This works both in dev (Next.js proxy) and production (Docker network)
     const url = `/api/sources/${sourceId}/chat/sessions/${sessionId}/messages`
 
     // Use fetch with ReadableStream for SSE
     return fetch(url, {
       method: 'POST',
+      credentials: 'include',
       headers: {
         'Content-Type': 'application/json',
-        ...(token && { 'Authorization': `Bearer ${token}` })
+        ...(csrf && { [CSRF_HEADER_NAME]: csrf })
       },
       body: JSON.stringify(data)
     }).then(response => {

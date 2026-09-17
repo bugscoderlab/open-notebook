@@ -18,9 +18,10 @@ const TEAM_PILL_VARIANTS: Record<string, 'hr' | 'finance' | 'executive' | 'compa
 
 /**
  * Prototype shell (T2) — the white top bar of the team-access prototype:
- * a search field on the left (visual only; submitting routes to /search,
- * matching the existing CommandPalette behaviour) and the account area
- * (stubbed user) on the right.
+ * a search field on the left (submitting routes to /search, matching the
+ * CommandPalette behaviour) and the account area on the right, backed by
+ * the real session identity (T3). Open mode (no users seeded) renders no
+ * identity block.
  */
 export function AppTopBar() {
   const { t } = useTranslation()
@@ -50,23 +51,27 @@ export function AppTopBar() {
         />
       </form>
 
-      <div className="ml-auto flex min-w-0 items-center gap-2 max-[650px]:w-full max-[650px]:justify-end">
-        <span className="hidden text-sm font-medium text-shell-ink sm:block">
-          {user.display_name}
-        </span>
-        <Pill variant={TEAM_PILL_VARIANTS[user.team.slug] ?? 'company-shared'}>
-          {user.team.name}
-        </Pill>
-        <span
-          aria-hidden="true"
-          className={cn(
-            'grid size-[35px] shrink-0 place-items-center rounded-full',
-            'bg-shell-green text-xs font-bold text-white'
+      {user && (
+        <div className="ml-auto flex min-w-0 items-center gap-2 max-[650px]:w-full max-[650px]:justify-end">
+          <span className="hidden text-sm font-medium text-shell-ink sm:block">
+            {user.display_name}
+          </span>
+          {user.team && (
+            <Pill variant={TEAM_PILL_VARIANTS[user.team.slug] ?? 'company-shared'}>
+              {user.team.name}
+            </Pill>
           )}
-        >
-          {getUserInitials(user.display_name)}
-        </span>
-      </div>
+          <span
+            aria-hidden="true"
+            className={cn(
+              'grid size-[35px] shrink-0 place-items-center rounded-full',
+              'bg-shell-green text-xs font-bold text-white'
+            )}
+          >
+            {getUserInitials(user.display_name)}
+          </span>
+        </div>
+      )}
     </header>
   )
 }

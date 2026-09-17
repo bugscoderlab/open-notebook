@@ -51,6 +51,8 @@ dependencies = [
     "sqlalchemy[asyncio]>=2.0",
     "asyncpg>=0.30",
     "alembic>=1.14",
+    # Team access (ADR-010): Argon2id password hashing for app_user.
+    "argon2-cffi>=23.1",
 ]
 
 [tool.setuptools]
@@ -71,6 +73,7 @@ dev = [
     "pytest>=9.0.3",
     "pytest-asyncio>=1.2.0",
     "pytest-cov>=7.0.0",
+    "pytest-split>=0.11.0",
     "pytest-xdist>=3.6",
     "ruff>=0.14.13",
     "types-requests>=2.32.4.20250913",
@@ -94,6 +97,16 @@ ignore = [
     "E402",  # module level import not at top of file (Streamlit requires this pattern)
     "F541",  # f-string without placeholders
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "integration: needs live infrastructure (Postgres scratch DB + SurrealDB test namespace); run via `make test-integration` or the CI testpack job",
+    "testpack: synthetic acceptance pack (canary sweep, access matrix, PDF extraction); run via `make test-testpack` or the CI testpack job",
+]
+# Default run = unit tier only (fast, xdist-safe, PR gate). The integration
+# and testpack tiers opt in via -m and need live infra (see tests/conftest.py).
+addopts = "-m 'not integration and not testpack'"
 
 [tool.uv]
 # Pillow < 12.2.0 has open security advisories (PSD OOB write, FITS

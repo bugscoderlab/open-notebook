@@ -24,6 +24,30 @@ def client():
     return TestClient(app)
 
 
+@pytest.fixture(autouse=True)
+def _authenticated_with_scope(auth_session, monkeypatch):
+    """T5: authenticate as admin and pin the permitted scope to notebook:1,
+    linking every requested item to it (characterization tests assert context
+    shapes, not authorization)."""
+    auth_session()
+    monkeypatch.setattr(
+        "api.routers.chat.permitted_notebook_ids",
+        AsyncMock(return_value=["notebook:1"]),
+    )
+
+    async def _repo_query(query, vars=None):
+        if " FROM reference " in f" {query} " or " FROM artifact " in f" {query} ":
+            return [
+                {"item": str(i), "notebook": "notebook:1"}
+                for i in (vars or {}).get("ids", [])
+            ]
+        return []
+
+    monkeypatch.setattr(
+        "open_notebook.utils.context_builder.repo_query", _repo_query
+    )
+
+
 def _notebook(**overrides):
     defaults = dict(id="notebook:1", name="My Notebook")
     defaults.update(overrides)

@@ -37,8 +37,11 @@ export default function DashboardLayout({
     }
   }, [isAuthenticated, isLoading, router])
 
-  // Show loading spinner during initial auth check or while loading
-  if (isLoading || !hasCheckedAuth) {
+  // Show loading spinner only until the FIRST auth check completes. Later
+  // probe flips (e.g. a consumer mounting while the identity is still
+  // unknown) must NOT swap the tree back to the spinner — that would
+  // unmount/remount children in a loop and the page never renders.
+  if (!hasCheckedAuth) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <LoadingSpinner />

@@ -1,14 +1,14 @@
 import json
 from typing import AsyncGenerator, List
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from loguru import logger
 
+from api.access import CurrentUser, effective_notebook_scope, get_current_user
 from api.models import AskRequest, AskResponse, SearchRequest, SearchResponse
 from open_notebook.ai.models import Model, model_manager
 from open_notebook.domain.notebook import (
-    resolve_notebook_scope,
     text_search,
     vector_search,
 )
@@ -23,10 +23,24 @@ router = APIRouter()
 
 
 @router.post("/search", response_model=SearchResponse)
-async def search_knowledge_base(search_request: SearchRequest):
-    """Search the knowledge base using text or vector search."""
+async def search_knowledge_base(
+    search_request: SearchRequest, user: CurrentUser = Depends(get_current_user)
+):
+    """Search the knowledge base using text or vector search.
+
+    T5: the server's authorized scope is authoritative — the effective scope
+    is permitted ∩ requested, and an empty effective scope short-circuits to
+    "no results" (the SurrealQL search functions treat an empty array as
+    unscoped, so it must never reach them).
+    """
     try:
-        notebook_ids = await resolve_notebook_scope(search_request.scope_notebook_ids)
+        notebook_ids = await effective_notebook_scope(
+            user, search_request.scope_notebook_ids
+        )
+        if not notebook_ids:
+            return SearchResponse(
+                results=[], total_count=0, search_type=search_request.type
+            )
 
         if search_request.type == "vector":
             # Check if embedding model is available for vector search
@@ -132,13 +146,45 @@ async def stream_ask_response(
         yield f"data: {json.dumps(error_data)}\n\n"
 
 
+async def _empty_ask_stream() -> AsyncGenerator[str, None]:
+    """Honest no-data answer when the caller's permitted scope is empty (T5).
+
+    Emits the same SSE event shapes as a real run so clients don't special-case it.
+    """
+    answer = (
+        "I don't have access to any notebooks that could answer this question."
+    )
+    for payload in (
+        {"type": "answer", "content": answer},
+        {"type": "final_answer", "content": answer},
+        {"type": "complete", "final_answer": answer},
+    ):
+        yield f"data: {json.dumps(payload)}\n\n"
+
+
 @router.post("/search/ask")
-async def ask_knowledge_base(ask_request: AskRequest):
+async def ask_knowledge_base(
+    ask_request: AskRequest, user: CurrentUser = Depends(get_current_user)
+):
     """Ask the knowledge base a question using AI models."""
     try:
         # Cheapest check first: a malformed or unknown scope fails before any
-        # model lookup or embedding check can mask it.
-        notebook_ids = await resolve_notebook_scope(ask_request.scope_notebook_ids)
+        # model lookup or embedding check can mask it. T5: the effective scope
+        # is permitted ∩ requested — an empty permitted set yields an honest
+        # "no data" answer stream, never a whole-KB search.
+        notebook_ids = await effective_notebook_scope(
+            user, ask_request.scope_notebook_ids
+        )
+        if not notebook_ids:
+            return StreamingResponse(
+                _empty_ask_stream(),
+                media_type="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "Connection": "keep-alive",
+                    "X-Accel-Buffering": "no",
+                },
+            )
 
         # Validate models exist
         strategy_model = await Model.get(ask_request.strategy_model)
@@ -195,12 +241,26 @@ async def ask_knowledge_base(ask_request: AskRequest):
 
 
 @router.post("/search/ask/simple", response_model=AskResponse)
-async def ask_knowledge_base_simple(ask_request: AskRequest):
+async def ask_knowledge_base_simple(
+    ask_request: AskRequest, user: CurrentUser = Depends(get_current_user)
+):
     """Ask the knowledge base a question and return a simple response (non-streaming)."""
     try:
         # Cheapest check first: a malformed or unknown scope fails before any
-        # model lookup or embedding check can mask it.
-        notebook_ids = await resolve_notebook_scope(ask_request.scope_notebook_ids)
+        # model lookup or embedding check can mask it. T5: permitted ∩
+        # requested; empty permitted → honest "no data" instead of a whole-KB
+        # search or an invented answer.
+        notebook_ids = await effective_notebook_scope(
+            user, ask_request.scope_notebook_ids
+        )
+        if not notebook_ids:
+            return AskResponse(
+                answer=(
+                    "I don't have access to any notebooks that could answer "
+                    "this question."
+                ),
+                question=ask_request.question,
+            )
 
         # Validate models exist
         strategy_model = await Model.get(ask_request.strategy_model)

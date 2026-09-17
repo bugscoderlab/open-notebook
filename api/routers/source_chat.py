@@ -2,13 +2,14 @@ import asyncio
 import json
 from typing import AsyncGenerator, List, Optional
 
-from fastapi import APIRouter, HTTPException, Path
+from fastapi import APIRouter, Depends, HTTPException, Path
 from fastapi.responses import StreamingResponse
 from langchain_core.messages import HumanMessage
 from langchain_core.runnables import RunnableConfig
 from loguru import logger
 from pydantic import BaseModel, Field
 
+from api.access import CurrentUser, get_current_user
 from api.routers._chat_shared import (
     ChatMessage,
     SuccessResponse,
@@ -85,12 +86,13 @@ class SendMessageRequest(BaseModel):
 )
 async def create_source_chat_session(
     request: CreateSourceChatSessionRequest,
+    user: CurrentUser = Depends(get_current_user),
     source_id: str = Path(..., description="Source ID"),
 ):
     """Create a new chat session for a source."""
     try:
-        # Verify source exists (normalizes the ID and 404s if missing)
-        full_source_id, _source = await get_source_or_404(source_id)
+        # Verify source exists and is readable (T5: 404 when out of scope)
+        full_source_id, _source = await get_source_or_404(source_id, user)
 
         # Create new session with model_override support
         session = ChatSession(
@@ -127,11 +129,14 @@ async def create_source_chat_session(
 @router.get(
     "/sources/{source_id}/chat/sessions", response_model=List[SourceChatSessionResponse]
 )
-async def get_source_chat_sessions(source_id: str = Path(..., description="Source ID")):
+async def get_source_chat_sessions(
+    user: CurrentUser = Depends(get_current_user),
+    source_id: str = Path(..., description="Source ID"),
+):
     """Get all chat sessions for a source."""
     try:
         # Verify source exists (normalizes the ID and 404s if missing)
-        full_source_id, _source = await get_source_or_404(source_id)
+        full_source_id, _source = await get_source_or_404(source_id, user)
 
         # Get sessions that refer to this source - first get relations, then sessions
         relations = await repo_query(
@@ -191,12 +196,13 @@ async def get_source_chat_sessions(source_id: str = Path(..., description="Sourc
 async def get_source_chat_session(
     source_id: str = Path(..., description="Source ID"),
     session_id: str = Path(..., description="Session ID"),
+    user: CurrentUser = Depends(get_current_user),
 ):
     """Get a specific source chat session with its messages."""
     try:
         # Verify source + session exist and are related (404s otherwise)
         _full_source_id, _source, full_session_id, session = (
-            await get_verified_source_session(source_id, session_id)
+            await get_verified_source_session(source_id, session_id, user)
         )
 
         # Get session state from LangGraph to retrieve messages
@@ -256,12 +262,13 @@ async def update_source_chat_session(
     request: UpdateSourceChatSessionRequest,
     source_id: str = Path(..., description="Source ID"),
     session_id: str = Path(..., description="Session ID"),
+    user: CurrentUser = Depends(get_current_user),
 ):
     """Update source chat session title and/or model override."""
     try:
         # Verify source + session exist and are related (404s otherwise)
         _full_source_id, _source, full_session_id, session = (
-            await get_verified_source_session(source_id, session_id)
+            await get_verified_source_session(source_id, session_id, user)
         )
 
         # Update session fields
@@ -303,12 +310,13 @@ async def update_source_chat_session(
 async def delete_source_chat_session(
     source_id: str = Path(..., description="Source ID"),
     session_id: str = Path(..., description="Session ID"),
+    user: CurrentUser = Depends(get_current_user),
 ):
     """Delete a source chat session."""
     try:
         # Verify source + session exist and are related (404s otherwise)
         _full_source_id, _source, full_session_id, session = (
-            await get_verified_source_session(source_id, session_id)
+            await get_verified_source_session(source_id, session_id, user)
         )
 
         await session.delete()
@@ -409,12 +417,14 @@ async def send_message_to_source_chat(
     request: SendMessageRequest,
     source_id: str = Path(..., description="Source ID"),
     session_id: str = Path(..., description="Session ID"),
+    user: CurrentUser = Depends(get_current_user),
 ):
     """Send a message to source chat session with SSE streaming response."""
     try:
-        # Verify source + session exist and are related (404s otherwise)
+        # Verify source + session exist, are related, and are readable by the
+        # caller (T5: 404s otherwise — before the SSE stream starts)
         full_source_id, _source, full_session_id, session = (
-            await get_verified_source_session(source_id, session_id)
+            await get_verified_source_session(source_id, session_id, user)
         )
 
         if not request.message:

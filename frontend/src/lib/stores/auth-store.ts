@@ -1,222 +1,182 @@
 import axios from 'axios'
 import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
-import apiClient from '@/lib/api/client'
-import { getApiUrl } from '@/lib/config'
+import { apiClient, setUnauthorizedHandler } from '@/lib/api/client'
+import { CSRF_HEADER_NAME, getCsrfToken } from '@/lib/csrf'
 
-interface AuthState {
-  isAuthenticated: boolean
-  token: string | null
-  isLoading: boolean
-  error: string | null
-  lastAuthCheck: number | null
-  isCheckingAuth: boolean
-  hasHydrated: boolean
-  authRequired: boolean | null
-  setHasHydrated: (state: boolean) => void
-  checkAuthRequired: () => Promise<boolean>
-  login: (password: string) => Promise<boolean>
-  logout: () => void
-  checkAuth: () => Promise<boolean>
+/**
+ * Cookie-session auth store (ADR-010, T3).
+ *
+ * The session token lives in an HttpOnly cookie — nothing token-shaped is
+ * kept here or in localStorage. This store only holds the *identity* (the
+ * AuthUser contract from GET /api/auth/me) plus UI state. Before bootstrap
+ * seeds the first user the API reports auth disabled and the app runs in
+ * open mode (authEnabled === false, user === null).
+ */
+
+export interface AuthTeam {
+  id: string
+  slug: string
+  name: string
 }
 
-export const useAuthStore = create<AuthState>()(
-  persist(
-    (set, get) => ({
-      isAuthenticated: false,
-      token: null,
-      isLoading: false,
-      error: null,
-      lastAuthCheck: null,
-      isCheckingAuth: false,
-      hasHydrated: false,
-      authRequired: null,
+export interface AuthUser {
+  id: string
+  email: string
+  display_name: string
+  role: 'member' | 'team_manager' | 'ceo' | 'admin'
+  team: AuthTeam | null
+}
 
-      setHasHydrated: (state: boolean) => {
-        set({ hasHydrated: state })
-      },
+export type AuthErrorCode =
+  | 'invalid_credentials'
+  | 'rate_limited'
+  | 'migration_pending'
+  | 'network'
+  | 'server'
+  | 'unknown'
 
-      checkAuthRequired: async () => {
-        try {
-          const response = await apiClient.get<{ auth_enabled?: boolean }>('/auth/status', {
-            headers: { 'Cache-Control': 'no-store' },
-          })
+interface AuthState {
+  user: AuthUser | null
+  /** null = not probed yet; false = open mode (no users seeded). */
+  authEnabled: boolean | null
+  isCheckingAuth: boolean
+  isLoading: boolean
+  /** Server error detail, when available (display fallback). */
+  error: string | null
+  /** Stable, i18n-mappable classification of the last failure. */
+  errorCode: AuthErrorCode | null
+  checkAuth: () => Promise<boolean>
+  refreshUser: () => Promise<boolean>
+  login: (email: string, password: string) => Promise<boolean>
+  logout: () => Promise<void>
+}
 
-          const required = response.data.auth_enabled || false
-          set({ authRequired: required })
+function classifyError(error: unknown): AuthErrorCode {
+  if (axios.isAxiosError(error)) {
+    const status = error.response?.status
+    if (status === 401) return 'invalid_credentials'
+    if (status === 429) return 'rate_limited'
+    // 403 on login can only be the T6 classification gate (member sign-in is
+    // disabled until the migration pass completes).
+    if (status === 403) return 'migration_pending'
+    if (!error.response) return 'network'
+    return 'server'
+  }
+  return 'unknown'
+}
 
-          // If auth is not required, mark as authenticated
-          if (!required) {
-            set({ isAuthenticated: true, token: 'not-required' })
-          }
+function errorDetail(error: unknown): string | null {
+  if (axios.isAxiosError(error)) {
+    const detail = (error.response?.data as { detail?: string } | undefined)?.detail
+    if (detail) return detail
+  }
+  return error instanceof Error ? error.message : null
+}
 
-          return required
-        } catch (error) {
-          console.error('Failed to check auth status:', error)
+export const useAuthStore = create<AuthState>()((set, get) => ({
+  user: null,
+  authEnabled: null,
+  isCheckingAuth: false,
+  isLoading: false,
+  error: null,
+  errorCode: null,
 
-          // If it's a network error, set a more helpful error message
-          if (axios.isAxiosError(error) && !error.response) {
-            set({
-              error: 'Unable to connect to server. Please check if the API is running.',
-              authRequired: null  // Don't assume auth is required if we can't connect
-            })
-          } else {
-            // For other errors, default to requiring auth to be safe
-            set({ authRequired: true })
-          }
-
-          // Re-throw the error so the UI can handle it
-          throw error
-        }
-      },
-
-      login: async (password: string) => {
-        set({ isLoading: true, error: null })
-        try {
-          const apiUrl = await getApiUrl()
-
-          // Deliberately raw fetch (not apiClient): this probes a candidate
-          // password, so the interceptors must not overwrite the Authorization
-          // header with the stored token or hard-redirect on 401.
-          const response = await fetch(`${apiUrl}/api/notebooks`, {
-            method: 'GET',
-            headers: {
-              'Authorization': `Bearer ${password}`,
-              'Content-Type': 'application/json'
-            }
-          })
-          
-          if (response.ok) {
-            set({ 
-              isAuthenticated: true, 
-              token: password, 
-              isLoading: false,
-              lastAuthCheck: Date.now(),
-              error: null
-            })
-            return true
-          } else {
-            let errorMessage = 'Authentication failed'
-            if (response.status === 401) {
-              errorMessage = 'Invalid password. Please try again.'
-            } else if (response.status === 403) {
-              errorMessage = 'Access denied. Please check your credentials.'
-            } else if (response.status >= 500) {
-              errorMessage = 'Server error. Please try again later.'
-            } else {
-              errorMessage = `Authentication failed (${response.status})`
-            }
-            
-            set({ 
-              error: errorMessage,
-              isLoading: false,
-              isAuthenticated: false,
-              token: null
-            })
-            return false
-          }
-        } catch (error) {
-          console.error('Network error during auth:', error)
-          let errorMessage = 'Authentication failed'
-          
-          if (error instanceof TypeError && error.message.includes('Failed to fetch')) {
-            errorMessage = 'Unable to connect to server. Please check if the API is running.'
-          } else if (error instanceof Error) {
-            errorMessage = `Network error: ${error.message}`
-          } else {
-            errorMessage = 'An unexpected error occurred during authentication'
-          }
-          
-          set({ 
-            error: errorMessage,
-            isLoading: false,
-            isAuthenticated: false,
-            token: null
-          })
-          return false
-        }
-      },
-      
-      logout: () => {
-        set({ 
-          isAuthenticated: false, 
-          token: null, 
-          error: null 
-        })
-      },
-      
-      checkAuth: async () => {
-        const state = get()
-        const { token, lastAuthCheck, isCheckingAuth, isAuthenticated } = state
-
-        // If already checking, return current auth state
-        if (isCheckingAuth) {
-          return isAuthenticated
-        }
-
-        // If no token, not authenticated
-        if (!token) {
-          return false
-        }
-
-        // If we checked recently (within 30 seconds) and are authenticated, skip
-        const now = Date.now()
-        if (isAuthenticated && lastAuthCheck && (now - lastAuthCheck) < 30000) {
-          return true
-        }
-
-        set({ isCheckingAuth: true })
-
-        try {
-          const apiUrl = await getApiUrl()
-
-          // Deliberately raw fetch (not apiClient): a 401 here must update
-          // store state, not trigger the interceptor's storage-clear/redirect.
-          const response = await fetch(`${apiUrl}/api/notebooks`, {
-            method: 'GET',
-            headers: {
-              'Authorization': `Bearer ${token}`,
-              'Content-Type': 'application/json'
-            }
-          })
-          
-          if (response.ok) {
-            set({ 
-              isAuthenticated: true, 
-              lastAuthCheck: now,
-              isCheckingAuth: false 
-            })
-            return true
-          } else {
-            set({
-              isAuthenticated: false,
-              token: null,
-              lastAuthCheck: null,
-              isCheckingAuth: false
-            })
-            return false
-          }
-        } catch (error) {
-          console.error('checkAuth error:', error)
-          set({ 
-            isAuthenticated: false, 
-            token: null,
-            lastAuthCheck: null,
-            isCheckingAuth: false 
-          })
-          return false
-        }
-      }
-    }),
-    {
-      name: 'auth-storage',
-      partialize: (state) => ({
-        token: state.token,
-        isAuthenticated: state.isAuthenticated
-      }),
-      onRehydrateStorage: () => (state) => {
-        state?.setHasHydrated(true)
-      }
+  checkAuth: async () => {
+    if (get().isCheckingAuth) {
+      return get().user !== null || get().authEnabled === false
     }
-  )
-)
+    // Identity already loaded: authoritative until a request 401s (the
+    // response interceptor clears the user). Without this, every useAuth()
+    // mount re-probes, flips isCheckingAuth, and the dashboard guard
+    // unmounts/remounts its children in an infinite /auth/me loop.
+    if (get().user) {
+      return true
+    }
+    set({ isCheckingAuth: true, error: null, errorCode: null })
+    try {
+      if (get().authEnabled === null) {
+        const status = await apiClient.get<{ auth_enabled?: boolean }>('/auth/status', {
+          headers: { 'Cache-Control': 'no-store' },
+        })
+        set({ authEnabled: status.data.auth_enabled ?? false })
+      }
+      if (get().authEnabled === false) {
+        return true // open mode — no users seeded yet
+      }
+      return await get().refreshUser()
+    } catch (error) {
+      console.error('Failed to check auth:', error)
+      set({ errorCode: classifyError(error), error: errorDetail(error) })
+      return false
+    } finally {
+      set({ isCheckingAuth: false })
+    }
+  },
+
+  refreshUser: async () => {
+    try {
+      const response = await apiClient.get<AuthUser>('/auth/me', {
+        headers: { 'Cache-Control': 'no-store' },
+      })
+      set({ user: response.data, error: null, errorCode: null })
+      return true
+    } catch (error) {
+      if (axios.isAxiosError(error) && error.response?.status === 401) {
+        set({ user: null })
+        return false
+      }
+      throw error
+    }
+  },
+
+  login: async (email: string, password: string) => {
+    set({ isLoading: true, error: null, errorCode: null })
+    try {
+      await apiClient.post('/auth/login', { email, password })
+      const authenticated = await get().refreshUser()
+      if (!authenticated) {
+        throw new Error('Session was not established after login')
+      }
+      set({ isLoading: false })
+      return true
+    } catch (error) {
+      console.error('Login failed:', error)
+      set({
+        isLoading: false,
+        user: null,
+        errorCode: classifyError(error),
+        error: errorDetail(error),
+      })
+      return false
+    }
+  },
+
+  logout: async () => {
+    const csrf = getCsrfToken()
+    try {
+      await apiClient.post('/auth/logout', null, {
+        headers: csrf ? { [CSRF_HEADER_NAME]: csrf } : undefined,
+      })
+    } catch (error) {
+      // Best effort: local identity clears even if the server is unreachable.
+      console.error('Logout request failed:', error)
+    }
+    set({ user: null })
+  },
+}))
+
+// A 401 from any request means the session died — drop the identity and let
+// the dashboard guard redirect to /login.
+setUnauthorizedHandler(() => {
+  useAuthStore.setState({ user: null })
+})
+
+// Migration from the bearer-token era: any token material persisted under the
+// old key is deleted on load (acceptance: no token material in localStorage).
+export function clearLegacyAuthStorage(): void {
+  if (typeof window !== 'undefined') {
+    window.localStorage.removeItem('auth-storage')
+  }
+}
+
+clearLegacyAuthStorage()

@@ -29,62 +29,116 @@ def _nf(*_args, **_kwargs):
 
 
 @pytest.mark.asyncio
-@patch("api.routers.notebooks.Notebook.get", new_callable=AsyncMock)
-async def test_delete_notebook_missing_returns_404(mock_get, client):
+@patch("open_notebook.domain.notebook.Notebook.get", new_callable=AsyncMock)
+async def test_delete_notebook_missing_returns_404(
+    mock_get, client, auth_session, auth_cookie
+):
+    auth_session()
     mock_get.side_effect = _nf
-    assert client.delete("/api/notebooks/notebook:gone").status_code == 404
+    assert (
+        client.delete("/api/notebooks/notebook:gone", cookies=auth_cookie).status_code
+        == 404
+    )
 
 
 @pytest.mark.asyncio
-@patch("api.routers.notebooks.Notebook.get", new_callable=AsyncMock)
-async def test_update_notebook_missing_returns_404(mock_get, client):
+@patch("open_notebook.domain.notebook.Notebook.get", new_callable=AsyncMock)
+async def test_update_notebook_missing_returns_404(
+    mock_get, client, auth_session, auth_cookie
+):
+    auth_session()
     mock_get.side_effect = _nf
-    assert client.put("/api/notebooks/notebook:gone", json={"name": "x"}).status_code == 404
+    assert (
+        client.put(
+            "/api/notebooks/notebook:gone", json={"name": "x"}, cookies=auth_cookie
+        ).status_code
+        == 404
+    )
 
 
 @pytest.mark.asyncio
-@patch("api.routers.notebooks.Notebook.get", new_callable=AsyncMock)
-async def test_delete_preview_missing_returns_404(mock_get, client):
+@patch("open_notebook.domain.notebook.Notebook.get", new_callable=AsyncMock)
+async def test_delete_preview_missing_returns_404(
+    mock_get, client, auth_session, auth_cookie
+):
+    auth_session()
     mock_get.side_effect = _nf
-    assert client.get("/api/notebooks/notebook:gone/delete-preview").status_code == 404
+    assert (
+        client.get(
+            "/api/notebooks/notebook:gone/delete-preview", cookies=auth_cookie
+        ).status_code
+        == 404
+    )
 
 
 @pytest.mark.asyncio
-@patch("api.routers.notebooks.Notebook.get", new_callable=AsyncMock)
-async def test_add_source_missing_notebook_returns_404(mock_get, client):
+@patch("open_notebook.domain.notebook.Notebook.get", new_callable=AsyncMock)
+async def test_add_source_missing_notebook_returns_404(
+    mock_get, client, auth_session, auth_cookie
+):
+    auth_session()
     mock_get.side_effect = _nf
-    assert client.post("/api/notebooks/notebook:gone/sources/source:1").status_code == 404
+    assert (
+        client.post(
+            "/api/notebooks/notebook:gone/sources/source:1", cookies=auth_cookie
+        ).status_code
+        == 404
+    )
 
 
 @pytest.mark.asyncio
-@patch("api.routers.notebooks.Notebook.get", new_callable=AsyncMock)
-async def test_remove_source_missing_notebook_returns_404(mock_get, client):
+@patch("open_notebook.domain.notebook.Notebook.get", new_callable=AsyncMock)
+async def test_remove_source_missing_notebook_returns_404(
+    mock_get, client, auth_session, auth_cookie
+):
+    auth_session()
     mock_get.side_effect = _nf
-    assert client.delete("/api/notebooks/notebook:gone/sources/source:1").status_code == 404
+    assert (
+        client.delete(
+            "/api/notebooks/notebook:gone/sources/source:1", cookies=auth_cookie
+        ).status_code
+        == 404
+    )
 
 
 # --- notes ------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-@patch("api.routers.notes.Note.get", new_callable=AsyncMock)
-async def test_get_note_missing_returns_404(mock_get, client):
+@patch("open_notebook.domain.notebook.Note.get", new_callable=AsyncMock)
+async def test_get_note_missing_returns_404(
+    mock_get, client, auth_session, auth_cookie
+):
+    auth_session()
     mock_get.side_effect = _nf
-    assert client.get("/api/notes/note:gone").status_code == 404
+    assert client.get("/api/notes/note:gone", cookies=auth_cookie).status_code == 404
 
 
 @pytest.mark.asyncio
-@patch("api.routers.notes.Note.get", new_callable=AsyncMock)
-async def test_update_note_missing_returns_404(mock_get, client):
+@patch("open_notebook.domain.notebook.Note.get", new_callable=AsyncMock)
+async def test_update_note_missing_returns_404(
+    mock_get, client, auth_session, auth_cookie
+):
+    auth_session()
     mock_get.side_effect = _nf
-    assert client.put("/api/notes/note:gone", json={"content": "x"}).status_code == 404
+    assert (
+        client.put(
+            "/api/notes/note:gone", json={"content": "x"}, cookies=auth_cookie
+        ).status_code
+        == 404
+    )
 
 
 @pytest.mark.asyncio
-@patch("api.routers.notes.Note.get", new_callable=AsyncMock)
-async def test_delete_note_missing_returns_404(mock_get, client):
+@patch("open_notebook.domain.notebook.Note.get", new_callable=AsyncMock)
+async def test_delete_note_missing_returns_404(
+    mock_get, client, auth_session, auth_cookie
+):
+    auth_session()
     mock_get.side_effect = _nf
-    assert client.delete("/api/notes/note:gone").status_code == 404
+    assert (
+        client.delete("/api/notes/note:gone", cookies=auth_cookie).status_code == 404
+    )
 
 
 # --- models -----------------------------------------------------------------
@@ -92,9 +146,15 @@ async def test_delete_note_missing_returns_404(mock_get, client):
 
 @pytest.mark.asyncio
 @patch("api.routers.models.Model.get", new_callable=AsyncMock)
-async def test_delete_model_missing_returns_404(mock_get, client):
+async def test_delete_model_missing_returns_404(
+    mock_get, client, auth_session, auth_cookie
+):
+    auth_session()
     mock_get.side_effect = _nf
-    assert client.delete("/api/models/model:gone").status_code == 404
+    assert (
+        client.delete("/api/models/model:gone", cookies=auth_cookie).status_code
+        == 404
+    )
 
 
 # --- credentials ------------------------------------------------------------
@@ -103,29 +163,49 @@ async def test_delete_model_missing_returns_404(mock_get, client):
 @pytest.mark.asyncio
 @patch("api.routers.credentials.require_encryption_key", new=MagicMock())
 @patch("api.routers.credentials.Credential.get", new_callable=AsyncMock)
-async def test_update_credential_missing_returns_404(mock_get, client):
+async def test_update_credential_missing_returns_404(
+    mock_get, client, auth_session, auth_cookie
+):
+    auth_session()
     mock_get.side_effect = _nf
-    assert client.put("/api/credentials/credential:gone", json={"name": "x"}).status_code == 404
+    assert (
+        client.put(
+            "/api/credentials/credential:gone",
+            json={"name": "x"},
+            cookies=auth_cookie,
+        ).status_code
+        == 404
+    )
 
 
 @pytest.mark.asyncio
 @patch("api.routers.credentials.Credential.get", new_callable=AsyncMock)
-async def test_delete_credential_missing_returns_404(mock_get, client):
+async def test_delete_credential_missing_returns_404(
+    mock_get, client, auth_session, auth_cookie
+):
+    auth_session()
     mock_get.side_effect = _nf
-    assert client.delete("/api/credentials/credential:gone").status_code == 404
+    assert (
+        client.delete("/api/credentials/credential:gone", cookies=auth_cookie).status_code
+        == 404
+    )
 
 
 # --- embedding --------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-@patch("api.routers.embedding.Source.get", new_callable=AsyncMock)
+@patch("open_notebook.domain.notebook.Source.get", new_callable=AsyncMock)
 @patch("api.routers.embedding.model_manager.get_embedding_model", new_callable=AsyncMock)
-async def test_embed_missing_source_returns_404(mock_embed_model, mock_get, client):
+async def test_embed_missing_source_returns_404(
+    mock_embed_model, mock_get, client, auth_session, auth_cookie
+):
+    auth_session()
     mock_embed_model.return_value = MagicMock()  # an embedding model is configured
     mock_get.side_effect = _nf
     resp = client.post(
         "/api/embed",
         json={"item_id": "source:gone", "item_type": "source", "async_processing": False},
+        cookies=auth_cookie,
     )
     assert resp.status_code == 404

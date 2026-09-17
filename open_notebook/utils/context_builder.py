@@ -17,10 +17,11 @@ the frontend — do not change it here.
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from loguru import logger
 
+from open_notebook.database.repository import ensure_record_id, repo_query
 from open_notebook.domain.notebook import (
     Note,
     Notebook,
@@ -37,6 +38,28 @@ SOURCE_TRUNCATION_NOTICE = (
 SOURCE_INSIGHT_BUDGET_RATIO = 0.2
 TOKEN_PREFIX_VALIDATION_WINDOW = 16
 _TOKENIZER_UNSET = object()
+
+
+async def _filter_ids_by_permitted_notebooks(
+    item_ids: List[str], edge: str, permitted_notebook_ids: Set[str]
+) -> Set[str]:
+    """Keep only item ids linked (via ``edge``) to a permitted notebook (T5).
+
+    ``edge`` is one of the two content→notebook relation tables; both are
+    schema-defined (reference/artifact), so interpolating the name is safe.
+    """
+    if not item_ids:
+        return set()
+    rows = await repo_query(
+        f"SELECT in AS item, out AS notebook FROM {edge} WHERE in IN $ids",
+        {"ids": [ensure_record_id(i) for i in item_ids]},
+    )
+    permitted = set(permitted_notebook_ids)
+    return {
+        str(row["item"])
+        for row in rows
+        if row.get("notebook") and str(row["notebook"]) in permitted
+    }
 
 
 def format_source_context(context_data: Dict[str, Any]) -> str:
@@ -264,6 +287,7 @@ def _truncate_source_to_token_budget(
 async def build_notebook_context(
     notebook: Notebook,
     context_config: Optional[Dict[str, Any]],
+    permitted_notebook_ids: Optional[Set[str]] = None,
 ) -> Tuple[Dict[str, list], str]:
     """Assemble source/note context for a notebook.
 
@@ -271,6 +295,11 @@ async def build_notebook_context(
     skips it, "insights" includes the short source context, "full content"
     includes the long context (notes only support "full content"). Without a
     config, every source and note is included with its short context.
+
+    T5: when ``permitted_notebook_ids`` is given (team enforcement), a config
+    entry is rejected before its text is fetched unless the item is linked to
+    a permitted notebook — the context builder cannot be used to smuggle
+    foreign content into the LLM prompt.
 
     Failures on individual items are logged and skipped — one broken record
     never fails the whole request.
@@ -283,13 +312,32 @@ async def build_notebook_context(
     total_content = ""
 
     if context_config:
+        allowed_source_ids: Optional[Set[str]] = None
+        allowed_note_ids: Optional[Set[str]] = None
+        if permitted_notebook_ids is not None:
+            source_keys = [
+                _ensure_prefix("source", sid)
+                for sid in (context_config.get("sources") or {}).keys()
+            ]
+            note_keys = [
+                _ensure_prefix("note", nid)
+                for nid in (context_config.get("notes") or {}).keys()
+            ]
+            allowed_source_ids = await _filter_ids_by_permitted_notebooks(
+                source_keys, "reference", set(permitted_notebook_ids)
+            )
+            allowed_note_ids = await _filter_ids_by_permitted_notebooks(
+                note_keys, "artifact", set(permitted_notebook_ids)
+            )
+
         for source_id, status in context_config.get("sources", {}).items():
             if "not in" in status:
                 continue
+            full_source_id = _ensure_prefix("source", source_id)
+            if allowed_source_ids is not None and full_source_id not in allowed_source_ids:
+                continue
 
             try:
-                full_source_id = _ensure_prefix("source", source_id)
-
                 try:
                     source = await Source.get(full_source_id)
                 except Exception:
@@ -310,9 +358,11 @@ async def build_notebook_context(
         for note_id, status in context_config.get("notes", {}).items():
             if "not in" in status:
                 continue
+            full_note_id = _ensure_prefix("note", note_id)
+            if allowed_note_ids is not None and full_note_id not in allowed_note_ids:
+                continue
 
             try:
-                full_note_id = _ensure_prefix("note", note_id)
                 note = await Note.get(full_note_id)
                 if not note:
                     continue

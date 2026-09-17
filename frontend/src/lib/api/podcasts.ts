@@ -1,4 +1,4 @@
-import apiClient from './client'
+import apiClient, { isApiSameOrigin } from './client'
 import { getApiUrl } from '@/lib/config'
 import {
   PodcastEpisode,
@@ -22,6 +22,15 @@ export async function resolvePodcastAssetUrl(path?: string | null): Promise<stri
   }
 
   const base = await getApiUrl()
+
+  // Same-origin proxy policy (see client.ts resolveApiBaseUrl): media
+  // elements send no cross-origin credentials, so same-host assets must go
+  // through the Next.js rewrites proxy as relative paths — otherwise they
+  // 401 the moment the podcast routes require a session (T5).
+  const pageOrigin = typeof window !== 'undefined' ? window.location.origin : undefined
+  if (!base || isApiSameOrigin(base, pageOrigin)) {
+    return path
+  }
 
   if (path.startsWith('/')) {
     return `${base}${path}`

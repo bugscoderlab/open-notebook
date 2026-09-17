@@ -17,6 +17,13 @@ def client():
     return TestClient(app)
 
 
+@pytest.fixture(autouse=True)
+def _authenticated_admin(auth_session):
+    """T5: config routers require a session cookie; these suites assert
+    config behavior, not authorization."""
+    auth_session()
+
+
 class TestCredentialCascadeDelete:
     """Tests for #651 - deleting credential cascade-deletes linked models."""
 

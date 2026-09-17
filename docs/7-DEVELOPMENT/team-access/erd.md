@@ -29,4 +29,5 @@
 - **sales_transactions**: `transaction_id` PK (text, e.g. TX0001), `transaction_date` (date), `customer_id`, `customer_name`, `service`, `amount_myr` numeric(10,2), `status` (`completed|refunded|voided`), `data_team`
 - Indexes: `(data_team, status, transaction_date)`, `(customer_id)`
 - Single table mirroring `_jobbrief/testdata/sales_transactions_2026.csv` 1:1 (normalized customers/services split rejected — the approved template SQL targets one relation)
+- Schema: `uv run alembic -c open_notebook/analytics/alembic.ini upgrade head` (URL from `ANALYTICS_DATABASE_URL`); seed (idempotent, dev-only): `uv run python -m open_notebook.analytics.seed`
 - Every query assembled server-side with mandatory `AND data_team IN (:authorized_team_ids)`; the LLM never writes SQL

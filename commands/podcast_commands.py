@@ -50,6 +50,46 @@ class PodcastGenerationInput(CommandInput):
     episode_name: str
     content: str
     briefing_suffix: Optional[str] = None
+    # T5 team-ownership payload stamped onto the created episode. The worker
+    # revalidates the source notebook's team against these values before
+    # processing; mismatches abort the job (no episode is created).
+    owner: Optional[dict] = None
+
+
+def _episode_owner_from_input(
+    input_data: PodcastGenerationInput,
+) -> dict:
+    """Resolve the ownership fields for the new episode (T5).
+
+    Falls back to empty (unclassified) when the payload carries nothing —
+    unclassified episodes are admin-only until the T6 classification pass.
+    """
+    owner = input_data.owner or {}
+    return {
+        "notebook_id": owner.get("notebook_id"),
+        "organization_id": owner.get("organization_id"),
+        "team_id": owner.get("team_id"),
+        "visibility": owner.get("visibility") or "team",
+        "created_by": owner.get("created_by"),
+    }
+
+
+async def _validate_owner_against_notebook(owner: dict) -> None:
+    """Worker-side revalidation (TDD §8): the source notebook's team must
+    still match the ownership recorded at submit time."""
+    notebook_id = owner.get("notebook_id")
+    if not notebook_id:
+        return
+    rows = await repo_query(
+        "SELECT team, organization FROM $id", {"id": ensure_record_id(notebook_id)}
+    )
+    if not rows:
+        raise ValueError(f"Source notebook {notebook_id} no longer exists")
+    notebook_team = str(rows[0]["team"]) if rows[0].get("team") else None
+    if owner.get("team_id") and notebook_team != owner["team_id"]:
+        raise ValueError(
+            "Source notebook changed team after the job was submitted; aborting"
+        )
 
 
 class PodcastGenerationOutput(CommandOutput):
@@ -72,6 +112,11 @@ async def generate_podcast_command(
     start_time = time.time()
 
     try:
+        # T5: revalidate the recorded team scope against the source notebook
+        # before doing any work (raises ValueError -> permanent failure).
+        episode_owner = _episode_owner_from_input(input_data)
+        await _validate_owner_against_notebook(episode_owner)
+
         logger.info(
             f"Starting podcast generation for episode: {input_data.episode_name}"
         )
@@ -267,6 +312,13 @@ async def generate_podcast_command(
             audio_file=None,
             transcript=None,
             outline=None,
+            # T5: stamp team ownership (migration 28 fields) so episode lists
+            # can be scoped without joining back through the job.
+            notebook_id=episode_owner["notebook_id"],
+            organization_id=episode_owner["organization_id"],
+            team_id=episode_owner["team_id"],
+            visibility=episode_owner["visibility"],
+            created_by=episode_owner["created_by"],
         )
         await episode.save()
 

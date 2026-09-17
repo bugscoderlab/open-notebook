@@ -127,6 +127,14 @@ async def provide_answer(state: SubGraphState, config: RunnableConfig) -> dict:
         # if state["type"] == "text":
         #     results = text_search(state["term"], 10, True, True)
         # else:
+        # T5: an explicitly-empty notebook scope means "this caller may read
+        # nothing" — it must produce no results, never silently widen to a
+        # global search. (The search router short-circuits before this, but
+        # the graph is reachable from other entry points, so the guard
+        # belongs here too. A scope that is ABSENT keeps the legacy global
+        # behavior for callers that predate scoping.)
+        if "notebook_ids" in state and not state["notebook_ids"]:
+            return {"answers": []}
         results = await vector_search(
             state["term"],
             10,

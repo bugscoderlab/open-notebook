@@ -55,7 +55,33 @@ async def test_api_create_notebook():
         assert data["name"] == "Test Notebook"
 ```
 
-## Test Categories
+## Test Tiers
+
+The suite is split into three tiers by pytest markers (defined in
+`pyproject.toml`):
+
+| Tier | Marker | Infra | Runs |
+|---|---|---|---|
+| **Unit** (default) | — (unmarked) | none, fully mocked/hermetic | every `uv run pytest` / `make test` (xdist), CI backend shards (pytest-split) |
+| **Integration** | `integration` | live Postgres scratch DB + SurrealDB | `make test-integration`, CI testpack job |
+| **Testpack** | `testpack` | synthetic pack (`_jobbrief/testdata/`), hermetic on in-memory SurrealDB | `make test-testpack`, CI testpack job |
+
+The default `addopts` exclude `integration` and `testpack`, so a plain run
+is the fast unit gate. To run a heavier tier, select it explicitly (this
+also activates the per-worker infrastructure in `tests/conftest.py`):
+
+```bash
+make test-integration   # -m integration, needs Postgres + SurrealDB
+make test-testpack      # -m "testpack or integration", the acceptance gate
+```
+
+Integration isolation: each xdist worker gets its own Postgres database
+(`open_notebook_analytics_test_gwN`, created from `ANALYTICS_TEST_BASE_URL`)
+and its own SurrealDB namespace (`open_notebook_test_gwN`, migrations +
+team seeds applied automatically). Set `OPEN_NOTEBOOK_TEST_TIER` to activate
+(`make test-integration`/`make test-testpack` do this for you).
+
+Within a tier, tests follow these categories:
 
 ### 1. Unit Tests
 
@@ -76,7 +102,7 @@ async def test_notebook_archive():
     assert notebook.archived is True
 ```
 
-**Location**: `tests/unit/`
+**Location**: flat in `tests/` (unmarked files); the heaviest live-DB suites are marked `integration` and the acceptance pack lives in `tests/testpack/`
 
 ### 2. Integration Tests
 
@@ -94,7 +120,7 @@ async def test_create_notebook_with_sources():
     assert retrieved.sources[0].id == source.id
 ```
 
-**Location**: `tests/integration/`
+**Location**: `tests/` — marked `integration` (e.g. `test_analytics_*.py`)
 
 ### 3. API Tests
 
@@ -121,7 +147,7 @@ async def test_create_notebook_validation():
         assert response.status_code == 400
 ```
 
-**Location**: `tests/api/`
+**Location**: flat in `tests/` (e.g. `test_*_api.py`)
 
 ### 4. Database Tests
 
@@ -150,7 +176,7 @@ async def test_query_by_criteria():
     assert len(active) >= 1
 ```
 
-**Location**: `tests/database/`
+**Location**: flat in `tests/` (in-memory SurrealDB via `mem://` or scratch Postgres)
 
 ## Running Tests
 
@@ -158,6 +184,16 @@ async def test_query_by_criteria():
 
 ```bash
 uv run pytest
+```
+
+This runs the unit tier only. The integration and testpack tiers need live
+infrastructure — see [Test Tiers](#test-tiers) above.
+
+### Run a Heavier Tier
+
+```bash
+make test-integration   # analytics suites vs live Postgres + SurrealDB
+make test-testpack      # acceptance pack + integration (CI testpack job)
 ```
 
 ### Run Specific Test File
@@ -189,6 +225,8 @@ uv run pytest tests/unit/
 ```bash
 uv run pytest tests/integration/
 ```
+
+(The directory layout is flat: use `uv run pytest -m integration` / `-m testpack` — see [Test Tiers](#test-tiers).)
 
 ### Run Tests in Verbose Mode
 

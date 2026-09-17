@@ -45,7 +45,10 @@ def client():
 
 
 class TestDownloadsAlwaysServedAsOctetStream:
-    def test_html_file_download_is_octet_stream_not_text_html(self, client, tmp_path, monkeypatch):
+    def test_html_file_download_is_octet_stream_not_text_html(
+        self, client, tmp_path, monkeypatch, auth_session, auth_cookie
+    ):
+        auth_session()
         """Even if an attacker got an .html file stored, downloading it
         must never come back as text/html (which a browser would render)."""
         real_root = tmp_path / "uploads"
@@ -57,12 +60,17 @@ class TestDownloadsAlwaysServedAsOctetStream:
 
         source = make_source(file_path=str(malicious_html))
         with patch("api.routers.sources.Source.get", new=AsyncMock(return_value=source)):
-            response = client.get("/api/sources/source:test123/download")
+            response = client.get(
+                "/api/sources/source:test123/download", cookies=auth_cookie
+            )
 
         assert response.status_code == 200
         assert response.headers["content-type"] == "application/octet-stream"
 
-    def test_svg_file_download_is_octet_stream_not_svg_xml(self, client, tmp_path, monkeypatch):
+    def test_svg_file_download_is_octet_stream_not_svg_xml(
+        self, client, tmp_path, monkeypatch, auth_session, auth_cookie
+    ):
+        auth_session()
         real_root = tmp_path / "uploads"
         real_root.mkdir()
         monkeypatch.setattr("api.routers.sources.UPLOADS_FOLDER", str(real_root))
@@ -74,7 +82,9 @@ class TestDownloadsAlwaysServedAsOctetStream:
 
         source = make_source(file_path=str(malicious_svg))
         with patch("api.routers.sources.Source.get", new=AsyncMock(return_value=source)):
-            response = client.get("/api/sources/source:test123/download")
+            response = client.get(
+                "/api/sources/source:test123/download", cookies=auth_cookie
+            )
 
         assert response.status_code == 200
         assert response.headers["content-type"] == "application/octet-stream"

@@ -17,8 +17,10 @@ from typing import Any, Iterable, List, Optional, Tuple
 from fastapi import HTTPException
 from pydantic import BaseModel, Field
 
+from api.access import CurrentUser, can_read_team, check_chat_session_read
 from open_notebook.database.repository import ensure_record_id, repo_query
 from open_notebook.domain.notebook import ChatSession, Source
+from open_notebook.exceptions import NotFoundError
 
 
 # Shared response models
@@ -40,18 +42,37 @@ def normalize_record_id(table: str, record_id: str) -> str:
     return record_id if record_id.startswith(prefix) else f"{prefix}{record_id}"
 
 
-async def get_source_or_404(source_id: str) -> Tuple[str, Source]:
-    """Normalize a source ID and fetch the source, 404 if missing."""
+async def get_source_or_404(
+    source_id: str, user: Optional[CurrentUser] = None
+) -> Tuple[str, Source]:
+    """Normalize a source ID and fetch the source, 404 if missing.
+
+    T5: when ``user`` is given, a source outside the caller's permitted
+    scope is indistinguishable from a missing one (404, no existence oracle).
+    """
     full_source_id = normalize_record_id("source", source_id)
     source = await Source.get(full_source_id)
     if not source:
-        raise HTTPException(status_code=404, detail="Source not found")
+        raise NotFoundError("Source not found")
+    if user is not None and not can_read_team(user, source):
+        # T5: indistinguishable from missing — no existence oracle.
+        raise NotFoundError("Source not found")
     return full_source_id, source
 
 
-async def get_session_or_404(session_id: str) -> Tuple[str, ChatSession]:
-    """Normalize a session ID and fetch the chat session, 404 if missing."""
+async def get_session_or_404(
+    session_id: str, user: Optional[CurrentUser] = None
+) -> Tuple[str, ChatSession]:
+    """Normalize a session ID and fetch the chat session, 404 if missing.
+
+    T5: when ``user`` is given, the single fetch doubles as the permission
+    check — a session whose parent notebook/source is outside the caller's
+    permitted scope is indistinguishable from a missing one (404).
+    """
     full_session_id = normalize_record_id("chat_session", session_id)
+    if user is not None:
+        session = await check_chat_session_read(user, full_session_id)
+        return full_session_id, session
     session = await ChatSession.get(full_session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -59,12 +80,16 @@ async def get_session_or_404(session_id: str) -> Tuple[str, ChatSession]:
 
 
 async def get_verified_source_session(
-    source_id: str, session_id: str
+    source_id: str, session_id: str, user: Optional[CurrentUser] = None
 ) -> Tuple[str, Source, str, ChatSession]:
     """Verify the source exists, the session exists, and the session refers to
-    the source. Returns the normalized IDs plus both records."""
-    full_source_id, source = await get_source_or_404(source_id)
-    full_session_id, session = await get_session_or_404(session_id)
+    the source. Returns the normalized IDs plus both records.
+
+    T5: when ``user`` is given, both records are additionally checked against
+    the caller's permitted scope (404, no existence oracle).
+    """
+    full_source_id, source = await get_source_or_404(source_id, user)
+    full_session_id, session = await get_session_or_404(session_id, user)
 
     relation_query = await repo_query(
         "SELECT * FROM refers_to WHERE in = $session_id AND out = $source_id",
