@@ -1,0 +1,39 @@
+name: GHCR Cleanup
+
+# Keeps ghcr storage bounded: every day, purge untagged blobs (left behind
+# when mutable tags like v1-dev move) and drop the oldest tagged versions,
+# keeping the most recent few. ghcr has no built-in retention policy.
+
+on:
+  schedule:
+    - cron: '23 3 * * *' # Daily 03:23 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [open-notebook]
+    steps:
+      - name: Delete untagged versions
+        uses: actions/delete-package-versions@e46fc0d98fcf0b49dc53a66ad40cbb01c7be9b0d # v5.0.0
+        with:
+          package-name: ${{ matrix.package }}
+          package-type: container
+          delete-only-untagged-versions: true
+          # Safety margin: never leave the registry with fewer versions.
+          min-versions-to-keep: 3
+
+      - name: Delete old tagged versions
+        uses: actions/delete-package-versions@e46fc0d98fcf0b49dc53a66ad40cbb01c7be9b0d # v5.0.0
+        with:
+          package-name: ${{ matrix.package }}
+          package-type: container
+          # Keep the 5 newest tagged versions (e.g. recent releases + dev tags).
+          min-versions-to-keep: 5
