@@ -16,13 +16,14 @@ from decimal import Decimal
 from pathlib import Path
 
 import pytest
+from conftest import requires_analytics_pg
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
-pytestmark = pytest.mark.skipif(
-    not os.environ.get("ANALYTICS_TEST_DATABASE_URL"),
-    reason="ANALYTICS_TEST_DATABASE_URL not set",
-)
+pytestmark = [
+    pytest.mark.integration,
+    requires_analytics_pg(),
+]
 
 ALEMBIC_INI = "open_notebook/analytics/alembic.ini"
 CSV_PATH = (
@@ -54,6 +55,9 @@ async def _seed() -> tuple[int, int]:
 def test_seed_is_idempotent_and_matches_test_pack() -> None:
     import asyncio
 
+    # Clean slate: under xdist this database is per-worker and other suites
+    # (api/service seeded fixtures) may have populated it before this module.
+    _alembic("downgrade", "base")
     _alembic("upgrade", "head")
     try:
         inserted_1, skipped_1 = asyncio.run(_seed())

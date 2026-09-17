@@ -1,4 +1,4 @@
-.PHONY: run frontend check ruff database database-local database-local-fg database-local-stop dev-up dev-down dev-status test test-cov lint api start-all stop-all status clean-cache worker worker-start worker-stop worker-restart
+.PHONY: run frontend check ruff database database-local database-local-fg database-local-stop dev-up dev-down dev-status test test-cov test-integration test-testpack test-durations lint api start-all stop-all status clean-cache worker worker-start worker-stop worker-restart
 .PHONY: docker-buildx-prepare docker-buildx-clean docker-buildx-reset
 .PHONY: docker-push docker-push-latest docker-release docker-build-local tag export-docs
 .PHONY: release-test release-stack release-stack-down
@@ -59,13 +59,31 @@ dev-down:
 dev-status:
 	@bash scripts/dev-herdr.sh status
 
-# Fast local tests: parallel workers, no coverage.
+# Fast local tests: unit tier only (default), parallel workers, no coverage.
+# Integration/testpack tiers are excluded by default addopts (see pyproject).
 test:
 	uv run pytest tests/ -n auto
 
 # CI-equivalent: serial coverage run matching .github/workflows/test.yml.
 test-cov:
 	uv run pytest tests/ -v --cov=open_notebook --cov=api --cov-report=term-missing --cov-report=xml
+
+# Integration tier: analytics suites against live Postgres + SurrealDB.
+# Each xdist worker gets its own scratch DB (open_notebook_analytics_test_gwN)
+# and SurrealDB namespace (open_notebook_test_gwN) — see tests/conftest.py.
+# Needs: Postgres on localhost:5432 (override with ANALYTICS_TEST_BASE_URL)
+# and SurrealDB (make database-local).
+test-integration:
+	OPEN_NOTEBOOK_TEST_TIER=integration uv run pytest -m integration -n auto
+
+# Testpack tier: the synthetic acceptance pack (canary sweep, access matrix,
+# real-PDF extraction) plus the integration suites. Matches the CI testpack job.
+test-testpack:
+	OPEN_NOTEBOOK_TEST_TIER=testpack uv run pytest -m "testpack or integration" -n auto
+
+# Regenerate .test_durations for the pytest-split CI shards.
+test-durations:
+	uv run pytest tests/ -n auto --store-durations --durations-path .test_durations
 
 run:
 	@echo "⚠️  Warning: Starting frontend only. For full functionality, use 'make start-all'"

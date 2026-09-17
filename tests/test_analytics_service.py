@@ -19,6 +19,7 @@ from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from conftest import requires_analytics_pg
 
 ALEMBIC_INI = "open_notebook/analytics/alembic.ini"
 CSV_PATH = (
@@ -29,10 +30,10 @@ CSV_PATH = (
 )
 TEST_USER_ID = "app_user:t8servicetest"
 
-pytestmark = pytest.mark.skipif(
-    not os.environ.get("ANALYTICS_TEST_DATABASE_URL"),
-    reason="ANALYTICS_TEST_DATABASE_URL not set",
-)
+pytestmark = [
+    pytest.mark.integration,
+    requires_analytics_pg(),
+]
 
 
 def _alembic(*args: str) -> None:
@@ -61,7 +62,10 @@ def _surreal_available() -> bool:
 
 
 if not _surreal_available():
-    pytestmark = pytest.mark.skipif(True, reason="SurrealDB not reachable")
+    pytestmark = [
+        pytest.mark.integration,
+        pytest.mark.skipif(True, reason="SurrealDB not reachable"),
+    ]
 
 
 @pytest.fixture(scope="module")

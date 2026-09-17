@@ -14,8 +14,50 @@ permissions:
   contents: read
 
 jobs:
+  # Unit tier (default addopts exclude integration/testpack), sharded across
+  # four pytest-split groups. This is the PR fast path.
   backend:
-    name: Backend Tests
+    name: Backend Tests (shard ${{ matrix.group }}/4)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [1, 2, 3, 4]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Run tests (shard ${{ matrix.group }})
+        env:
+          # One coverage data file per shard; combined in backend-coverage.
+          COVERAGE_FILE: coverage.backend.g${{ matrix.group }}
+        run: >
+          uv run pytest tests/
+          --splits 4 --group ${{ matrix.group }}
+          --splitting-algorithm least_duration
+          --durations-path .test_durations
+          --cov=open_notebook --cov=api --cov-report=
+
+      - name: Upload coverage data
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: backend-coverage-g${{ matrix.group }}
+          path: coverage.backend.g${{ matrix.group }}
+
+  backend-coverage:
+    name: Backend Coverage
+    needs: backend
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -32,14 +74,80 @@ jobs:
       - name: Install dependencies
         run: uv sync
 
-      - name: Run tests with coverage
-        run: uv run pytest tests/ -v --cov=open_notebook --cov=api --cov-report=term-missing --cov-report=xml
+      - name: Download shard coverage
+        uses: actions/download-artifact@v8
+        with:
+          pattern: backend-coverage-g*
+          merge-multiple: true
+
+      - name: Combine coverage
+        run: |
+          uv run coverage combine coverage.backend.g1 coverage.backend.g2 coverage.backend.g3 coverage.backend.g4
+          uv run coverage xml
 
       - name: Upload coverage artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: backend-coverage
           path: coverage.xml
+
+  # Acceptance gate (T10): the synthetic test pack (canary sweep, access
+  # matrix, real-PDF extraction) plus the integration suites, against live
+  # SurrealDB + Postgres. Each xdist worker gets its own scratch database and
+  # SurrealDB namespace (see tests/conftest.py).
+  testpack:
+    name: Testpack & Integration
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Start SurrealDB
+        run: |
+          docker run -d --name surrealdb -p 8000:8000 \
+            surrealdb/surrealdb:v2 start --user root --pass root \
+            --bind 0.0.0.0:8000 memory
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8000/health; then
+              echo "SurrealDB is up"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "SurrealDB failed to start"
+          exit 1
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Run testpack + integration tiers
+        env:
+          OPEN_NOTEBOOK_TEST_TIER: testpack
+          ANALYTICS_TEST_BASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/postgres
+          SURREAL_URL: ws://localhost:8000/rpc
+          SURREAL_USER: root
+          SURREAL_PASSWORD: root
+        run: uv run pytest -m "testpack or integration" -n auto
 
   backend-lint:
     name: Backend Lint

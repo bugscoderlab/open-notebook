@@ -1,12 +1,15 @@
 """
-Pytest configuration file.
+Pytest configuration file. 
 
 This file ensures that the project root is in the Python path,
 allowing tests to import from the api and open_notebook modules.
 """
 
+import asyncio
+import os
 import sys
 from pathlib import Path
+from typing import Iterator
 
 # Load environment variables from .env file
 # This must be done BEFORE any imports that depend on environment variables
@@ -25,6 +28,149 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 import pytest  # noqa: E402
+
+# --- Test tiers (T10) -------------------------------------------------------
+# unit      (default): hermetic, xdist-safe — the PR fast path (`make test`).
+# integration:        needs live Postgres + SurrealDB; isolated per worker
+#                     (Postgres DB open_notebook_analytics_test_gwN +
+#                     SurrealDB namespace open_notebook_test_gwN).
+# testpack:           the synthetic acceptance pack (canary sweep, access
+#                     matrix, real-PDF extraction); hermetic on mem:// but
+#                     runs in its own CI job alongside integration.
+# The tier is activated with OPEN_NOTEBOOK_TEST_TIER=integration|testpack
+# (the Makefile targets and the CI testpack job set it). Without it the
+# integration suites skip, exactly as before.
+TIER_ENV_VAR = "OPEN_NOTEBOOK_TEST_TIER"
+INTEGRATION_TIERS = ("integration", "testpack")
+
+
+def requires_analytics_pg() -> "pytest.MarkDecorator":
+    """Skip marker for suites needing the scratch Postgres.
+
+    A factory (not a module-level mark) so the ANALYTICS_TEST_DATABASE_URL
+    check evaluates when each test module imports — i.e. after
+    ``pytest_configure`` created the per-worker scratch database.
+    """
+    return pytest.mark.skipif(
+        not os.environ.get("ANALYTICS_TEST_DATABASE_URL"),
+        reason="ANALYTICS_TEST_DATABASE_URL not set",
+    )
+
+
+def _worker_suffix() -> str:
+    """xdist worker id ('gw0' when running serially)."""
+    return os.environ.get("PYTEST_XDIST_WORKER", "gw0")
+
+
+def _scratch_database_name() -> str:
+    return f"open_notebook_analytics_test_{_worker_suffix()}"
+
+
+def _tier_active() -> bool:
+    return os.environ.get(TIER_ENV_VAR) in INTEGRATION_TIERS
+
+
+def pytest_configure(config):  # noqa: ARG001
+    """Create the per-worker scratch Postgres DB before test modules import.
+
+    The analytics integration suites gate on ANALYTICS_TEST_DATABASE_URL at
+    import time, so this must run before collection. Without an active tier
+    (plain `make test`) nothing is created and those suites skip as before.
+    """
+    if not _tier_active():
+        return
+
+    worker = os.environ.get("PYTEST_XDIST_WORKER")
+    if worker is None and os.environ.get("ANALYTICS_TEST_DATABASE_URL"):
+        # Serial run with an explicit scratch DB: respect it as-is.
+        return
+    # xdist workers ALWAYS derive their own per-worker URL: the controller
+    # exports its gw0 URL into spawned workers, and inheriting it would make
+    # every worker share one database (the migrations suite's downgrade base
+    # would then drop tables under other workers' tests).
+    base_url = os.environ.get(
+        "ANALYTICS_TEST_BASE_URL",
+        "postgresql+asyncpg://z@localhost:5432/postgres",
+    )
+    try:
+        os.environ["ANALYTICS_TEST_DATABASE_URL"] = asyncio.run(
+            _ensure_scratch_database(base_url, _scratch_database_name())
+        )
+    except Exception as exc:  # Postgres not reachable → suites skip themselves
+        os.environ.pop("ANALYTICS_TEST_DATABASE_URL", None)
+        print(f"Scratch Postgres unavailable ({exc}); integration suites skip")
+
+
+async def _ensure_scratch_database(base_url: str, name: str) -> str:
+    """Create the per-worker scratch database if missing (idempotent).
+
+    CREATE IF NOT EXISTS rather than drop+create: under xdist the controller
+    and worker gw0 both run pytest_configure, and a drop/create race would
+    let one process delete the other's fresh database. Re-seeding an
+    existing scratch DB is safe (alembic upgrade is idempotent, the seed
+    dedupes by primary key).
+    """
+    from sqlalchemy.engine.url import make_url
+
+    admin_url = make_url(base_url).set(database="postgres")
+    target_url = make_url(base_url).set(database=name)
+
+    import asyncpg
+
+    admin_url = admin_url.set(drivername="postgresql")
+    conn = await asyncpg.connect(admin_url.render_as_string(hide_password=False))
+    try:
+        exists = await conn.fetchval(
+            "SELECT 1 FROM pg_database WHERE datname = $1", name
+        )
+        if not exists:
+            try:
+                await conn.execute(f'CREATE DATABASE "{name}"')
+            except asyncpg.DuplicateDatabaseError:
+                pass  # concurrent create by the controller: already there
+    finally:
+        await conn.close()
+    return target_url.render_as_string(hide_password=False)
+
+
+async def _prepare_surreal_namespace() -> None:
+    """Migrations + org/team seeds in the per-worker test namespace."""
+    from open_notebook.database.async_migrate import AsyncMigrationManager
+    from open_notebook.domain.user import ensure_default_organization, ensure_team
+
+    manager = AsyncMigrationManager()
+    await manager.ping()
+    await manager.run_migration_up()
+    org_id = await ensure_default_organization()
+    await ensure_team(org_id, "hr", "HR")
+    await ensure_team(org_id, "finance", "Finance")
+    await ensure_team(org_id, "executive", "Executive")
+
+
+@pytest.fixture(scope="session", autouse=True)
+def integration_surreal_namespace() -> Iterator[None]:
+    """Point the integration/testpack tier at an isolated SurrealDB namespace.
+
+    Every xdist worker gets its own namespace (open_notebook_test_gwN) with
+    migrations applied and the three department teams seeded, so parallel
+    workers never see each other's query logs or datasets. Unreachable
+    SurrealDB is not an error here — the integration suites skip themselves.
+    """
+    if not _tier_active():
+        yield
+        return
+
+    previous = os.environ.get("SURREAL_NAMESPACE")
+    os.environ["SURREAL_NAMESPACE"] = f"open_notebook_test_{_worker_suffix()}"
+    try:
+        asyncio.run(_prepare_surreal_namespace())
+    except Exception as exc:  # SurrealDB not reachable → suites skip
+        print(f"SurrealDB test namespace unavailable ({exc}); suites skip")
+    yield
+    if previous is None:
+        os.environ.pop("SURREAL_NAMESPACE", None)
+    else:
+        os.environ["SURREAL_NAMESPACE"] = previous
 
 
 @pytest.fixture

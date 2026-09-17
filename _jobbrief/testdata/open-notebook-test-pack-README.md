@@ -20,3 +20,12 @@ Import sales_transactions_2026.csv as a Finance-owned dataset. The expected high
 HR must not receive any customer analytics because the dataset belongs to Finance. Finance, CEO, and Admin may query it. See analytical_chatbot_test_cases.csv for numerical, empty-result, permission, and prompt-injection cases.
 
 See 00_access_control_test_guide.pdf for the complete workflow.
+
+## Automation status (T10)
+
+- Canary sweep + access matrix: automated in `tests/testpack/test_canary_sweep.py`, driven by `expected_access_results.csv` (plus the QA guide's `QA-GUIDE-002`).
+- Real-PDF extraction proof: `tests/testpack/test_pdf_extraction.py`.
+- Analytics AN-001…AN-010: automated in `tests/test_analytics_api.py` and `tests/test_analytics_service.py` (integration tier).
+- Manual browser pass: [uat-checklist.md](uat-checklist.md) — four personas.
+
+Run locally: `make test-testpack` (needs SurrealDB + Postgres).
