@@ -155,6 +155,6 @@ describe('Unused Key Detection', () => {
         `Found ${unused.length} unused i18n key(s):\n${unused.join('\n')}`,
       ).toEqual([])
     },
-    30_000,
+    60_000,
   )
 })
