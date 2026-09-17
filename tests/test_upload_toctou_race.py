@@ -18,18 +18,21 @@ actual kernel-level interleaving of filesystem syscalls, which release the
 GIL - asyncio's single-threaded cooperative concurrency wouldn't exercise it.
 """
 
-import time
+import threading
 from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 from pathlib import Path
 
 from api.routers.sources import generate_unique_filename
 
 
-def old_racy_pattern(upload_folder, original_filename, content, delay=0.02):
-    """Standalone repro of the pre-fix check-then-act pattern, with an
-    injected delay to reliably widen the race window for testing (real
-    concurrent uploads don't need an artificial delay to lose the race -
-    this just makes the demonstration deterministic instead of flaky)."""
+def old_racy_pattern(upload_folder, original_filename, content, barrier=None):
+    """Standalone repro of the pre-fix check-then-act pattern.
+
+    A threading.Barrier replaces the old fixed `time.sleep` race window:
+    every thread is held after its exists() check until all threads have
+    passed the check, so the check-then-act interleaving is guaranteed on
+    every run instead of being probabilistic."""
     file_path = Path(upload_folder)
     stem = Path(original_filename).stem
     suffix = Path(original_filename).suffix
@@ -40,9 +43,11 @@ def old_racy_pattern(upload_folder, original_filename, content, delay=0.02):
         )
         full_path = file_path / candidate
         if not full_path.exists():
+            if barrier is not None:
+                barrier.wait()  # deterministic race window: everyone who
+                # passed the check is held here until all have passed it
             break
         counter += 1
-    time.sleep(delay)  # the race window
     with open(full_path, "wb") as f:
         f.write(content)
     return str(full_path)
@@ -76,7 +81,12 @@ class TestOldPatternLosesWritesUnderRace:
 
     def test_concurrent_uploads_to_same_name_lose_data(self, tmp_path):
         n = 8
-        run_concurrent_uploads(old_racy_pattern, str(tmp_path), n=n)
+        # Barrier(n): hold every thread after its exists() check until all
+        # n threads have passed it, so all n then write the same path.
+        barrier = threading.Barrier(n)
+        run_concurrent_uploads(
+            partial(old_racy_pattern, barrier=barrier), str(tmp_path), n=n
+        )
         payloads = distinct_payloads_on_disk(tmp_path)
         assert len(payloads) < n, (
             "expected the old check-then-act pattern to lose at least one "

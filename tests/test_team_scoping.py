@@ -247,6 +247,18 @@ class TestAccessControlApi:
         assert client.get("/api/sources/source:fin_src").status_code == 404
         assert client.get("/api/sources/source:hr_src").status_code == 200
 
+    def test_source_detail_carries_write_permission_hint(self, client, mem_db):
+        """Read-shared foreign content is readable but not writable — the
+        can_write hint lets the UI hide write actions instead of offering an
+        embed/edit/delete that 403s on the backend."""
+        shared = client.get("/api/sources/source:shared_src")
+        assert shared.status_code == 200
+        assert shared.json()["can_write"] is False
+
+        own = client.get("/api/sources/source:hr_src")
+        assert own.status_code == 200
+        assert own.json()["can_write"] is True
+
     def test_foreign_source_download_is_404(self, client, mem_db):
         # HEAD and GET both deny before any filesystem work.
         assert (

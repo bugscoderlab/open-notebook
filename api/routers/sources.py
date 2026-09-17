@@ -20,6 +20,7 @@ from surreal_commands import execute_command_sync, submit_command
 
 from api.access import (
     CurrentUser,
+    can_write_team,
     check_notebook_read,
     check_notebook_write,
     check_source_read,
@@ -827,6 +828,8 @@ async def get_source(
             processing_info=processing_info,
             # Notebook associations
             notebooks=notebook_ids,
+            # Permission hint for the UI (T5)
+            can_write=can_write_team(user, source),
         )
     except HTTPException:
         raise

@@ -41,6 +41,8 @@ export interface SourceListResponse {
 export interface SourceDetailResponse extends SourceListResponse {
   full_text: string
   notebooks?: string[]  // List of notebook IDs this source is linked to
+  // T5 permission hint: false on read-shared content — hide write actions
+  can_write?: boolean
 }
 
 export type SourceResponse = SourceDetailResponse

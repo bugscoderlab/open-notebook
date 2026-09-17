@@ -403,6 +403,9 @@ class SourceResponse(BaseModel):
     processing_info: Optional[Dict] = None
     # Notebook associations
     notebooks: Optional[List[str]] = None
+    # T5: permission hint — the UI hides write actions (embed, edit, delete)
+    # on read-shared content instead of offering an action that 403s.
+    can_write: bool = False
 
 
 class SourceListResponse(BaseModel):

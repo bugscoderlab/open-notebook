@@ -464,7 +464,7 @@ function SourceDetailContentInner({
                 )}
                 <DropdownMenuItem
                   onClick={handleEmbedContent}
-                  disabled={isEmbedding || source.embedded}
+                  disabled={isEmbedding || source.embedded || !source.can_write}
                 >
                   <Database className="mr-2 h-4 w-4" />
                   {isEmbedding ? t('sources.embedding') : source.embedded ? t('sources.alreadyEmbedded') : t('sources.embedContent')}
@@ -658,16 +658,18 @@ function SourceDetailContentInner({
                     </AlertTitle>
                     <AlertDescription>
                       {t('sources.notEmbeddedDesc')}
-                      <div className="mt-3">
-                        <Button
-                          onClick={handleEmbedContent}
-                          disabled={isEmbedding}
-                          size="sm"
-                        >
-                          <Database className="mr-2 h-4 w-4" />
-                          {isEmbedding ? t('sources.embedding') : t('sources.embedContent')}
-                        </Button>
-                      </div>
+                      {source.can_write && (
+                        <div className="mt-3">
+                          <Button
+                            onClick={handleEmbedContent}
+                            disabled={isEmbedding}
+                            size="sm"
+                          >
+                            <Database className="mr-2 h-4 w-4" />
+                            {isEmbedding ? t('sources.embedding') : t('sources.embedContent')}
+                          </Button>
+                        </div>
+                      )}
                     </AlertDescription>
                   </Alert>
                 )}
