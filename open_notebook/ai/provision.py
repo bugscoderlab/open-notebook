@@ -1,3 +1,5 @@
+from typing import Any
+
 from esperanto import LanguageModel
 from langchain_core.language_models.chat_models import BaseChatModel
 from loguru import logger
@@ -5,6 +7,20 @@ from loguru import logger
 from open_notebook.ai.models import model_manager
 from open_notebook.exceptions import ConfigurationError
 from open_notebook.utils import token_count
+
+
+def _describe_model(model: Any) -> str:
+    """Secrets-free model description for logging.
+
+    Never log the model's repr: provider clients embed the decrypted API
+    key in their repr, and DEBUG logs end up in support bundles and issue
+    reports.
+    """
+    model_name = getattr(model, "model_name", None) or getattr(
+        getattr(model, "_config", None), "model_name", None
+    )
+    suffix = f" (model_name={model_name})" if model_name else ""
+    return f"{model.__class__.__name__}{suffix}"
 
 
 async def provision_langchain_model(
@@ -33,7 +49,7 @@ async def provision_langchain_model(
         selection_reason = f"default for type={default_type}"
         model = await model_manager.get_default_model(default_type, **kwargs)
 
-    logger.debug(f"Using model: {model}")
+    logger.debug(f"Using model: {_describe_model(model)}")
 
     if model is None:
         logger.error(
