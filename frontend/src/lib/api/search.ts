@@ -11,12 +11,11 @@ export const searchApi = {
 
   // Ask with streaming (uses relative URL for Docker compatibility)
   askKnowledgeBase: async (params: AskRequest, signal?: AbortSignal) => {
-    // Cookie session: the browser sends the HttpOnly cookie (ADR-010); the
-    // mutation echoes the readable CSRF cookie, same as apiClient.
+    // Cookie session: credentials + CSRF header, same as apiClient. Relative
+    // URL on purpose — same-origin proxy policy: see client.ts
+    // (resolveApiBaseUrl); SSE fetch calls can't use the axios interceptor.
     const csrf = getCsrfToken()
 
-    // Use relative URL to leverage Next.js rewrites
-    // This works both in dev (Next.js proxy) and production (Docker network)
     const url = '/api/search/ask'
 
     // Use fetch with ReadableStream for SSE

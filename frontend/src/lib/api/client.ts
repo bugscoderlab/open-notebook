@@ -50,12 +50,63 @@ export function setUnauthorizedHandler(handler: UnauthorizedHandler | null): voi
   unauthorizedHandler = handler
 }
 
+/**
+ * Resolve the axios baseURL for cookie sessions (ADR-010).
+ *
+ * Session cookies cannot travel on credentialed cross-origin requests when
+ * the API answers with wildcard CORS (`Allow-Origin: *` without
+ * `Allow-Credentials`) — the browser blocks the response and axios reports a
+ * "Network Error". That is the default topology in dev and single-container
+ * Docker: page on :3000, API on the SAME host at :5055. In that case the
+ * browser must go through the same-origin Next.js rewrites proxy (`/api` →
+ * INTERNAL_API_URL), which needs no CORS at all. The SSE fetches in
+ * search.ts/source-chat.ts already rely on this proxy for the same reason.
+ *
+ * Only a genuinely cross-host API_URL (e.g. api.example.com vs
+ * notebook.example.com) stays absolute — there the operator must scope
+ * CORS_ORIGINS to the frontend origin so the API answers with credentials
+ * allowed (see api/main.py CORS_ALLOW_CREDENTIALS).
+ *
+ * @param apiUrl configured API origin (may be '' = use the proxy)
+ * @param pageOrigin browser origin; omit on the server (absolute fallback)
+ */
+export function resolveApiBaseUrl(apiUrl: string, pageOrigin?: string): string {
+  if (!pageOrigin) {
+    return `${apiUrl}/api`
+  }
+  if (!apiUrl || isApiSameOrigin(apiUrl, pageOrigin)) {
+    return '/api'
+  }
+  return `${apiUrl}/api`
+}
+
+/**
+ * True when the configured API lives on the same hostname as the page
+ * (any port) — i.e. the browser can reach it through the same-origin
+ * Next.js rewrites proxy instead of a credentialed cross-origin request.
+ * Shared by the apiClient baseURL and the podcast asset URLs (media
+ * elements send no cross-origin credentials at all).
+ */
+export function isApiSameOrigin(apiUrl: string, pageOrigin?: string): boolean {
+  if (!apiUrl || !pageOrigin) {
+    return false
+  }
+  try {
+    return new URL(apiUrl).hostname === new URL(pageOrigin).hostname
+  } catch (error) {
+    console.warn('[api-client] Unparseable API URL or page origin:', error)
+    return false
+  }
+}
+
 // Request interceptor to add base URL, CSRF header, and content types
 apiClient.interceptors.request.use(async (config) => {
   // Set the base URL dynamically from runtime config
   if (!config.baseURL) {
     const apiUrl = await getApiUrl()
-    config.baseURL = `${apiUrl}/api`
+    const pageOrigin =
+      typeof window !== 'undefined' ? window.location.origin : undefined
+    config.baseURL = resolveApiBaseUrl(apiUrl, pageOrigin)
   }
 
   // Mutations echo the readable CSRF cookie (double-submit pattern, ADR-010).
