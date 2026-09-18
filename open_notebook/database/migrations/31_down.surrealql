@@ -1,0 +1,2 @@
+-- Migration 31 down: drop the generated_sql audit column.
+REMOVE FIELD IF EXISTS generated_sql ON TABLE analytics_query_log;

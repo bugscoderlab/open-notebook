@@ -52,6 +52,10 @@ What this makes easier, what it makes harder, what to watch. (bullets)
 | [ADR-008](ADR-008-notebook-scoped-search.md) | Notebook scope is an optional filter on the existing search functions | Accepted |
 | [ADR-009](ADR-009-analytics-postgres-stack.md) | Analytics runs on PostgreSQL via SQLAlchemy/Alembic, scoped to one module | Accepted |
 | [ADR-010](ADR-010-cookie-session-auth.md) | Per-user cookie sessions replace the shared-password middleware | Accepted |
-| [ADR-011](ADR-011-analytics-intent-classification.md) | Analytics intent/explanation: LLM-assisted with deterministic fallback; bound IN-list expansion | Accepted |
+| [ADR-011](ADR-011-analytics-intent-classification.md) | Analytics intent/explanation: LLM-assisted with deterministic fallback; bound IN-list expansion | Accepted (query-generation stance superseded by ADR-015; template fallback retained) |
+| [ADR-012](ADR-012-team-enforcement.md) | Team enforcement: the access seam, member write access, and empty-scope semantics | Accepted |
+| [ADR-013](ADR-013-classification.md) | Content classification: flags as teamlessness, company-shared ownership, and the login gate | Accepted |
+| [ADR-014](ADR-014-analytics-permissions.md) | Analytics permissions under real auth: injection refusal, query-log ownership, bypass removal | Accepted |
+| [ADR-015](ADR-015-agentic-text-to-sql.md) | Analytics answers free-form questions via agentic text-to-SQL — validation instead of forbidden | Accepted |
 | [PDR-001](PDR-001-single-user-first.md) | Single-user first; don't preclude multi-user | Accepted |
 | [PDR-002](PDR-002-provider-agnostic-core.md) | Provider-agnostic core by default | Accepted |

@@ -23,6 +23,7 @@ from typing import Any, Dict, List, Literal, Optional, Protocol
 from loguru import logger
 from sqlalchemy import text
 
+from open_notebook.analytics import text_to_sql
 from open_notebook.analytics.engine import run_readonly_query
 from open_notebook.analytics.query_templates import (
     TEMPLATES,
@@ -32,7 +33,7 @@ from open_notebook.analytics.query_templates import (
     parse_period,
 )
 from open_notebook.domain import analytics as analytics_domain
-from open_notebook.domain.analytics import Dataset
+from open_notebook.domain.analytics import AnalyticsQueryLog, Dataset
 from open_notebook.exceptions import InvalidInputError
 from open_notebook.utils.text_utils import clean_thinking_content, extract_text_content
 
@@ -445,6 +446,22 @@ async def ask_analytics_question(
     if target is None:
         return AnalyticsAnswer(status="denied", answer_text=DENIED_NO_DATASET)
 
+    team_names = await _authorized_team_names(caller, target)
+
+    # Primary path (ADR-015): free-form question → model-written SQL →
+    # validation gate → read-only execution. "unavailable" (no model or no
+    # schema artifact) falls through to the template path unchanged.
+    llm_attempt = await text_to_sql.attempt_text_to_sql(
+        question=question, dataset=target, team_names=team_names
+    )
+    if llm_attempt.kind == "executed":
+        return await _answer_from_generated(caller, target, question, llm_attempt)
+    if llm_attempt.kind == "rejected":
+        raise InvalidInputError(
+            "I generated SQL for that question but it failed the safety "
+            f"checks ({llm_attempt.reason}). Try rephrasing the question."
+        )
+
     refunds_scope = include_refunds or "refund" in question.lower()
     template_id = await _classify_intent(question, refunds_scope)
     if not template_id:
@@ -455,7 +472,6 @@ async def ask_analytics_question(
         )
     template = get_template(template_id)
 
-    team_names = await _authorized_team_names(caller, target)
     params = build_template_params(
         question, template, team_names, refunds_scope
     )
@@ -528,6 +544,89 @@ async def ask_analytics_question(
     )
 
 
+def _generic_fallback_explanation(rows: List[Dict[str, Any]]) -> str:
+    """Deterministic explanation for free-form result shapes (LLM path).
+
+    Unlike the template-path fallback, generated rows have no fixed column
+    shape, so this renders the first row verbatim instead of keying on
+    known column names.
+    """
+    first = rows[0]
+    rendered = ", ".join(f"{key}={value}" for key, value in first.items())
+    plural = "row" if len(rows) == 1 else "rows"
+    return f"The query returned {len(rows)} {plural}. First row: {rendered}."
+
+
+async def _answer_from_generated(
+    caller: AnalyticsCaller,
+    target: Dataset,
+    question: str,
+    attempt: text_to_sql.TextToSqlAttempt,
+) -> AnalyticsAnswer:
+    """Build the frozen-contract answer for an executed generated query."""
+    json_rows = _jsonable(attempt.rows)
+    scope = {
+        "dataset": target.name,
+        "period": "as specified in your question",
+        "refunds": "model-controlled",
+    }
+    freshness = target.freshness_at
+    freshness_iso = freshness.isoformat() if freshness else None
+
+    if not json_rows:
+        log = await analytics_domain.create_query_log(
+            user_id=caller.id,
+            dataset_id=target.id,
+            question=question,
+            template_id=None,
+            duration_ms=attempt.duration_ms,
+            row_count=0,
+            status="no_data",
+            generated_sql=attempt.sql,
+        )
+        return AnalyticsAnswer(
+            status="no_data",
+            answer_text=(
+                f"No data was found in {target.name} for that question. "
+                "I won't invent values — try a different period or filters."
+            ),
+            query_id=log.id,
+            scope=scope,
+            freshness_at=freshness_iso,
+            query_template=attempt.sql,
+        )
+
+    payload = json.dumps(
+        {"question": question, "scope": scope, "result": json_rows}
+    )
+    answer_text = await _explain_with_llm(question, payload)
+    if not answer_text:
+        answer_text = _generic_fallback_explanation(json_rows)
+    log = await analytics_domain.create_query_log(
+        user_id=caller.id,
+        dataset_id=target.id,
+        question=question,
+        template_id=None,
+        duration_ms=attempt.duration_ms,
+        row_count=len(json_rows),
+        status="ok",
+        generated_sql=attempt.sql,
+    )
+    columns = list(json_rows[0].keys())
+    return AnalyticsAnswer(
+        status="ok",
+        answer_text=answer_text,
+        query_id=log.id,
+        table={
+            "columns": columns,
+            "rows": [[row.get(column) for column in columns] for row in json_rows],
+        },
+        scope=scope,
+        freshness_at=freshness_iso,
+        query_template=attempt.sql,
+    )
+
+
 async def get_query_for_caller(
     caller: AnalyticsCaller, query_id: str, permitted_dataset_ids: List[str]
 ) -> Optional[Dict[str, Any]]:
@@ -582,9 +681,7 @@ async def get_query(query_id: str) -> Optional[Dict[str, Any]]:
         "row_count": log.row_count,
         "status": log.status,
         "created": log.created.isoformat() if log.created else None,
-        "query_template": (
-            _render_template_for_display(log.template_id) if log.template_id else None
-        ),
+        "query_template": _display_query_for_log(log),
     }
 
 
@@ -593,6 +690,15 @@ def _render_template_for_display(template_id: str) -> Optional[str]:
         return get_template(template_id).sql
     except KeyError:
         return None
+
+
+def _display_query_for_log(log: AnalyticsQueryLog) -> Optional[str]:
+    """AN-009 display SQL: generated placeholder SQL wins; else template text."""
+    if log.generated_sql:
+        return log.generated_sql
+    if log.template_id:
+        return _render_template_for_display(log.template_id)
+    return None
 
 
 async def refresh_dataset_freshness(dataset_id: str) -> None:

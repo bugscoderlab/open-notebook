@@ -1,5 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { AxiosError } from 'axios'
 import { AnalyticsMode } from './AnalyticsMode'
 import { useAnalyticsAsk, useAnalyticsDatasets } from '@/lib/hooks/use-analytics'
 import type { AnalyticsAnswer } from '@/lib/types/analytics'
@@ -130,5 +131,75 @@ describe('AnalyticsMode', () => {
       dataset_id: 'dataset:sales2026',
       include_refunds: true,
     })
+  })
+})
+
+describe('AnalyticsMode error surface (#21)', () => {
+  function renderWithAskError(error: unknown) {
+    mockDatasets.mockReturnValue({
+      data: [SALES_DATASET],
+      isSuccess: true,
+    } as unknown as ReturnType<typeof useAnalyticsDatasets>)
+    mockAsk.mockReturnValue({
+      mutate: vi.fn(),
+      isPending: false,
+      data: undefined,
+      isError: true,
+      error,
+    } as unknown as ReturnType<typeof useAnalyticsAsk>)
+    render(<AnalyticsMode />)
+  }
+
+  it('shows the backend refusal detail for a 4xx with a detail message', () => {
+    const error = new AxiosError(
+      'Request failed',
+      '400',
+      undefined,
+      undefined,
+      {
+        status: 400,
+        statusText: '',
+        headers: {},
+        config: {} as never,
+        data: {
+          detail:
+            "That question does not match an approved analytics query, so I can't answer it.",
+        },
+      } as never
+    )
+
+    renderWithAskError(error)
+
+    expect(
+      screen.getByText(
+        "That question does not match an approved analytics query, so I can't answer it."
+      )
+    ).toBeInTheDocument()
+  })
+
+  it('falls back to the generic message for network errors', () => {
+    renderWithAskError(new AxiosError('Network Error', 'ERR_NETWORK'))
+
+    expect(screen.getByText('searchPage.analyticsError')).toBeInTheDocument()
+  })
+
+  it('falls back to the generic message for 5xx responses', () => {
+    const error = new AxiosError(
+      'Request failed',
+      '500',
+      undefined,
+      undefined,
+      {
+        status: 500,
+        statusText: '',
+        headers: {},
+        config: {} as never,
+        data: { detail: '' },
+      } as never
+    )
+
+    renderWithAskError(error)
+
+    expect(screen.getByText('searchPage.analyticsError')).toBeInTheDocument()
   })
 })

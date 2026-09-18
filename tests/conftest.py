@@ -57,6 +57,46 @@ def requires_analytics_pg() -> "pytest.MarkDecorator":
     )
 
 
+# --- Analytics integration helpers ------------------------------------------
+# Shared by the analytics integration suites (service, schema snapshot) so the
+# alembic-upgrade + seed block cannot drift between files.
+
+ANALYTICS_ALEMBIC_INI = "open_notebook/analytics/alembic.ini"
+ANALYTICS_SEED_CSV = (
+    project_root / "_jobbrief" / "testdata" / "sales_transactions_2026.csv"
+)
+ANALYTICS_SEED_ROW_COUNT = 77
+
+
+def analytics_alembic_upgrade() -> None:
+    """Run analytics migrations against the scratch Postgres."""
+    import subprocess
+
+    env = dict(os.environ)
+    env["ANALYTICS_DATABASE_URL"] = os.environ["ANALYTICS_TEST_DATABASE_URL"]
+    result = subprocess.run(
+        ["uv", "run", "alembic", "-c", ANALYTICS_ALEMBIC_INI, "upgrade", "head"],
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+async def analytics_seed_scratch() -> None:
+    """Seed the scratch Postgres with the full sales test pack.
+
+    Caller owns the ANALYTICS_DATABASE_URL env swap and engine disposal for
+    its fixture scope; this only runs the seed and asserts completeness.
+    """
+    from open_notebook.analytics.seed import seed
+
+    inserted, skipped = await seed(
+        ANALYTICS_SEED_CSV, os.environ["ANALYTICS_TEST_DATABASE_URL"]
+    )
+    assert inserted + skipped == ANALYTICS_SEED_ROW_COUNT
+
+
 def _worker_suffix() -> str:
     """xdist worker id ('gw0' when running serially)."""
     return os.environ.get("PYTEST_XDIST_WORKER", "gw0")

@@ -1,6 +1,6 @@
 # ADR-011: Analytics intent classification and explanation — LLM-assisted with deterministic fallback
 
-- **Status**: Accepted
+- **Status**: Accepted — in part superseded by [ADR-015](ADR-015-agentic-text-to-sql.md): its "LLM never writes SQL" stance and template-only query vocabulary are replaced by validated agentic text-to-SQL, while the deterministic fallback (keyword classifier, templates, IN-list expansion, period parsing) is retained verbatim as the no-LLM path.
 - **Date**: 2026-09
 - **Related**: #9 (T8), #1, ADR-009 (analytics Postgres stack), `_jobbrief/tdd.md` §10.3
 
@@ -19,7 +19,7 @@ Also: SQLAlchemy "expanding" IN-list binds render as an anonymous record under a
 - **Explanation**: the computed rows go to the default chat model when available; otherwise a deterministic explanation is rendered from the rows. Answers always originate from the database — the model only ever rephrases.
 - **IN-list execution**: the two server-controlled list params (`statuses`, `authorized_team_ids`) are expanded at the template layer into individual named placeholders (`:statuses_0`, `:authorized_team_ids_0`, …). Every value stays bound; only placeholder names are generated, and they come from the template module. The display form (`QueryTemplate.sql`) keeps the canonical `AND data_team IN (:authorized_team_ids)` text that AN-009 requires.
 - **Refunds-inclusive variant**: `include_refunds=true` (or the word "refund" in the question) switches the status filter from `['completed']` to `['completed', 'refunded', 'voided']` and discloses `scope.refunds: "included"`. Voided rows are included because the variant means "no status filtering"; the test-pack assertion (Sarah Lim 9,360) is unaffected since her non-completed row is the refunded one.
-- **Period parsing**: a 4-digit year in the question wins; otherwise the current calendar year is used (`[Jan 1, Jan 1 next year)`). A future year yields zero rows, which the service reports as an honest `no_data` — never invented values (AN-008).
+- **Period parsing**: precedence is full date ("1 October 2026") > month-year ("October 2026") > bare 4-digit year ("in 2027") > current calendar year (`[Jan 1, Jan 1 next year)`). "after <date>" / "since <date>" / "from <date>" are open-ended (end = 9999-12-31); "after" is exclusive, "since"/"from" inclusive. AN-008 depends on this: "after 1 October 2026" must resolve to the future date itself — falling back to the bare year would silently answer with the year's data. A future (or otherwise empty) period yields zero rows, which the service reports as an honest `no_data` — never invented values.
 - **Engine pooling**: `NullPool`. The cached async engine must survive being used from many event loops (API process, worker, and every pytest-asyncio test each run their own loop); NullPool never reuses a connection across loops and matches the repository's no-connection-pooling stance.
 
 ## Alternatives considered
