@@ -1,30 +1,26 @@
-"""Unified Home ask chat graph.
+"""Knowledge-only Home ask chat graph.
 
-One conversation that auto-routes each user message to either the knowledge
-pipeline (the Ask strategy → search → synthesis stages, reused from
-``open_notebook.graphs.ask``) or the analytics pipeline
-(``open_notebook.analytics.service.ask_analytics_question``), then generates
-follow-up question suggestions.
+Every question flows through the knowledge pipeline (the Ask strategy →
+search → synthesis stages, reused from ``open_notebook.graphs.ask``),
+followed by follow-up question suggestions. There is no routing hop:
+business-data phrasing is answered from documents like any other question.
+
+Historical note: this graph used to auto-route each message to either the
+knowledge pipeline or a dedicated analytics pipeline (LLM router with a
+deterministic keyword fallback). That routing — together with the analytics
+node, the caller-role adapter, and the route/refunds/analytics-payload state
+fields — was removed per ADR-017.
 
 Memory: compiled with the shared SqliteSaver checkpointer keyed by
 ``thread_id = session_id`` — the ``messages`` channel (``add_messages``)
 accumulates Human/AI messages across turns, and ``turn_metadata``
-accumulates one entry per AI turn (analytics payload + suggestions) so the
-GET endpoint can re-attach them to the persisted messages.
-
-Routing (auto-detect, no manual mode):
-- A cheap LLM classifies the message as ANALYTICS or KNOWLEDGE.
-- When no model is available or the call fails, a deterministic keyword
-  fallback fires on strong analytics signals only.
-- Anything else routes to knowledge — the safe default: a misrouted
-  knowledge question still gets a useful (honest) answer, while a misrouted
-  analytics question would surface a confusing refusal.
+accumulates one entry per AI turn (the suggestions list) so the GET
+endpoint can re-attach them to the persisted messages.
 """
 
 import operator
 import re
-from dataclasses import asdict
-from typing import Annotated, Any, Dict, List, Literal, Optional, cast
+from typing import Annotated, Any, List, Optional, cast
 
 import aiosqlite
 from ai_prompter import Prompter
@@ -37,35 +33,14 @@ from langgraph.types import Send
 from typing_extensions import TypedDict
 
 from open_notebook.ai.provision import provision_langchain_model
-from open_notebook.analytics.service import ask_analytics_question
 from open_notebook.config import LANGGRAPH_CHECKPOINT_FILE
-from open_notebook.exceptions import OpenNotebookError
 from open_notebook.graphs import ask as ask_graph
 from open_notebook.graphs.ask import ThreadState
 from open_notebook.utils import clean_thinking_content
-from open_notebook.utils.error_classifier import classify_error
 from open_notebook.utils.text_utils import extract_text_content
-
-Route = Literal["knowledge", "analytics"]
 
 NO_SCOPE_ANSWER = (
     "I don't have access to any notebooks that could answer this question."
-)
-
-# Strong signals only — a false positive here sends a knowledge question to
-# the analytics refusal, so weak words ("customer", "average") stay out.
-_ANALYTICS_HINTS = (
-    "spend",
-    "spent",
-    "revenue",
-    "ranking",
-    "rank ",
-    "average transaction",
-    "average ticket",
-    "transaction value",
-    "top service",
-    "refund",
-    "myr",
 )
 
 HISTORY_TURNS = 3
@@ -79,72 +54,15 @@ class HomeChatState(TypedDict, total=False):
     user_id: str
     team_id: str
     role: str
-    include_refunds: bool
     # Current-turn outputs, streamed to the client as SSE events.
-    route: Route
     strategy: Any
     answers: Annotated[list, operator.add]
     final_answer: str
-    analytics_answer: Optional[Dict[str, Any]]
     suggestions: List[str]
     # One entry per AI turn, persisted for the GET endpoint (aligned with AI
     # messages in order). operator.add appends — the router must NOT replay
     # the checkpointed list back into the input.
     turn_metadata: Annotated[list, operator.add]
-
-
-def classify_keywords(question: str) -> Optional[Route]:
-    """Deterministic analytics fallback: strong business-data signals only."""
-    lowered = question.lower()
-    if any(hint in lowered for hint in _ANALYTICS_HINTS):
-        return "analytics"
-    return None
-
-
-async def _classify_with_model(question: str) -> Optional[Route]:
-    """Cheap LLM router. Any failure returns None (caller falls back)."""
-    try:
-        prompt = (
-            "You route user questions to one of two assistants. Reply with "
-            "exactly one word:\n"
-            "- ANALYTICS: questions about business/transaction data — spend, "
-            "revenue, rankings, averages, customers, services, refunds, "
-            "periods.\n"
-            "- KNOWLEDGE: everything else — documents, notes, sources, "
-            "concepts, explanations, summaries.\n\n"
-            f"Question: {question}\n\n"
-            "Routing:"
-        )
-        model = await provision_langchain_model(prompt, None, "chat", max_tokens=16)
-        response = await model.ainvoke([HumanMessage(content=prompt)])
-        answer = clean_thinking_content(extract_text_content(response.content))
-        word = answer.strip().split()[0].strip(":.").upper() if answer.strip() else ""
-        if word.startswith("ANALYTICS"):
-            return "analytics"
-        if word.startswith("KNOWLEDGE"):
-            return "knowledge"
-        return None
-    except Exception:
-        return None
-
-
-async def classify_message(state: HomeChatState, config: RunnableConfig) -> dict:
-    """Route the current question to the knowledge or analytics pipeline."""
-    try:
-        question = _last_human_question(state)
-        route = await _classify_with_model(question)
-        if route is None:
-            route = classify_keywords(question) or "knowledge"
-        return {"route": route}
-    except OpenNotebookError:
-        raise
-    except Exception as e:
-        error_class, user_message = classify_error(e)
-        raise error_class(user_message) from e
-
-
-def route_after_classify(state: HomeChatState) -> str:
-    return "analytics" if state.get("route") == "analytics" else "knowledge"
 
 
 def _last_human_question(state: HomeChatState) -> str:
@@ -256,58 +174,6 @@ async def knowledge_final(state: HomeChatState, config: RunnableConfig) -> dict:
     return {**result, "messages": [AIMessage(content=result.get("final_answer", ""))]}
 
 
-class _AnalyticsCaller:
-    """Minimal AnalyticsCaller satisfied from the home chat state."""
-
-    def __init__(
-        self,
-        user_id: str,
-        team_id: str,
-        role: Literal["member", "team_manager", "ceo", "admin"],
-    ):
-        self.id = user_id
-        self.team_id = team_id
-        self.role = role
-
-
-def _caller_role(role: Optional[str]) -> Literal["member", "team_manager", "ceo", "admin"]:
-    if role in ("member", "team_manager", "ceo", "admin"):
-        return cast(Literal["member", "team_manager", "ceo", "admin"], role)
-    return "member"
-
-
-async def run_analytics(state: HomeChatState, config: RunnableConfig) -> dict:
-    """Answer with the analytics pipeline (frozen AnalyticsAnswer contract).
-
-    Denied/no-data outcomes are themselves the answer (the payload's
-    answer_text explains why); InvalidInputError (no approved query /
-    gate rejection) is re-raised as a domain error so the SSE stream
-    surfaces it — the same behavior as the analytics endpoint.
-    """
-    try:
-        caller = _AnalyticsCaller(
-            state.get("user_id") or "",
-            state.get("team_id") or "",
-            _caller_role(state.get("role")),
-        )
-        answer = await ask_analytics_question(
-            caller=caller,
-            question=_last_human_question(state),
-            dataset_id=None,
-            include_refunds=bool(state.get("include_refunds")),
-        )
-        payload = asdict(answer)
-        return {
-            "analytics_answer": payload,
-            "messages": [AIMessage(content=answer.answer_text)],
-        }
-    except OpenNotebookError:
-        raise
-    except Exception as e:
-        error_class, user_message = classify_error(e)
-        raise error_class(user_message) from e
-
-
 # Leading list markers / enumerators on model-produced suggestion lines.
 _SUGGESTION_PREFIX_RE = re.compile(r"^\s*(?:[-*•]\s*)?(?:\d+[.)]\s*)?")
 
@@ -320,19 +186,8 @@ async def suggest_followups(state: HomeChatState, config: RunnableConfig) -> dic
     GET endpoint can re-attach it to the stored AI message.
     """
     suggestions: List[str] = []
-    analytics_answer: Optional[Dict[str, Any]] = None
     try:
         answer_text = state.get("final_answer") or ""
-        # Only an analytics answer produced THIS turn may be attached —
-        # the channel retains the previous turn's payload otherwise, and
-        # the frontend would render last turn's chart inside this answer.
-        analytics_answer = (
-            state.get("analytics_answer")
-            if state.get("route") == "analytics"
-            else None
-        )
-        if not answer_text and analytics_answer:
-            answer_text = analytics_answer.get("answer_text", "")
         if answer_text:
             system_prompt = Prompter(prompt_template="home_chat/suggestions").render(  # type: ignore[arg-type]
                 data={"question": _last_human_question(state), "answer": answer_text}
@@ -349,10 +204,7 @@ async def suggest_followups(state: HomeChatState, config: RunnableConfig) -> dic
             suggestions = suggestions[:3]
     except Exception:
         suggestions = []
-    metadata = {
-        "analytics_answer": analytics_answer,
-        "suggestions": suggestions,
-    }
+    metadata = {"suggestions": suggestions}
     return {"suggestions": suggestions, "turn_metadata": [metadata]}
 
 
@@ -372,22 +224,16 @@ async def knowledge_search(state: "ask_graph.SubGraphState", config: RunnableCon
 
 
 _home_state = StateGraph(HomeChatState)
-_home_state.add_node("classify", classify_message)
 _home_state.add_node("knowledge_strategy", knowledge_strategy)
 _home_state.add_node("knowledge_search", knowledge_search)
 _home_state.add_node("knowledge_final", knowledge_final)
-_home_state.add_node("analytics", run_analytics)
 _home_state.add_node("suggest", suggest_followups)
-_home_state.add_edge(START, "classify")
-_home_state.add_conditional_edges(
-    "classify", route_after_classify, {"knowledge": "knowledge_strategy", "analytics": "analytics"}
-)
+_home_state.add_edge(START, "knowledge_strategy")
 _home_state.add_conditional_edges(
     "knowledge_strategy", knowledge_search_trigger, ["knowledge_search"]
 )
 _home_state.add_edge("knowledge_search", "knowledge_final")
 _home_state.add_edge("knowledge_final", "suggest")
-_home_state.add_edge("analytics", "suggest")
 _home_state.add_edge("suggest", END)
 
 

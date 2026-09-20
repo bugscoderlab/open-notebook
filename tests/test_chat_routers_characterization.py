@@ -342,3 +342,95 @@ async def test_get_source_chat_session_happy_path_shapes(
         "insights": [],
         "notes": [],
     }
+
+
+# --- home_chat.py: legacy (pre-analytics-removal) state compatibility ----------
+
+
+def _home_session(**overrides):
+    """A HomeChatSession-like object owned by the authenticated test user."""
+    session = MagicMock()
+    session.id = "home_chat_session:abc"
+    session.title = "My Session"
+    session.created = "2026-01-01T00:00:00"
+    session.updated = "2026-01-02T00:00:00"
+    session.model_override = None
+    session.user_id = "app_user:test"
+    session.save = AsyncMock()
+    for key, value in overrides.items():
+        setattr(session, key, value)
+    return session
+
+
+@pytest.mark.asyncio
+@patch("api.routers.home_chat.get_home_chat_graph")
+@patch("api.routers.home_chat.HomeChatSession.get", new_callable=AsyncMock)
+async def test_get_home_chat_session_legacy_checkpoint_restores_without_analytics(
+    mock_get, mock_graph, client
+):
+    """A session checkpointed before the analytics removal (state still
+    carrying route / include_refunds / analytics_answer, and turn_metadata
+    entries with an analytics payload) must load cleanly — the analytics
+    payload is ignored, never rendered."""
+    mock_get.return_value = _home_session()
+    mock_graph.return_value.aget_state = AsyncMock(
+        return_value=_graph_state(
+            {
+                "messages": [
+                    _Msg("m1", "human", "Who is the top spender?"),
+                    _Msg("m2", "ai", "Sarah spent MYR 100."),
+                ],
+                # Legacy fields from the pre-removal checkpoint — ignored.
+                "route": "analytics",
+                "include_refunds": True,
+                "analytics_answer": {"status": "ok", "answer_text": "Sarah spent MYR 100."},
+                "turn_metadata": [
+                    {
+                        "analytics_answer": {
+                            "status": "ok",
+                            "answer_text": "Sarah spent MYR 100.",
+                        },
+                        "suggestions": ["Follow up?"],
+                    }
+                ],
+            }
+        )
+    )
+
+    resp = client.get("/api/home-chat/sessions/abc")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["message_count"] == 2
+    # No analytics attachment on restored turns — only the suggestions list.
+    assert body["turns"] == [{"suggestions": ["Follow up?"]}]
+
+
+@pytest.mark.asyncio
+@patch("api.routers.home_chat.stream_home_chat_response")
+@patch("api.routers.home_chat.DefaultModels.get_instance", new_callable=AsyncMock)
+@patch("api.routers.home_chat.effective_notebook_scope", new_callable=AsyncMock)
+@patch("api.routers.home_chat.HomeChatSession.get", new_callable=AsyncMock)
+async def test_send_home_message_legacy_refunds_flag_is_harmless(
+    mock_get, mock_scope, mock_defaults, mock_stream, client
+):
+    """Old clients still send the removed refunds flag; pydantic ignores
+    unknown extra fields, so the request must not 422."""
+    mock_get.return_value = _home_session()
+    mock_scope.return_value = ["notebook:1"]
+    defaults = MagicMock()
+    defaults.default_chat_model = "model:1"
+    mock_defaults.return_value = defaults
+
+    async def _fake_stream(*args, **kwargs):
+        yield "data: {}\n\n"
+
+    mock_stream.return_value = _fake_stream()
+
+    resp = client.post(
+        "/api/home-chat/sessions/abc/messages",
+        json={"message": "hi", "include_refunds": True},
+    )
+
+    assert resp.status_code == 200
+    assert mock_stream.called

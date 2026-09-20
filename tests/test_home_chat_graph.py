@@ -1,11 +1,15 @@
-"""Unit tests for the unified Home chat graph (open_notebook.graphs.home_chat).
+"""Unit tests for the knowledge-only Home chat graph (open_notebook.graphs.home_chat).
 
-Covers the auto-routing classifier (LLM + keyword fallback), the empty-scope
-honest answer, conversation-history formatting, follow-up suggestion
-parsing, and an end-to-end two-turn run on an in-memory checkpointer proving
-memory accumulation and per-turn metadata.
+Every question — including former analytics phrasing like "highest spender" —
+flows through the knowledge pipeline (strategy → search → synthesis, reused
+from ``open_notebook.graphs.ask``); the analytics routing hop was removed per
+ADR-017. Covers the empty-scope honest answer, conversation-history
+formatting, follow-up suggestion parsing, analytics-phrased questions flowing
+through the knowledge pipeline, and an end-to-end two-turn run on an
+in-memory checkpointer proving memory accumulation and per-turn metadata.
 """
 
+from contextlib import contextmanager
 from typing import cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -13,7 +17,6 @@ import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.runnables import RunnableConfig
 
-from open_notebook.analytics.service import AnalyticsAnswer
 from open_notebook.graphs import home_chat as home
 from open_notebook.graphs.ask import Strategy
 
@@ -26,71 +29,47 @@ def _model_returning(content: str) -> MagicMock:
     return model
 
 
-class TestClassifyKeywords:
-    def test_strong_analytics_signals_route_analytics(self):
-        assert home.classify_keywords("Who spent the most this year?") == "analytics"
-        assert home.classify_keywords("Rank customers by revenue") == "analytics"
-        assert home.classify_keywords("average transaction value") == "analytics"
-
-    def test_knowledge_questions_return_none(self):
-        assert home.classify_keywords("What is RAG?") is None
-        assert home.classify_keywords("Summarize the quarterly report") is None
+def _strategy_payload() -> dict:
+    return {
+        "strategy": Strategy(
+            reasoning="look it up",
+            searches=[home.ask_graph.Search(term="rag", instructions="extract")],
+        )
+    }
 
 
-class TestClassifyWithModel:
-    @pytest.mark.asyncio
-    async def test_analytics_keyword_reply(self):
-        with patch(
+@contextmanager
+def _patch_knowledge_pipeline(final_answer=None, suggestion: str = "Follow up?"):
+    """Patch the full knowledge pipeline (strategy → search → final)."""
+    final_side_effect = final_answer or (
+        lambda state, config: {"final_answer": f"final for {state['question']}"}
+    )
+    patches = [
+        patch.object(
+            home.ask_graph,
+            "call_model_with_messages",
+            new=AsyncMock(return_value=_strategy_payload()),
+        ),
+        patch(
+            "open_notebook.graphs.ask.vector_search",
+            new=AsyncMock(return_value=[{"id": "source:1", "content": "x"}]),
+        ),
+        patch(
+            "open_notebook.graphs.ask.provision_langchain_model",
+            new=AsyncMock(return_value=_model_returning("partial answer")),
+        ),
+        patch.object(
+            home.ask_graph,
+            "write_final_answer",
+            new=AsyncMock(side_effect=final_side_effect),
+        ),
+        patch(
             "open_notebook.graphs.home_chat.provision_langchain_model",
-            new=AsyncMock(return_value=_model_returning("ANALYTICS")),
-        ):
-            assert await home._classify_with_model("top spender?") == "analytics"
-
-    @pytest.mark.asyncio
-    async def test_knowledge_keyword_reply(self):
-        with patch(
-            "open_notebook.graphs.home_chat.provision_langchain_model",
-            new=AsyncMock(return_value=_model_returning("KNOWLEDGE")),
-        ):
-            assert await home._classify_with_model("what is rag?") == "knowledge"
-
-    @pytest.mark.asyncio
-    async def test_unparseable_reply_returns_none(self):
-        with patch(
-            "open_notebook.graphs.home_chat.provision_langchain_model",
-            new=AsyncMock(return_value=_model_returning("I cannot say")),
-        ):
-            assert await home._classify_with_model("hello?") is None
-
-    @pytest.mark.asyncio
-    async def test_model_failure_returns_none(self):
-        with patch(
-            "open_notebook.graphs.home_chat.provision_langchain_model",
-            new=AsyncMock(side_effect=RuntimeError("no model")),
-        ):
-            assert await home._classify_with_model("hello?") is None
-
-
-class TestClassifyMessage:
-    @pytest.mark.asyncio
-    async def test_falls_back_to_keywords_when_model_missing(self):
-        state = cast(home.HomeChatState, {"question": "Who is the top spender?"})
-        with patch(
-            "open_notebook.graphs.home_chat._classify_with_model",
-            new=AsyncMock(return_value=None),
-        ):
-            result = await home.classify_message(state, EMPTY_CONFIG)
-        assert result["route"] == "analytics"
-
-    @pytest.mark.asyncio
-    async def test_defaults_to_knowledge(self):
-        state = cast(home.HomeChatState, {"question": "Explain vector search"})
-        with patch(
-            "open_notebook.graphs.home_chat._classify_with_model",
-            new=AsyncMock(return_value=None),
-        ):
-            result = await home.classify_message(state, EMPTY_CONFIG)
-        assert result["route"] == "knowledge"
+            new=AsyncMock(return_value=_model_returning(suggestion)),
+        ),
+    ]
+    with patches[0], patches[1], patches[2], patches[3], patches[4]:
+        yield
 
 
 class TestKnowledgeFinal:
@@ -188,9 +167,7 @@ class TestSuggestFollowups:
             "Any top services?",
             "Also relevant?",
         ]
-        assert result["turn_metadata"] == [
-            {"analytics_answer": None, "suggestions": result["suggestions"]}
-        ]
+        assert result["turn_metadata"] == [{"suggestions": result["suggestions"]}]
 
     @pytest.mark.asyncio
     async def test_failure_yields_empty_suggestions(self):
@@ -201,52 +178,44 @@ class TestSuggestFollowups:
         ):
             result = await home.suggest_followups(state, EMPTY_CONFIG)
         assert result["suggestions"] == []
-        assert result["turn_metadata"][0]["suggestions"] == []
+        assert result["turn_metadata"] == [{"suggestions": []}]
+
+
+class TestKnowledgeOnlyPipeline:
+    """Former analytics phrasing now flows through the knowledge pipeline —
+    there is no classifier and no analytics node anywhere in the graph."""
 
     @pytest.mark.asyncio
-    async def test_analytics_answer_is_carried_into_metadata(self):
-        payload = {"status": "ok", "answer_text": "Sarah spent MYR 100."}
-        state = cast(
-            home.HomeChatState,
-            {
-                "question": "q",
-                "route": "analytics",
-                "final_answer": "",
-                "analytics_answer": payload,
-            },
-        )
-        with patch(
-            "open_notebook.graphs.home_chat.provision_langchain_model",
-            new=AsyncMock(return_value=_model_returning("Follow up?")),
-        ):
-            result = await home.suggest_followups(state, EMPTY_CONFIG)
-        assert result["turn_metadata"][0]["analytics_answer"] == payload
+    async def test_highest_spender_question_flows_through_knowledge(self):
+        from langgraph.checkpoint.memory import MemorySaver
 
+        graph = home._home_state.compile(checkpointer=MemorySaver())
+        config = RunnableConfig(configurable={"thread_id": "spender-thread"})
 
-class TestRunAnalytics:
-    @pytest.mark.asyncio
-    async def test_calls_service_with_caller_from_state(self):
-        answer = AnalyticsAnswer(status="ok", answer_text="Sarah spent MYR 100.")
-        state = cast(
-            home.HomeChatState,
-            {
-                "question": "top spender?",
-                "user_id": "user:1",
-                "team_id": "team:1",
-                "role": "ceo",
-            },
-        )
-        with patch(
-            "open_notebook.graphs.home_chat.ask_analytics_question",
-            new=AsyncMock(return_value=answer),
-        ) as service:
-            result = await home.run_analytics(state, EMPTY_CONFIG)
-        assert service.await_count == 1
-        assert service.await_args is not None
-        caller = service.await_args.kwargs["caller"]
-        assert caller.id == "user:1" and caller.team_id == "team:1" and caller.role == "ceo"
-        assert result["analytics_answer"]["status"] == "ok"
-        assert result["messages"][0].content == "Sarah spent MYR 100."
+        with _patch_knowledge_pipeline():
+            result = await graph.ainvoke(  # type: ignore[call-overload]
+                {
+                    "messages": [
+                        HumanMessage(content="Who is the highest spender this year?")
+                    ],
+                    "question": "Who is the highest spender this year?",
+                    "notebook_ids": ["notebook:1"],
+                },
+                config=config,
+            )
+
+        assert result["final_answer"] == "final for Who is the highest spender this year?"
+        assert result["suggestions"] == ["Follow up?"]
+        # Turn metadata carries only the suggestions list (no analytics key).
+        assert result["turn_metadata"] == [{"suggestions": ["Follow up?"]}]
+
+    def test_graph_has_no_classify_or_analytics_nodes(self):
+        assert "classify" not in home._home_state.nodes
+        assert "analytics" not in home._home_state.nodes
+        assert "knowledge_strategy" in home._home_state.nodes
+        assert "knowledge_search" in home._home_state.nodes
+        assert "knowledge_final" in home._home_state.nodes
+        assert "suggest" in home._home_state.nodes
 
 
 def _compiled_graph():
@@ -271,28 +240,14 @@ async def test_production_graph_streams_with_async_checkpointer(tmp_path):
     graph = home._home_state.compile(checkpointer=saver)
     config = RunnableConfig(configurable={"thread_id": "async-test"})
 
-    answer = AnalyticsAnswer(status="ok", answer_text="Sarah spent MYR 100.")
-    with (
-        patch.object(
-            home, "_classify_with_model", new=AsyncMock(return_value="analytics")
-        ),
-        patch.object(
-            home, "ask_analytics_question", new=AsyncMock(return_value=answer)
-        ),
-        patch(
-            "open_notebook.graphs.home_chat.provision_langchain_model",
-            new=AsyncMock(return_value=_model_returning("Follow up?")),
-        ),
-    ):
+    with _patch_knowledge_pipeline(final_answer=lambda state, config: {"final_answer": "done"}):
         chunks = [
             chunk
             async for chunk in graph.astream(  # type: ignore[call-overload]
                 {
                     "messages": [HumanMessage(content="top spender?")],
                     "question": "top spender?",
-                    "user_id": "user:1",
-                    "team_id": "team:1",
-                    "role": "member",
+                    "notebook_ids": ["notebook:1"],
                 },
                 config=config,
                 stream_mode="updates",
@@ -300,21 +255,10 @@ async def test_production_graph_streams_with_async_checkpointer(tmp_path):
         ]
 
     node_names = {next(iter(c)) for c in chunks}
-    assert "classify" in node_names
-    assert "analytics" in node_names
-    assert "suggest" in node_names
+    assert node_names == {"knowledge_strategy", "knowledge_search", "knowledge_final", "suggest"}
     # The turn actually persisted to the async checkpointer.
     state = await graph.aget_state(config=config)
-    assert state.values["messages"][-1].content == "Sarah spent MYR 100."
-
-
-def _strategy_payload() -> dict:
-    return {
-        "strategy": Strategy(
-            reasoning="look it up",
-            searches=[home.ask_graph.Search(term="rag", instructions="extract")],
-        )
-    }
+    assert state.values["messages"][-1].content == "done"
 
 
 @pytest.mark.asyncio
@@ -329,33 +273,7 @@ class TestEndToEndMemory:
                 final_stage_views.append(dict(state))
                 return {"final_answer": f"final for {state['question']}"}
 
-            with (
-                patch.object(
-                    home, "_classify_with_model", new=AsyncMock(return_value="knowledge")
-                ),
-                patch.object(
-                    home.ask_graph,
-                    "call_model_with_messages",
-                    new=AsyncMock(return_value=_strategy_payload()),
-                ),
-                patch(
-                    "open_notebook.graphs.ask.vector_search",
-                    new=AsyncMock(return_value=[{"id": "source:1", "content": "x"}]),
-                ),
-                patch(
-                    "open_notebook.graphs.ask.provision_langchain_model",
-                    new=AsyncMock(return_value=_model_returning("partial answer")),
-                ),
-                patch.object(
-                    home.ask_graph,
-                    "write_final_answer",
-                    new=AsyncMock(side_effect=record_view),
-                ),
-                patch(
-                    "open_notebook.graphs.home_chat.provision_langchain_model",
-                    new=AsyncMock(return_value=_model_returning("Tell me more?")),
-                ),
-            ):
+            with _patch_knowledge_pipeline(final_answer=record_view):
                 return await graph.ainvoke(
                     {
                         "messages": [HumanMessage(content=question)],
@@ -367,7 +285,7 @@ class TestEndToEndMemory:
 
         first = await run_turn("first question")
         assert first["final_answer"] == "final for first question"
-        assert first["suggestions"] == ["Tell me more?"]
+        assert first["suggestions"] == ["Follow up?"]
 
         second = await run_turn("second question")
         # Memory: the checkpoint carries the first turn's messages forward.
@@ -379,69 +297,15 @@ class TestEndToEndMemory:
         strategy_state = home._ask_state_view(cast(home.HomeChatState, second))
         assert "first question" in strategy_state["chat_history"]
         assert "final for first question" in strategy_state["chat_history"]
-        # One turn_metadata entry per AI turn, appended not duplicated.
+        # One turn_metadata entry per AI turn, appended not duplicated —
+        # each entry carries only the suggestions list.
         assert len(second["turn_metadata"]) == 2
+        assert second["turn_metadata"] == [
+            {"suggestions": ["Follow up?"]},
+            {"suggestions": ["Follow up?"]},
+        ]
         # Turn isolation: the second turn's synthesis saw ONLY its own
         # search results — not turn 1's accumulated answers (that leak made
         # the new answer merge the previous one).
         assert final_stage_views[1]["question"] == "second question"
         assert final_stage_views[1]["answers"] == ["partial answer"]
-
-    async def test_analytics_then_knowledge_does_not_replay_old_chart(self):
-        """Regression: an analytics payload lives in the checkpointed state
-        across turns, so a following knowledge turn must not attach it to
-        its own metadata (the UI would render the old chart in the new
-        answer)."""
-        graph = _compiled_graph()
-        config = RunnableConfig(configurable={"thread_id": "mixed-thread"})
-        answer = AnalyticsAnswer(status="ok", answer_text="Sarah spent MYR 100.")
-
-        async def run_turn(question: str, route: str) -> dict:
-            with (
-                patch.object(
-                    home, "_classify_with_model", new=AsyncMock(return_value=route)
-                ),
-                patch.object(
-                    home, "ask_analytics_question", new=AsyncMock(return_value=answer)
-                ),
-                patch.object(
-                    home.ask_graph,
-                    "call_model_with_messages",
-                    new=AsyncMock(return_value=_strategy_payload()),
-                ),
-                patch(
-                    "open_notebook.graphs.ask.vector_search",
-                    new=AsyncMock(return_value=[{"id": "source:1", "content": "x"}]),
-                ),
-                patch(
-                    "open_notebook.graphs.ask.provision_langchain_model",
-                    new=AsyncMock(return_value=_model_returning("partial")),
-                ),
-                patch.object(
-                    home.ask_graph,
-                    "write_final_answer",
-                    new=AsyncMock(
-                        side_effect=lambda state, config: {
-                            "final_answer": f"final for {state['question']}"
-                        }
-                    ),
-                ),
-                patch(
-                    "open_notebook.graphs.home_chat.provision_langchain_model",
-                    new=AsyncMock(return_value=_model_returning("Follow up?")),
-                ),
-            ):
-                return await graph.ainvoke(
-                    {"messages": [HumanMessage(content=question)], "question": question},
-                    config=config,
-                )
-
-        first = await run_turn("top spender?", "analytics")
-        assert first["analytics_answer"]["status"] == "ok"
-        assert first["turn_metadata"][0]["analytics_answer"] is not None
-
-        second = await run_turn("what is rag?", "knowledge")
-        # The knowledge turn's metadata must NOT carry the analytics payload
-        # checkpointed from the previous turn.
-        assert second["turn_metadata"][1]["analytics_answer"] is None
-        assert second["turn_metadata"][1]["suggestions"] == ["Follow up?"]

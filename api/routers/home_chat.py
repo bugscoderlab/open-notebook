@@ -1,13 +1,12 @@
 """Unified Home ask chat router.
 
 Session CRUD (per-user, owned via ``home_chat_session.user_id``) plus one SSE
-endpoint that streams a full assistant turn: auto-routing (knowledge vs
-analytics), the staged knowledge answer (strategy → per-search answers →
-final answer) or the analytics payload, and follow-up suggestions.
+endpoint that streams a full assistant turn: the staged knowledge answer
+(strategy → per-search answers → final answer) and follow-up suggestions.
 
 Conversation memory is server-side: the home chat graph is checkpointed
-(SqliteSaver) keyed by the session id, so messages, analytics payloads and
-suggestions survive reloads and are shared across devices.
+(SqliteSaver) keyed by the session id, so messages and suggestions survive
+reloads and are shared across devices.
 """
 
 import json
@@ -74,7 +73,7 @@ class HomeChatSessionWithMessagesResponse(HomeChatSessionResponse):
     messages: List[ChatMessage] = Field(
         default_factory=list, description="Session messages"
     )
-    # One entry per AI message, in order: analytics payload + suggestions.
+    # One entry per AI message, in order: follow-up suggestions.
     turns: List[Dict[str, Any]] = Field(default_factory=list)
 
 
@@ -83,9 +82,9 @@ class SendHomeMessageRequest(BaseModel):
     notebook_ids: Optional[List[str]] = Field(
         None, description="Optional notebook scope for the knowledge pipeline"
     )
-    include_refunds: bool = Field(
-        False, description="Include refunds in analytics answers"
-    )
+    # NOTE: the removed ``include_refunds`` flag is intentionally absent —
+    # pydantic ignores unknown extra fields, so old clients sending it stay
+    # compatible (per ADR-017).
     strategy_model: Optional[str] = Field(None, description="Strategy model ID")
     answer_model: Optional[str] = Field(None, description="Answer model ID")
     final_answer_model: Optional[str] = Field(
@@ -206,7 +205,14 @@ async def get_home_chat_session(
             if "messages" in thread_state.values:
                 messages = extract_chat_messages(thread_state.values["messages"])
             raw_turns = thread_state.values.get("turn_metadata") or []
-            turns = [t for t in raw_turns if isinstance(t, dict)]
+            # Legacy checkpoints from before the analytics removal (ADR-017)
+            # may carry an "analytics_answer" payload in turn metadata — it
+            # is ignored here, never rendered.
+            turns = [
+                {key: value for key, value in t.items() if key != "analytics_answer"}
+                for t in raw_turns
+                if isinstance(t, dict)
+            ]
 
         return HomeChatSessionWithMessagesResponse(
             id=full_session_id,
@@ -297,7 +303,6 @@ async def stream_home_chat_response(
     strategy_model: str,
     answer_model: str,
     final_answer_model: str,
-    include_refunds: bool,
 ) -> AsyncGenerator[str, None]:
     """Stream one assistant turn as Server-Sent Events."""
     try:
@@ -317,7 +322,6 @@ async def stream_home_chat_response(
         yield f"data: {json.dumps({'type': 'user_message', 'content': question, 'timestamp': None})}\n\n"
 
         final_answer: Optional[str] = None
-        analytics_answer: Optional[Dict[str, Any]] = None
         suggestions: List[str] = []
 
         input_state: Dict[str, Any] = {
@@ -327,13 +331,10 @@ async def stream_home_chat_response(
             "user_id": user.id,
             "team_id": user.team_id,
             "role": user.role,
-            "include_refunds": include_refunds,
             # Per-turn output channels are plain (no reducer) — reset them
-            # so a value checkpointed by a PREVIOUS turn (e.g. an analytics
-            # payload) can't leak into this turn's events and metadata.
-            "route": None,
+            # so a value checkpointed by a PREVIOUS turn can't leak into
+            # this turn's events and metadata.
             "final_answer": None,
-            "analytics_answer": None,
             "suggestions": None,
         }
 
@@ -349,9 +350,7 @@ async def stream_home_chat_response(
             ),
             stream_mode="updates",
         ):
-            if "classify" in chunk:
-                yield f"data: {json.dumps({'type': 'route', 'route': chunk['classify'].get('route')})}\n\n"
-            elif "knowledge_strategy" in chunk:
+            if "knowledge_strategy" in chunk:
                 strategy = chunk["knowledge_strategy"]["strategy"]
                 yield f"data: {json.dumps({'type': 'strategy', 'reasoning': strategy.reasoning, 'searches': [{'term': s.term, 'instructions': s.instructions} for s in strategy.searches]})}\n\n"
             elif "knowledge_search" in chunk:
@@ -363,9 +362,6 @@ async def stream_home_chat_response(
             elif "knowledge_final" in chunk:
                 final_answer = chunk["knowledge_final"].get("final_answer")
                 yield f"data: {json.dumps({'type': 'final_answer', 'content': final_answer})}\n\n"
-            elif "analytics" in chunk:
-                analytics_answer = chunk["analytics"].get("analytics_answer")
-                yield f"data: {json.dumps({'type': 'analytics_answer', 'data': analytics_answer})}\n\n"
             elif "suggest" in chunk:
                 suggestions = chunk["suggest"].get("suggestions") or []
                 yield f"data: {json.dumps({'type': 'suggestions', 'suggestions': suggestions})}\n\n"
@@ -373,7 +369,6 @@ async def stream_home_chat_response(
         completion = {
             "type": "complete",
             "final_answer": final_answer,
-            "analytics_answer": analytics_answer,
             "suggestions": suggestions,
         }
         yield f"data: {json.dumps(completion)}\n\n"
@@ -424,7 +419,6 @@ async def send_message_to_home_chat(
                 strategy_model=strategy_model,
                 answer_model=answer_model,
                 final_answer_model=final_answer_model,
-                include_refunds=request.include_refunds,
             ),
             media_type="text/event-stream",
             headers=SSE_HEADERS,
