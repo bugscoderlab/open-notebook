@@ -78,13 +78,13 @@ def test_migration_28_adds_ownership_fields_to_episode() -> None:
     assert "REMOVE INDEX IF EXISTS episode_team_visibility" in down
 
 
-def test_migration_manager_registers_32_up_and_down_migrations() -> None:
+def test_migration_manager_registers_33_up_and_down_migrations() -> None:
     manager = AsyncMigrationManager()
-    assert len(manager.up_migrations) == 32
-    assert len(manager.down_migrations) == 32
+    assert len(manager.up_migrations) == 33
+    assert len(manager.down_migrations) == 33
 
 
-@pytest.mark.parametrize("version", [26, 27, 28, 29, 30, 31, 32])
+@pytest.mark.parametrize("version", [26, 27, 28, 29, 30, 31, 32, 33])
 def test_new_migrations_parse_into_non_empty_sql(version: int) -> None:
     """AsyncMigration.from_file strips comments/blank lines; result must be non-trivial."""
     from open_notebook.database.async_migrate import AsyncMigration

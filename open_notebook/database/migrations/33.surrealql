@@ -1,0 +1,7 @@
+-- Migration 33: integration_link table binding messenger identities to users.
+-- One row per binding: a Telegram chat or WhatsApp number linked to exactly
+-- one user account (see CONTEXT.md: "integration link"). Pending rows carry
+-- the short-lived linking code (proof of control of both sides); active rows
+-- carry the platform external id and the home chat session pointer used for
+-- conversation continuity. Schemaless, following home_chat_session.
+DEFINE TABLE IF NOT EXISTS integration_link SCHEMALESS;

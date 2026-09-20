@@ -1,0 +1,2 @@
+-- Down migration 33: drop the integration_link table.
+REMOVE TABLE IF EXISTS integration_link;

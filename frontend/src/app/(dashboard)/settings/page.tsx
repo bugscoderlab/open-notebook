@@ -3,6 +3,7 @@
 import { AppShell } from '@/components/layout/AppShell'
 import { PageHead } from '@/components/shell/page-head'
 import { SettingsForm } from './components/SettingsForm'
+import { ChatIntegrationsSection } from './components/ChatIntegrationsSection'
 import { useSettings } from '@/lib/hooks/use-settings'
 import { Button } from '@/components/ui/button'
 import { RefreshCw } from 'lucide-react'
@@ -28,6 +29,10 @@ export default function SettingsPage() {
             />
 
             <SettingsForm />
+
+            <div className="mt-8">
+              <ChatIntegrationsSection />
+            </div>
           </div>
         </div>
       </div>

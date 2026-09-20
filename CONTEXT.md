@@ -40,3 +40,19 @@ A unique phrase embedded in a test document used to prove that forbidden content
 
 **Unclassified**:
 Existing content whose filename carries no team token at migration time. Defaults to company-shared (a deliberate, recorded deviation from the source TDD §12.10).
+
+**Gateway**:
+The optional messenger-facing service that ferries text between chat platforms (Telegram, WhatsApp) and the API. It holds no user identities and makes no access decisions; it is a transport adapter, not a client.
+_Avoid_: Bot service, chat backend, messenger API
+
+**Integration link**:
+The binding between one messenger identity (a Telegram chat or a WhatsApp number) and exactly one user account. Access scope always derives from the linked user, never from the platform or the link itself.
+_Avoid_: Connection, pairing, device pairing (too easily confused with WhatsApp linked devices)
+
+**Linking code**:
+The short, short-lived code a user carries from the web UI to a messenger to establish their integration link. Proof of control of both sides of the binding.
+_Avoid_: OTP, verification code, pairing code (that term is WhatsApp's own device-pairing feature)
+
+**Internal caller**:
+A service (today: the gateway) authenticated to the API by a service credential rather than a user session. The API resolves an internal caller to a user only through a live integration link — an internal caller can never assert an arbitrary user identity.
+_Avoid_: Service account, system user, machine user
