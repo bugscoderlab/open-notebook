@@ -328,9 +328,6 @@ async def stream_home_chat_response(
             "messages": messages,
             "question": question,
             "notebook_ids": notebook_ids,
-            "user_id": user.id,
-            "team_id": user.team_id,
-            "role": user.role,
             # Per-turn output channels are plain (no reducer) — reset them
             # so a value checkpointed by a PREVIOUS turn can't leak into
             # this turn's events and metadata.

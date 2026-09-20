@@ -595,7 +595,7 @@ export const enUS = {
   },
   home: {
     welcomeTitle: "Ask anything",
-    welcomeHint: "One chat for your knowledge base and your business data — the assistant picks the right source for each question.",
+    welcomeHint: "One chat for your whole knowledge base — the assistant finds the right sources for each question.",
     placeholder: "Ask about your documents or your data…",
     suggestions: "Suggested follow-ups",
     searching: "Searching your knowledge base…",

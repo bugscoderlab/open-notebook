@@ -51,9 +51,6 @@ class HomeChatState(TypedDict, total=False):
     # Current-turn inputs (set by the router on every invoke).
     question: str
     notebook_ids: List[str]
-    user_id: str
-    team_id: str
-    role: str
     # Current-turn outputs, streamed to the client as SSE events.
     strategy: Any
     answers: Annotated[list, operator.add]
