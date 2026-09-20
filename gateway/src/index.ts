@@ -38,7 +38,11 @@ async function main(): Promise<void> {
   }
 
   if (config.whatsappEnabled) {
-    log('whatsapp is enabled but its adapter is not available in this build yet (T5)')
+    const { createWhatsAppAdapter } = await import('./whatsapp.js')
+    adapters.push(createWhatsAppAdapter({ client, log }))
+    log('whatsapp adapter starting (Baileys — replies only, see the user guide risk warning)')
+  } else {
+    log('whatsapp adapter not configured (set OPEN_NOTEBOOK_WHATSAPP_ENABLED=true to enable)')
   }
 
   if (adapters.length === 0) {
