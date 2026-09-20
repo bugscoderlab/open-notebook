@@ -1,4 +1,4 @@
-.PHONY: run frontend check ruff database database-local database-local-fg database-local-stop dev-up dev-down dev-status test test-cov test-integration test-testpack test-durations lint api start-all stop-all status clean-cache worker worker-start worker-stop worker-restart
+.PHONY: run frontend check ruff database database-local database-local-fg database-local-stop dev-up dev-down dev-status test test-cov test-integration test-testpack test-durations lint api start-all stop-all status clean-cache worker worker-start worker-stop worker-restart gateway gateway-stop
 .PHONY: docker-buildx-prepare docker-buildx-clean docker-buildx-reset
 .PHONY: docker-push docker-push-latest docker-release docker-build-local tag export-docs
 .PHONY: release-test release-stack release-stack-down
@@ -235,6 +235,15 @@ worker-stop:
 	@echo "Stopping surreal-commands worker..."
 	pkill -f "surreal-commands-worker" || true
 
+# Messenger gateway (Telegram/WhatsApp adapters). Idles with no platform
+# connections unless the adapter env vars are set; needs the API healthy.
+gateway:
+	cd gateway && npm run dev
+
+gateway-stop:
+	pkill -f "tsx src/index.ts" || true
+	pkill -f "node dist/index.js" || true
+
 worker-restart: worker-stop
 	@deadline=$$(( $$(date +%s) + 10 )); \
 	while pgrep -f "surreal-commands-worker" > /dev/null 2>&1; do \
@@ -265,6 +274,8 @@ start-all:
 		fi; \
 		sleep 1; \
 	done
+	@echo "💬 Starting messenger gateway..."
+	@cd gateway && ([ -d node_modules ] || npm ci) && (npm run dev > /dev/null 2>&1 &)
 	@echo "🌐 Starting Next.js frontend..."
 	@echo "✅ All services started!"
 	@echo "📱 Frontend: http://localhost:3000"
@@ -275,6 +286,7 @@ start-all:
 stop-all:
 	@echo "🛑 Stopping all Open Notebook services..."
 	@pkill -f "next dev" || true
+	@pkill -f "tsx src/index.ts" || true
 	@pkill -f "surreal-commands-worker" || true
 	@pkill -f "run_api.py" || true
 	@pkill -f "uvicorn api.main:app" || true
@@ -289,6 +301,8 @@ status:
 	@pgrep -f "run_api.py\|uvicorn api.main:app" >/dev/null && echo "  ✅ Running" || echo "  ❌ Not running"
 	@echo "Background Worker:"
 	@pgrep -f "surreal-commands-worker" >/dev/null && echo "  ✅ Running" || echo "  ❌ Not running"
+	@echo "Messenger Gateway:"
+	@pgrep -f "tsx src/index.ts" >/dev/null && echo "  ✅ Running (dev)" || (pgrep -f "node dist/index.js" >/dev/null && echo "  ✅ Running" || echo "  ❌ Not running")
 	@echo "Next.js Frontend:"
 	@pgrep -f "next dev" >/dev/null && echo "  ✅ Running" || echo "  ❌ Not running"
 

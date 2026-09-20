@@ -6,7 +6,9 @@
 #   | surrealdb |    api    |
 #   +-----------+-----------+
 #   |   worker  | frontend  |
-#   +-----------+-----------+
+#   +-----+-----------+---+
+#         |  gateway  |      <- split off the worker pane
+#         +-----------+
 #
 # Never uses nohup/backgrounding. Requires running inside Herdr.
 # Usage: scripts/dev-herdr.sh up|down|status
@@ -75,15 +77,26 @@ up() {
     P_API=$(herdr pane split --pane "$ROOT_PANE" --direction right --cwd "$REPO_ROOT" --no-focus | jqr "d['result']['pane']['pane_id']")
     P_WORKER=$(herdr pane split --pane "$ROOT_PANE" --direction down --cwd "$REPO_ROOT" --no-focus | jqr "d['result']['pane']['pane_id']")
     P_FRONTEND=$(herdr pane split --pane "$P_API" --direction down --cwd "$REPO_ROOT" --no-focus | jqr "d['result']['pane']['pane_id']")
+    P_GATEWAY=$(herdr pane split --pane "$P_WORKER" --direction right --cwd "$REPO_ROOT" --no-focus | jqr "d['result']['pane']['pane_id']")
     P_DB="$ROOT_PANE"
-    echo "dev-herdr: created tab '$TAB_LABEL' ($TAB) with 2x2 panes"
+    echo "dev-herdr: created tab '$TAB_LABEL' ($TAB) with 5 panes"
   else
     mapfile -t PANES < <(tab_panes "$TAB")
-    if [ "${#PANES[@]}" -ne 4 ]; then
-      echo "dev-herdr: tab '$TAB_LABEL' exists but has ${#PANES[@]} panes (expected 4); recreate it manually." >&2
-      exit 1
-    fi
-    P_DB="${PANES[0]}"; P_API="${PANES[1]}"; P_WORKER="${PANES[2]}"; P_FRONTEND="${PANES[3]}"
+    case "${#PANES[@]}" in
+      5)
+        P_DB="${PANES[0]}"; P_API="${PANES[1]}"; P_WORKER="${PANES[2]}"; P_FRONTEND="${PANES[3]}"; P_GATEWAY="${PANES[4]}"
+        ;;
+      4)
+        # Pre-gateway tab: split the worker pane and adopt it as the gateway pane.
+        P_DB="${PANES[0]}"; P_API="${PANES[1]}"; P_WORKER="${PANES[2]}"; P_FRONTEND="${PANES[3]}"
+        P_GATEWAY=$(herdr pane split --pane "$P_WORKER" --direction right --cwd "$REPO_ROOT" --no-focus | jqr "d['result']['pane']['pane_id']")
+        echo "dev-herdr: added gateway pane to existing tab"
+        ;;
+      *)
+        echo "dev-herdr: tab '$TAB_LABEL' exists but has ${#PANES[@]} panes (expected 4 or 5); recreate it manually." >&2
+        exit 1
+        ;;
+    esac
     echo "dev-herdr: reusing tab '$TAB_LABEL' ($TAB)"
   fi
 
@@ -123,8 +136,16 @@ up() {
     wait_http http://localhost:3000 120 frontend
   fi
 
+  # 5. Messenger gateway (idles unless OPEN_NOTEBOOK_TELEGRAM_BOT_TOKEN is set)
+  if pgrep -f "tsx src/index.ts" >/dev/null 2>&1; then
+    echo "dev-herdr: gateway already running, skipping"
+  else
+    herdr pane run "$P_GATEWAY" "make gateway"
+    echo "dev-herdr: gateway started (pane shows the token check / idle line)"
+  fi
+
   echo
-  echo "dev-herdr: stack is up in tab '$TAB_LABEL' of this workspace (2x2 panes: db/api/worker/frontend)."
+  echo "dev-herdr: stack is up in tab '$TAB_LABEL' of this workspace (panes: db/api/worker/frontend/gateway)."
   echo "dev-herdr: UI at http://localhost:3000 — stop with: $0 down (or Ctrl-C per pane)"
 }
 
@@ -161,6 +182,7 @@ status() {
   check http://localhost:5055/health api
   if pgrep -f surreal-commands-worker >/dev/null 2>&1; then echo "  ✅ worker (surreal-commands-worker running)"; else echo "  ❌ worker"; ok=0; fi
   check http://localhost:3000 frontend
+  if pgrep -f "tsx src/index.ts" >/dev/null 2>&1; then echo "  ✅ gateway (telegram adapter dev process running)"; else echo "  ❌ gateway"; ok=0; fi
   TAB=$(find_tab || true)
   [ -n "${TAB}" ] && echo "  tab: '$TAB_LABEL' ($TAB) in workspace $HERDR_WORKSPACE_ID"
   exit $((1 - ok))
