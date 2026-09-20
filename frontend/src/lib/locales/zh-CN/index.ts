@@ -580,7 +580,7 @@ export const zhCN = {
   },
   home: {
     welcomeTitle: "随便问",
-    welcomeHint: "一个聊天同时访问你的知识库和业务数据——助手会为每个问题选择正确的来源。",
+    welcomeHint: "一个聊天访问你的整个知识库——助手会为每个问题找到正确的来源。",
     placeholder: "询问您的文档或数据…",
     suggestions: "建议的追问",
     searching: "正在搜索知识库…",

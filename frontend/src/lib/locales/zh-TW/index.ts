@@ -580,7 +580,7 @@ export const zhTW = {
   },
   home: {
     welcomeTitle: "隨便問",
-    welcomeHint: "一個聊天同時存取你的知識庫和業務資料——助手會為每個問題選擇正確的來源。",
+    welcomeHint: "一個聊天存取你的整個知識庫——助手會為每個問題找到正確的來源。",
     placeholder: "詢問您的文件或資料…",
     suggestions: "建議的追問",
     searching: "正在搜尋知識庫…",
