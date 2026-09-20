@@ -2,8 +2,7 @@
 
 ``get_current_user`` resolves the caller from the session cookie (ADR-010):
 the opaque token's SHA-256 hash is looked up in ``user_session`` and the
-user must be active. The T9 dev bypass (``ANALYTICS_AUTH_BYPASS``) is gone —
-analytics endpoints authenticate exactly like every other router.
+user must be active.
 
 T5 adds the team-enforcement layer consumed by every content router:
 
@@ -479,12 +478,3 @@ async def filter_context_to_permitted(
             if _with_table_prefix(table, item_id) in allowed
         }
     return filtered
-
-
-async def get_permitted_dataset_ids(
-    user: CurrentUser = Depends(get_current_user),
-) -> list[str]:
-    """Dataset ids the caller may query (all of them under the bypass)."""
-    from open_notebook.analytics.service import permitted_dataset_ids
-
-    return await permitted_dataset_ids(user)

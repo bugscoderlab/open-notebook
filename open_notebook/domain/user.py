@@ -8,8 +8,7 @@ SurrealDB goes through ``by_alias=True``.
 
 Schemas come from migration 26. ``user_session`` has no ``updated`` field
 (SCHEMAFULL rejects it), so sessions are written with raw
-``CREATE ... CONTENT`` (same pattern as open_notebook/domain/analytics.py)
-instead of ``ObjectModel.save()``.
+``CREATE ... CONTENT`` instead of ``ObjectModel.save()``.
 """
 
 from datetime import datetime, timezone

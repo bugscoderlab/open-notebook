@@ -1,10 +1,10 @@
 """Home chat session domain model.
 
-The unified Home ask chat (knowledge + analytics in one conversation)
-persists its sessions as ``home_chat_session`` records owned by a user via a
-plain ``user_id`` field. The conversation itself (messages, per-turn
-analytics payloads and suggestions) lives in LangGraph SqliteSaver
-checkpoints keyed by the session id — same pattern as ``ChatSession``.
+The knowledge-only Home ask chat (ADR-017) persists its sessions as
+``home_chat_session`` records owned by a user via a plain ``user_id`` field.
+The conversation itself (messages and per-turn suggestion metadata) lives in
+LangGraph SqliteSaver checkpoints keyed by the session id — same pattern as
+``ChatSession``.
 """
 
 from typing import ClassVar, Optional

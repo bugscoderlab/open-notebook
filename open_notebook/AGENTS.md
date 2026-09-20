@@ -78,12 +78,6 @@ Normative rules for working on the Python backend. Architecture and design ratio
 | `OPEN_NOTEBOOK_MAX_UPLOAD_SIZE_MB` | Upload cap (default 100) |
 | `LANGGRAPH_CHECKPOINT_FILE` | Chat history SQLite path |
 | `CORS_ORIGINS` | Restrict before production |
-| `ANALYTICS_DATABASE_URL` | Analytics Postgres DSN (default: Postgres.app `open_notebook_analytics`); the only Postgres the app connects to |
-| `ANALYTICS_TEST_DATABASE_URL` | Scratch Postgres for the analytics integration tests (not read by the app — tests point `ANALYTICS_DATABASE_URL` at it) |
-
-## Analytics (`open_notebook/analytics/`)
-
-The one module allowed to import sqlalchemy/asyncpg (ADR-009). Structure: `engine.py` (cached async engine, `NullPool`, read-only runner with 15s statement timeout + 500-row cap), `query_templates.py` (allowlisted parameterized templates + keyword intent fallback), `service.py` (pipeline: classify → template → server-controlled filters → execute → explain), `sql_gate.py` (sqlglot AST validation gate for LLM-generated SQL, ADR-015), `text_to_sql.py` (generate → gate → bind → execute, the primary free-form path, ADR-015), `schema_snapshot.py` (one-time schema-metadata → parquet context source, ADR-015). The LLM never writes unvalidated SQL; dataset registry + query log live in SurrealDB (`open_notebook/domain/analytics.py`). See ADR-011 (template-path intent classification and IN-list expansion) and ADR-015 (agentic text-to-SQL: validation instead of forbidden).
 
 ## Deep dives
 

@@ -31,9 +31,8 @@ import pytest  # noqa: E402
 
 # --- Test tiers (T10) -------------------------------------------------------
 # unit      (default): hermetic, xdist-safe — the PR fast path (`make test`).
-# integration:        needs live Postgres + SurrealDB; isolated per worker
-#                     (Postgres DB open_notebook_analytics_test_gwN +
-#                     SurrealDB namespace open_notebook_test_gwN).
+# integration:        needs live SurrealDB; isolated per worker (namespace
+#                     open_notebook_test_gwN).
 # testpack:           the synthetic acceptance pack (canary sweep, access
 #                     matrix, real-PDF extraction); hermetic on mem:// but
 #                     runs in its own CI job alongside integration.
@@ -44,133 +43,13 @@ TIER_ENV_VAR = "OPEN_NOTEBOOK_TEST_TIER"
 INTEGRATION_TIERS = ("integration", "testpack")
 
 
-def requires_analytics_pg() -> "pytest.MarkDecorator":
-    """Skip marker for suites needing the scratch Postgres.
-
-    A factory (not a module-level mark) so the ANALYTICS_TEST_DATABASE_URL
-    check evaluates when each test module imports — i.e. after
-    ``pytest_configure`` created the per-worker scratch database.
-    """
-    return pytest.mark.skipif(
-        not os.environ.get("ANALYTICS_TEST_DATABASE_URL"),
-        reason="ANALYTICS_TEST_DATABASE_URL not set",
-    )
-
-
-# --- Analytics integration helpers ------------------------------------------
-# Shared by the analytics integration suites (service, schema snapshot) so the
-# alembic-upgrade + seed block cannot drift between files.
-
-ANALYTICS_ALEMBIC_INI = "open_notebook/analytics/alembic.ini"
-ANALYTICS_SEED_CSV = (
-    project_root / "_jobbrief" / "testdata" / "sales_transactions_2026.csv"
-)
-ANALYTICS_SEED_ROW_COUNT = 77
-
-
-def analytics_alembic_upgrade() -> None:
-    """Run analytics migrations against the scratch Postgres."""
-    import subprocess
-
-    env = dict(os.environ)
-    env["ANALYTICS_DATABASE_URL"] = os.environ["ANALYTICS_TEST_DATABASE_URL"]
-    result = subprocess.run(
-        ["uv", "run", "alembic", "-c", ANALYTICS_ALEMBIC_INI, "upgrade", "head"],
-        env=env,
-        capture_output=True,
-        text=True,
-    )
-    assert result.returncode == 0, result.stderr
-
-
-async def analytics_seed_scratch() -> None:
-    """Seed the scratch Postgres with the full sales test pack.
-
-    Caller owns the ANALYTICS_DATABASE_URL env swap and engine disposal for
-    its fixture scope; this only runs the seed and asserts completeness.
-    """
-    from open_notebook.analytics.seed import seed
-
-    inserted, skipped = await seed(
-        ANALYTICS_SEED_CSV, os.environ["ANALYTICS_TEST_DATABASE_URL"]
-    )
-    assert inserted + skipped == ANALYTICS_SEED_ROW_COUNT
-
-
 def _worker_suffix() -> str:
     """xdist worker id ('gw0' when running serially)."""
     return os.environ.get("PYTEST_XDIST_WORKER", "gw0")
 
 
-def _scratch_database_name() -> str:
-    return f"open_notebook_analytics_test_{_worker_suffix()}"
-
-
 def _tier_active() -> bool:
     return os.environ.get(TIER_ENV_VAR) in INTEGRATION_TIERS
-
-
-def pytest_configure(config):  # noqa: ARG001
-    """Create the per-worker scratch Postgres DB before test modules import.
-
-    The analytics integration suites gate on ANALYTICS_TEST_DATABASE_URL at
-    import time, so this must run before collection. Without an active tier
-    (plain `make test`) nothing is created and those suites skip as before.
-    """
-    if not _tier_active():
-        return
-
-    worker = os.environ.get("PYTEST_XDIST_WORKER")
-    if worker is None and os.environ.get("ANALYTICS_TEST_DATABASE_URL"):
-        # Serial run with an explicit scratch DB: respect it as-is.
-        return
-    # xdist workers ALWAYS derive their own per-worker URL: the controller
-    # exports its gw0 URL into spawned workers, and inheriting it would make
-    # every worker share one database (the migrations suite's downgrade base
-    # would then drop tables under other workers' tests).
-    base_url = os.environ.get(
-        "ANALYTICS_TEST_BASE_URL",
-        "postgresql+asyncpg://z@localhost:5432/postgres",
-    )
-    try:
-        os.environ["ANALYTICS_TEST_DATABASE_URL"] = asyncio.run(
-            _ensure_scratch_database(base_url, _scratch_database_name())
-        )
-    except Exception as exc:  # Postgres not reachable → suites skip themselves
-        os.environ.pop("ANALYTICS_TEST_DATABASE_URL", None)
-        print(f"Scratch Postgres unavailable ({exc}); integration suites skip")
-
-
-async def _ensure_scratch_database(base_url: str, name: str) -> str:
-    """Create the per-worker scratch database if missing (idempotent).
-
-    CREATE IF NOT EXISTS rather than drop+create: under xdist the controller
-    and worker gw0 both run pytest_configure, and a drop/create race would
-    let one process delete the other's fresh database. Re-seeding an
-    existing scratch DB is safe (alembic upgrade is idempotent, the seed
-    dedupes by primary key).
-    """
-    from sqlalchemy.engine.url import make_url
-
-    admin_url = make_url(base_url).set(database="postgres")
-    target_url = make_url(base_url).set(database=name)
-
-    import asyncpg
-
-    admin_url = admin_url.set(drivername="postgresql")
-    conn = await asyncpg.connect(admin_url.render_as_string(hide_password=False))
-    try:
-        exists = await conn.fetchval(
-            "SELECT 1 FROM pg_database WHERE datname = $1", name
-        )
-        if not exists:
-            try:
-                await conn.execute(f'CREATE DATABASE "{name}"')
-            except asyncpg.DuplicateDatabaseError:
-                pass  # concurrent create by the controller: already there
-    finally:
-        await conn.close()
-    return target_url.render_as_string(hide_password=False)
 
 
 async def _prepare_surreal_namespace() -> None:
@@ -193,7 +72,7 @@ def integration_surreal_namespace() -> Iterator[None]:
 
     Every xdist worker gets its own namespace (open_notebook_test_gwN) with
     migrations applied and the three department teams seeded, so parallel
-    workers never see each other's query logs or datasets. Unreachable
+    workers never see each other's rows. Unreachable
     SurrealDB is not an error here — the integration suites skip themselves.
     """
     if not _tier_active():
