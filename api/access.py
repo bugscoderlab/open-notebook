@@ -37,6 +37,12 @@ Role = Literal["member", "team_manager", "ceo", "admin"]
 _ROLE_VALUES: tuple[str, ...] = get_args(Role)
 
 
+def role_or_default(role: str) -> Role:
+    """Public allowlist check for callers building a CurrentUser outside the
+    cookie seam (e.g. integrations resolving a linked user)."""
+    return cast(Role, role if role in _ROLE_VALUES else "member")
+
+
 class CurrentUser(BaseModel):
     """Authenticated caller shape consumed by services (TDD §6.2)."""
 

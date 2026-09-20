@@ -21,7 +21,8 @@ function makeCtx(text?: string) {
     messageId: 7,
     text,
     reply: async (t, extra) => {
-      replies.push({ text: t, quoted: extra?.reply_parameters?.message_id })
+      // Mirror what the grammY wiring does with the neutral quote flag.
+      replies.push({ text: t, quoted: extra?.quote ? 7 : undefined })
     },
     sendTyping: async () => {
       typings.push(typings.length)

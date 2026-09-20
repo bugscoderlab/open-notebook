@@ -63,9 +63,15 @@ describe('whatsapp adapter', () => {
 
     expect(client.message).toHaveBeenCalledWith('whatsapp', '15551234567@s.whatsapp.net', 'hello bot')
     await vi.waitFor(() => expect(fake.sendMessage).toHaveBeenCalled())
-    const [jid, payload] = fake.sendMessage.mock.calls[0] as unknown as [string, { text: string }]
+    const [jid, payload, options] = fake.sendMessage.mock.calls[0] as unknown as [
+      string,
+      { text: string },
+      { quoted: unknown } | undefined,
+    ]
     expect(jid).toBe('15551234567@s.whatsapp.net')
     expect(payload.text).toBe('wa answer')
+    // First chunk quotes the user's message (Baileys needs the full message).
+    expect(options?.quoted).toBeTruthy()
   })
 
   it('intercepts /start CODE as the claim flow', async () => {

@@ -22,6 +22,7 @@ Or all at once: `make start-all` (status: `make status`, stop: `make stop-all`).
 - Tests: `uv run pytest tests/` (unit tier, default — `integration`/`testpack` are excluded by addopts and need live infra; run them via `make test-integration` / `make test-testpack`, see [docs/7-DEVELOPMENT/testing.md](docs/7-DEVELOPMENT/testing.md))
 - Python lint/typecheck: `ruff check . --fix` · `uv run python -m mypy .`
 - Frontend (inside `frontend/`): `npm run lint` · `npm run test` · `npm run build`
+- Gateway (inside `gateway/`): `npm run test` · `npm run typecheck` · `npm run build`
 - Docker release: `make docker-release` (see `.github/RELEASE_PROCESS.md`)
 
 ## Hard rules

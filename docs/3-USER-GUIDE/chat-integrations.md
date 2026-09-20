@@ -51,3 +51,13 @@ The WhatsApp adapter uses [Baileys](https://github.com/WhiskeySockets/Baileys), 
 - The gateway runs as an always-on process (supervisord in Docker, `make gateway` locally) and idles with no platform connections until a token/env var is set. See the [environment reference](../5-CONFIGURATION/environment-reference.md#messenger-gateway-chat-integrations).
 - Telegram: create a bot with [@BotFather](https://t.me/BotFather) and set `OPEN_NOTEBOOK_TELEGRAM_BOT_TOKEN`.
 - Team access scoping is server-enforced for chat exactly as in the web UI; chat access ends the moment an account is disabled.
+
+### Manual smoke test (Telegram, against a dev instance)
+
+1. Start the stack (`make start-all` or the Herdr dev script) — the gateway logs `internal token accepted` and `telegram adapter connected`.
+2. In the web UI: Settings → Chat integrations → Connect Telegram — note the 6-digit code.
+3. In Telegram, send your bot `/start <code>` — it replies `Linked as <your email>`.
+4. Send any question — expect a typing indicator, then a scoped answer quoting your message, then suggested follow-ups.
+5. Send `/search <something>` — expect a numbered top-5 list. Send `/new`, `/help`, `/unlink` — each behaves per the table above.
+
+If step 3 says the code expired, generate a fresh one in the UI (codes live 10 minutes).

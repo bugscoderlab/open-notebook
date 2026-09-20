@@ -798,3 +798,60 @@ class TestRunHomeChatAskService:
 
         assert reply  # non-empty friendly message
         assert suggestions == []
+
+
+class TestAskScopeService:
+    """Canary for the ask path: the conversational ask must run with exactly
+    the linked user's permitted notebooks in scope — the same guarantee as
+    the web home chat, so a member can never reach another team's content
+    through chat."""
+
+    @pytest.mark.asyncio
+    async def test_ask_passes_permitted_scope_to_the_graph(self, monkeypatch):
+        from api import integrations_service
+
+        monkeypatch.setattr(
+            integrations_service,
+            "_resolve_default_model",
+            AsyncMock(return_value="model:1"),
+        )
+        scope = AsyncMock(return_value=["notebook:hr"])
+        monkeypatch.setattr(
+            integrations_service, "effective_notebook_scope", scope
+        )
+        monkeypatch.setattr(
+            integrations_service,
+            "_ensure_session",
+            AsyncMock(return_value="home_chat_session:x"),
+        )
+
+        captured_inputs = []
+
+        class _Graph:
+            async def aget_state(self, config):
+                return None
+
+            def astream(self, input, config, stream_mode):
+                captured_inputs.append(input)
+
+                async def _gen():
+                    yield {"knowledge_final": {"final_answer": "scoped answer"}}
+
+                return _gen()
+
+        monkeypatch.setattr(
+            integrations_service,
+            "get_home_chat_graph",
+            AsyncMock(return_value=_Graph()),
+        )
+
+        link = _StubLink(id="integration_link:t1", user_id="app_user:test")
+        user = type("U", (), {"id": "app_user:test"})()
+
+        reply, _suggestions = await integrations_service.run_home_chat_ask(
+            link, user, "what do we know about salaries?"
+        )
+
+        assert reply == "scoped answer"
+        assert scope.await_args.args[1] == []  # empty requested scope
+        assert captured_inputs[0]["notebook_ids"] == ["notebook:hr"]

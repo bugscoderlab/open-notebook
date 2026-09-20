@@ -37,12 +37,14 @@ export function buildErrorReply(error: ApiClientError): string {
 }
 
 /** Minimal context surface the handlers need — keeps the logic unit-testable
- * without a platform context. Adapters interpret `extra` (e.g. quoting). */
+ * without a platform context. `extra.quote` marks the reply that should
+ * quote the user's message (platform adapters map it to their native
+ * quoting: Telegram reply_parameters, WhatsApp quoted). */
 export interface ChatContext {
   chatId: string
   messageId: number | string
   text?: string
-  reply(text: string, extra?: unknown): Promise<unknown>
+  reply(text: string, extra?: { quote?: boolean }): Promise<unknown>
   sendTyping(): Promise<unknown>
 }
 
@@ -101,10 +103,7 @@ export function createChatHandlers(
 
       const chunks = chunkMessage(result.reply)
       for (let index = 0; index < chunks.length; index += 1) {
-        await ctx.reply(
-          chunks[index],
-          index === 0 ? { reply_parameters: { message_id: ctx.messageId } } : undefined,
-        )
+        await ctx.reply(chunks[index], index === 0 ? { quote: true } : undefined)
         if (index < chunks.length - 1) await pause(chunkPacing)
       }
       if (result.suggestions.length > 0) {

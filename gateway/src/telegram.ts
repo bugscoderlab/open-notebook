@@ -53,7 +53,11 @@ export function startTelegramAdapter(
       chatId: String(ctx.chat.id),
       messageId: ctx.msg.message_id,
       text: ctx.msg.text,
-      reply: (text, extra) => ctx.reply(text, extra as never),
+      reply: (text, extra) =>
+        ctx.reply(
+          text,
+          extra?.quote ? { reply_parameters: { message_id: ctx.msg.message_id } } : undefined,
+        ),
       sendTyping: () => ctx.replyWithChatAction('typing'),
     }
     return handlers.handleText(chatCtx)

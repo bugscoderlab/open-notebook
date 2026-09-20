@@ -26,8 +26,11 @@ from open_notebook.config import DATA_FOLDER
 from open_notebook.exceptions import AuthenticationError
 
 TOKEN_ENV_VAR = "OPEN_NOTEBOOK_INTERNAL_TOKEN"
+TOKEN_FILE_ENV_VAR = "OPEN_NOTEBOOK_TOKEN_FILE"
 AUTH_SCHEME = "Internal"
-_TOKEN_FILE = os.path.join(DATA_FOLDER, "internal-token")
+_TOKEN_FILE = os.environ.get(TOKEN_FILE_ENV_VAR, "").strip() or os.path.join(
+    DATA_FOLDER, "internal-token"
+)
 
 _token_cache: Optional[str] = None
 

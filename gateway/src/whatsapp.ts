@@ -50,10 +50,7 @@ const defaultSocketFactory: SocketFactory = async (credsDir, log) => {
   return socket
 }
 
-function disconnectStatusCode(
-  socket: WASocket | null,
-  lastDisconnect: unknown,
-): number | undefined {
+function disconnectStatusCode(lastDisconnect: unknown): number | undefined {
   const error = (lastDisconnect as { error?: { output?: { statusCode?: number } } } | null)
     ?.error
   return error?.output?.statusCode
@@ -97,7 +94,7 @@ export function createWhatsAppAdapter(deps: {
       }
       if (update.connection !== 'close') return
 
-      const statusCode = disconnectStatusCode(socket, update.lastDisconnect)
+      const statusCode = disconnectStatusCode(update.lastDisconnect)
       if (statusCode === DisconnectReason.loggedOut) {
         deps.log(
           'whatsapp: RE-PAIR NEEDED — the session was logged out (phone removed the ' +
@@ -131,7 +128,13 @@ export function createWhatsAppAdapter(deps: {
           chatId: jid,
           messageId: message.key.id ?? '',
           text,
-          reply: (replyText) => socket!.sendMessage(jid, { text: replyText }),
+          reply: (replyText, extra) =>
+            socket!.sendMessage(
+              jid,
+              { text: replyText },
+              // Baileys quotes with the full source message, not an id.
+              extra?.quote ? { quoted: message } : undefined,
+            ),
           sendTyping: async () => {
             await socket!.sendPresenceUpdate('composing', jid)
           },

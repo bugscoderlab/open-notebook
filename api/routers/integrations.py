@@ -25,7 +25,11 @@ from api.access import CurrentUser, get_current_user, require_csrf
 from api.internal_auth import get_internal_caller
 from api.routers._chat_shared import SuccessResponse
 from open_notebook.domain.integration_link import Platform
-from open_notebook.exceptions import RateLimitError
+from open_notebook.exceptions import (
+    ForbiddenError,
+    NotFoundError,
+    RateLimitError,
+)
 
 router = APIRouter()
 
@@ -212,9 +216,16 @@ async def route_inbound_message(
                 "You're sending messages too quickly — wait a few seconds."
             )
 
-        link, user = await service.resolve_linked_user(
-            request.platform, request.external_id
-        )
+        try:
+            link, user = await service.resolve_linked_user(
+                request.platform, request.external_id
+            )
+        except NotFoundError:
+            outcome = "unlinked"
+            raise
+        except ForbiddenError:
+            outcome = "disabled"
+            raise
         resolved_user_id = user.id
         current_user = service.current_user_for(user)
         text = request.text.strip()
@@ -246,6 +257,7 @@ async def route_inbound_message(
             else:
                 reply = service.COMMAND_HELP
         else:
+            outcome = "ask"
             reply, suggestions = await service.run_home_chat_ask(
                 link, current_user, text
             )
@@ -255,6 +267,11 @@ async def route_inbound_message(
             suggestions=suggestions,
             conversation_reset=conversation_reset,
         )
+    except (RateLimitError, NotFoundError, ForbiddenError):
+        raise
+    except Exception:
+        outcome = "error"
+        raise
     finally:
         service.audit(
             platform=request.platform,

@@ -266,6 +266,7 @@ COMMAND_HELP = (
 )
 
 _rate_limit_state: Dict[Tuple[str, str], float] = {}
+_RATE_LIMIT_STATE_CAP = 5_000  # crude bound; entries are tiny and self-limiting
 
 
 def reset_rate_limit_state() -> None:
@@ -275,6 +276,8 @@ def reset_rate_limit_state() -> None:
 
 def check_rate_limit(platform: Platform, external_id: str) -> bool:
     """One message per MESSAGE_RATE_LIMIT_SECONDS per identity. True = allowed."""
+    if len(_rate_limit_state) >= _RATE_LIMIT_STATE_CAP:
+        _rate_limit_state.clear()
     key = (platform, external_id)
     now = time.monotonic()
     last = _rate_limit_state.get(key, 0.0)
@@ -309,7 +312,7 @@ async def resolve_linked_user(
 def current_user_for(user: AppUser) -> CurrentUser:
     """Map an AppUser onto the CurrentUser the access seam consumes (same
     shape get_current_user builds for a cookie session)."""
-    from api.access import _ROLE_VALUES  # noqa: PLC2701  (shared role allowlist)
+    from api.access import role_or_default
 
     return CurrentUser(
         id=user.id or "",
@@ -317,7 +320,7 @@ def current_user_for(user: AppUser) -> CurrentUser:
         display_name=user.display_name or "",
         organization_id=user.organization_id or "",
         team_id=user.team_id or "",
-        role=user.role if user.role in _ROLE_VALUES else "member",  # type: ignore[arg-type]
+        role=role_or_default(user.role),
     )
 
 
@@ -358,10 +361,8 @@ async def run_home_chat_ask(
     is honest, the conversation checkpoint is left alone (per #41: a failed
     turn must not poison the session).
     """
-    strategy_model = await _resolve_default_model()
-    answer_model = await _resolve_default_model()
-    final_answer_model = await _resolve_default_model()
-    if not strategy_model or not answer_model or not final_answer_model:
+    strategy_model = answer_model = final_answer_model = await _resolve_default_model()
+    if not strategy_model:
         raise InvalidInputError(
             "This Open Notebook instance has no default chat model yet — "
             "ask an admin to set one in Models settings."
