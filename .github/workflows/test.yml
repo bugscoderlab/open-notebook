@@ -93,23 +93,11 @@ jobs:
 
   # Acceptance gate (T10): the synthetic test pack (canary sweep, access
   # matrix, real-PDF extraction) plus the integration suites, against live
-  # SurrealDB + Postgres. Each xdist worker gets its own scratch database and
-  # SurrealDB namespace (see tests/conftest.py).
+  # SurrealDB. Each xdist worker gets its own SurrealDB namespace (see
+  # tests/conftest.py).
   testpack:
     name: Testpack & Integration
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:17
-        env:
-          POSTGRES_PASSWORD: postgres
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -143,7 +131,6 @@ jobs:
       - name: Run testpack + integration tiers
         env:
           OPEN_NOTEBOOK_TEST_TIER: testpack
-          ANALYTICS_TEST_BASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/postgres
           SURREAL_URL: ws://localhost:8000/rpc
           SURREAL_USER: root
           SURREAL_PASSWORD: root

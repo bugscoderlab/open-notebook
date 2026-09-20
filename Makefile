@@ -68,11 +68,9 @@ test:
 test-cov:
 	uv run pytest tests/ -v --cov=open_notebook --cov=api --cov-report=term-missing --cov-report=xml
 
-# Integration tier: analytics suites against live Postgres + SurrealDB.
-# Each xdist worker gets its own scratch DB (open_notebook_analytics_test_gwN)
-# and SurrealDB namespace (open_notebook_test_gwN) — see tests/conftest.py.
-# Needs: Postgres on localhost:5432 (override with ANALYTICS_TEST_BASE_URL)
-# and SurrealDB (make database-local).
+# Integration tier: suites against live SurrealDB.
+# Each xdist worker gets its own SurrealDB namespace (open_notebook_test_gwN)
+# — see tests/conftest.py. Needs: SurrealDB (make database-local).
 test-integration:
 	OPEN_NOTEBOOK_TEST_TIER=integration uv run pytest -m integration -n auto
 

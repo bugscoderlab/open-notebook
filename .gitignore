@@ -154,4 +154,3 @@ docker-compose.override.yml
 # Local QA/debug artifacts
 screenshot-*.png
 history.txt
-analytics_schema/
