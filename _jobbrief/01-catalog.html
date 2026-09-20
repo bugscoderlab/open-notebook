@@ -1,0 +1,1752 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Open Notebook — Prototype</title>
+<!-- Prototype only: fonts + Tailwind via CDN. In the app these are next/font + Tailwind v4 tokens. -->
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;700&family=Instrument+Sans:wght@400;500;600;700&family=Spline+Sans+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  /* ── Quiet Green tokens (mirrors frontend/src/app/globals.css) ───────── */
+  const T = {
+    light: {
+      "--bg": "#f5f5f2", "--bg-deep": "#eeeee9", "--surface": "#fefefc", "--raised": "#ffffff",
+      "--recessed": "#f4f4f0", "--sunken": "#ecece7",
+      "--ink": "#23252a", "--ink-soft": "#565a61", "--ink-faint": "#878b92", "--ink-faintest": "#a8abb1",
+      "--line": "#e0e0da", "--line-soft": "#e8e8e2",
+      "--fern": "#2e6b4f", "--fern-deep": "#245740", "--fern-tint": "#dfeae2",
+      "--teal": "#0e7268", "--teal-tint": "#ddece8",
+      "--gold": "#a97b12", "--sage": "#5e7a54", "--mauve": "#8d5b80", "--plum": "#5d4991", "--slate-hue": "#4e6b84",
+      "--danger": "#b0432d",
+    },
+    dark: {
+      "--bg": "#17181b", "--bg-deep": "#121316", "--surface": "#1e2024", "--raised": "#24262b",
+      "--recessed": "#24262b", "--sunken": "#2b2d33",
+      "--ink": "#ecedea", "--ink-soft": "#a9acb1", "--ink-faint": "#74777d", "--ink-faintest": "#63666c",
+      "--line": "#2e3036", "--line-soft": "#26282d",
+      "--fern": "#55b285", "--fern-deep": "#6cc298", "--fern-tint": "#1b2f25",
+      "--teal": "#3fb3a5", "--teal-tint": "#16302c",
+      "--gold": "#cfa13e", "--sage": "#93b084", "--mauve": "#c892ba", "--plum": "#a290d3", "--slate-hue": "#8fafc8",
+      "--danger": "#df7c63",
+    },
+  };
+  function applyTheme(mode) {
+    const vars = T[mode];
+    for (const [k, v] of Object.entries(vars)) document.documentElement.style.setProperty(k, v);
+    document.documentElement.classList.toggle("dark", mode === "dark");
+    document.documentElement.style.colorScheme = mode;
+    localStorage.setItem("proto-theme", mode);
+  }
+  applyTheme(localStorage.getItem("proto-theme") || "light");
+
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          bg: "var(--bg)", surface: "var(--surface)", raised: "var(--raised)",
+          recessed: "var(--recessed)", sunken: "var(--sunken)",
+          ink: "var(--ink)", "ink-soft": "var(--ink-soft)", "ink-faint": "var(--ink-faint)", "ink-faintest": "var(--ink-faintest)",
+          line: "var(--line)", "line-soft": "var(--line-soft)",
+          fern: "var(--fern)", "fern-deep": "var(--fern-deep)", "fern-tint": "var(--fern-tint)",
+          teal: "var(--teal)", "teal-tint": "var(--teal-tint)",
+          gold: "var(--gold)", sage: "var(--sage)", mauve: "var(--mauve)", plum: "var(--plum)",
+          "slate-hue": "var(--slate-hue)", danger: "var(--danger)",
+        },
+        fontFamily: {
+          sans: ['"Instrument Sans"', '"Helvetica Neue"', "Arial", "sans-serif"],
+          display: ['"Bricolage Grotesque"', '"Avenir Next"', "sans-serif"],
+          mono: ['"Spline Sans Mono"', "ui-monospace", "SF Mono", "Menlo", "monospace"],
+        },
+        borderRadius: { sm: "4px", md: "5px", lg: "5px", xl: "6px" },
+      },
+    },
+  };
+</script>
+<style>
+  /* motion — quick and quiet */
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .rise { animation: rise 0.35s cubic-bezier(0.16, 1, 0.3, 1) both; animation-delay: calc(var(--i, 0) * 45ms); }
+  }
+  .card-hover { transition: background-color 0.15s ease-out, box-shadow 0.15s ease-out, border-color 0.15s ease-out; cursor: pointer; }
+  .card-hover:hover { background-color: var(--raised) !important; box-shadow: 0 1px 3px rgba(35, 37, 42, 0.1); }
+  .rail { scrollbar-width: thin; scrollbar-color: var(--ink-faintest) transparent; }
+  .rail::-webkit-scrollbar { height: 6px; }
+  .rail::-webkit-scrollbar-thumb { background: var(--line); border-radius: 3px; }
+  ::selection { background: var(--fern-tint); }
+
+  /* processing pulse */
+  @keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+  .pulse { animation: pulse-dot 1.6s ease-in-out infinite; }
+
+  /* prose sample (source reader) */
+  .reader p { margin-bottom: 1em; line-height: 1.75; color: var(--ink-soft); }
+  .reader p:first-of-type::first-letter { }
+  mark { background: var(--fern-tint); color: inherit; border-radius: 2px; padding: 0 1px; }
+  .annot { background: var(--teal-tint); border-bottom: 1px dashed var(--teal); cursor: help; }
+
+  /* toggle switch */
+  .switch { position: relative; width: 34px; height: 20px; border-radius: 999px; background: var(--line); transition: background 0.15s ease; cursor: pointer; flex-shrink: 0; border: none; padding: 0; }
+  .switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 999px; background: var(--raised); box-shadow: 0 1px 2px rgba(35,37,42,0.25); transition: transform 0.15s cubic-bezier(0.16,1,0.3,1); }
+  .switch[aria-checked="true"] { background: var(--fern); }
+  .switch[aria-checked="true"]::after { transform: translateX(14px); }
+
+  /* toast */
+  #toast { transition: opacity 0.2s ease, transform 0.2s cubic-bezier(0.16,1,0.3,1); }
+
+  /* chat */
+  .bubble { max-width: 75%; }
+
+  /* scope panel overlay dim (color-mix so it works with CSS-var tokens) */
+  #scope-overlay { background: color-mix(in srgb, var(--ink) 16%, transparent); }
+</style>
+</head>
+
+<body class="bg-bg text-ink font-sans antialiased h-screen overflow-hidden">
+
+<div class="flex h-full">
+  <!-- ══════════════════ SIDEBAR ══════════════════ -->
+  <aside id="sidebar" class="flex h-full w-64 flex-col border-r border-line bg-bg-deep transition-all duration-300 shrink-0">
+    <div class="flex h-16 items-center justify-between px-4">
+      <a href="#/" class="flex items-center gap-2.5 sidebar-brand">
+        <span class="flex items-center gap-[3px]" aria-hidden="true">
+          <span class="w-[9px] h-[9px] rounded-[3px] bg-fern"></span>
+          <span class="w-[9px] h-[9px] rounded-[3px] bg-gold"></span>
+          <span class="w-[9px] h-[9px] rounded-[3px] bg-teal"></span>
+        </span>
+        <span class="font-display text-[15px] font-bold tracking-tight">Open Notebook</span>
+      </a>
+      <button onclick="toggleSidebar()" aria-label="Collapse sidebar" class="rounded-md p-1.5 text-ink-faint hover:bg-surface transition-colors">
+        <svg id="chev" class="w-4 h-4 transition-transform" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 18-6-6 6-6"/></svg>
+      </button>
+    </div>
+
+    <nav class="flex-1 space-y-1 overflow-y-auto px-3 py-4" id="nav"></nav>
+
+    <div class="space-y-2 border-t border-line p-3">
+      <div class="sidebar-extra px-3 py-1.5">
+        <div class="flex items-center justify-between text-xs text-ink-faint">
+          <span class="flex items-center gap-1.5">
+            <svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 4a2 2 0 1 1 0 4 2 2 0 0 1 0-4Zm-12 4a2 2 0 1 1 0 4 2 2 0 0 1 0-4Zm6-6a2 2 0 1 1 0 4 2 2 0 0 1 0-4ZM7 15h10M4 20h16"/></svg>
+            Quick actions
+          </span>
+          <kbd class="pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border border-line bg-recessed px-1.5 font-mono text-[10px] text-ink-faint">⌘K</kbd>
+        </div>
+        <p class="mt-1 text-[10px] text-ink-faintest">Navigation, search, ask, theme</p>
+      </div>
+      <button onclick="toggleTheme()" class="flex w-full items-center gap-2 rounded-md border border-line bg-surface px-3 py-2 text-sm font-medium hover:bg-raised transition-colors">
+        <svg class="w-4 h-4 text-ink-soft" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+        <span class="sidebar-label">Theme</span>
+      </button>
+      <button onclick="toast('Language switcher is not wired in the prototype')" class="flex w-full items-center gap-2 rounded-md border border-line bg-surface px-3 py-2 text-sm font-medium hover:bg-raised transition-colors">
+        <svg class="w-4 h-4 text-ink-soft" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 0 20 15.3 15.3 0 0 1 0-20Z"/></svg>
+        <span class="sidebar-label">Language</span>
+      </button>
+      <button onclick="toast('Sign out is not wired in the prototype')" class="flex w-full items-center gap-2 rounded-md border border-line bg-surface px-3 py-2 text-sm font-medium text-ink-soft hover:bg-raised transition-colors">
+        <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg>
+        <span class="sidebar-label">Sign Out</span>
+      </button>
+    </div>
+  </aside>
+
+  <!-- ══════════════════ MAIN ══════════════════ -->
+  <main class="flex-1 flex flex-col min-h-0 min-w-0">
+    <div class="flex-1 overflow-y-auto" id="scroll">
+      <div id="page" class="p-6 lg:p-8 max-w-[1400px] mx-auto"></div>
+    </div>
+  </main>
+</div>
+
+<!-- toast -->
+<div id="toast" class="fixed bottom-5 left-1/2 -translate-x-1/2 translate-y-2 opacity-0 pointer-events-none z-50 rounded-md border border-line bg-raised px-4 py-2.5 text-sm shadow-lg"></div>
+
+<!-- scope panel: slides in from the right -->
+<div id="scope-overlay" onclick="toggleScopePanel(false)" class="fixed inset-0 z-40 hidden"></div>
+<aside id="scope-panel" class="fixed right-0 top-0 z-50 flex h-full w-72 translate-x-full flex-col border-l border-line bg-surface shadow-2xl transition-transform duration-300 ease-out">
+  <div class="flex h-16 shrink-0 items-center justify-between border-b border-line px-4">
+    <h2 class="font-display text-[15px] font-semibold tracking-tight">Filter notebooks</h2>
+    <button onclick="toggleScopePanel(false)" aria-label="Close panel" class="rounded-md p-1.5 text-ink-faint transition-colors hover:bg-recessed hover:text-ink">
+      <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg>
+    </button>
+  </div>
+  <div id="scope-panel-body" class="flex-1 space-y-1 overflow-y-auto p-3"></div>
+  <p class="shrink-0 border-t border-line p-4 text-xs leading-relaxed text-ink-soft">Questions and search results are limited to the selected notebooks.</p>
+</aside>
+
+<script>
+/* ══════════════════════════════════════════════════════════════════════════
+   SAMPLE DATA
+══════════════════════════════════════════════════════════════════════════ */
+const NOTEBOOKS = [
+  { id: 1, name: "Thesis Research: Attention Mechanisms", description: "Literature and experiments on efficient attention for long-context models", sources: 14, notes: 32, updated: "Updated 12 minutes ago", archived: false, tags: ["deep-learning", "efficiency"] },
+  { id: 2, name: "LLM Agents Survey", description: "Comparative notes on agent frameworks, tool use, and evaluation", sources: 9, notes: 18, updated: "Updated 2 hours ago", archived: false, tags: ["agents", "survey"] },
+  { id: 3, name: "Personal Reading", description: "Articles and papers saved for slow reading", sources: 6, notes: 4, updated: "Updated yesterday", archived: false, tags: ["reading"] },
+  { id: 4, name: "Paper Draft 2026", description: "Working notes for the NeurIPS submission on retrieval augmented generation", sources: 21, notes: 47, updated: "Updated 2 days ago", archived: false, tags: ["rag", "writing"] },
+  { id: 5, name: "Woodworking Journal", description: "Offline hobby notes and project plans", sources: 0, notes: 7, updated: "Updated last week", archived: false, tags: ["hobby"] },
+  { id: 6, name: "2024 Archive — Old Projects", description: "Finished work, kept for reference", sources: 11, notes: 25, updated: "Updated 3 months ago", archived: true, tags: ["archive"] },
+];
+const RECENT = [
+  { type: "notebook", title: "Thesis Research: Attention Mechanisms", when: "Viewed 5 minutes ago" },
+  { type: "notebook", title: "Paper Draft 2026", when: "Viewed 1 hour ago" },
+  { type: "source", title: "FlashAttention-3 (arXiv 2407.08608)", when: "Viewed 2 hours ago" },
+  { type: "notebook", title: "LLM Agents Survey", when: "Viewed yesterday" },
+  { type: "source", title: "Karpathy — Let's build GPT (YouTube)", when: "Viewed yesterday" },
+  { type: "notebook", title: "Personal Reading", when: "Viewed 3 days ago" },
+];
+const SOURCES = [
+  { id: 1, title: "FlashAttention-3: Fast and Accurate Attention with Asynchrony and Low-precision", type: "pdf", origin: "arXiv 2407.08608", notebook: "Thesis Research: Attention Mechanisms", status: "ready", meta: "PDF · 18 pages · 1.2 MB", added: "2 days ago", size: "1.2 MB" },
+  { id: 2, title: "Let's build GPT: from scratch, in code, spelled out", type: "video", origin: "YouTube · 2:13:00", notebook: "Thesis Research: Attention Mechanisms", status: "ready", meta: "Video · 2 h 13 min", added: "3 days ago", size: "—" },
+  { id: 3, title: "Attention Is All You Need", type: "pdf", origin: "arXiv 1706.03762", notebook: "Thesis Research: Attention Mechanisms", status: "processing", meta: "PDF · 15 pages", added: "4 days ago", size: "1.8 MB" },
+  { id: 4, title: "LLM Powered Autonomous Agents", type: "url", origin: "lilianweng.github.io", notebook: "LLM Agents Survey", status: "ready", meta: "Web page · 24 min read", added: "5 days ago", size: "—" },
+  { id: 5, title: "AgentBench: Evaluating LLMs as Agents", type: "pdf", origin: "arXiv 2308.03688", notebook: "LLM Agents Survey", status: "ready", meta: "PDF · 42 pages · 3.4 MB", added: "6 days ago", size: "3.4 MB" },
+  { id: 6, title: "Lex Fridman Podcast #452 — Andrej Karpathy", type: "audio", origin: "lexfridman.com", notebook: "Personal Reading", status: "error", meta: "Audio · 4 h 2 min", added: "1 week ago", size: "96 MB" },
+  { id: 7, title: "Retrieval-Augmented Generation for Knowledge-Intensive NLP", type: "pdf", origin: "arXiv 2005.11401", notebook: "Paper Draft 2026", status: "ready", meta: "PDF · 12 pages · 780 KB", added: "1 week ago", size: "780 KB" },
+  { id: 8, title: "Field notes: dovetail joinery", type: "text", origin: "Written in Open Notebook", notebook: "Woodworking Journal", status: "ready", meta: "Text note · 3 min read", added: "2 weeks ago", size: "—" },
+];
+const NOTES = [
+  { id: 1, title: "FlashAttention IO complexity", kind: "insight", notebook: "Thesis Research: Attention Mechanisms", source: "FlashAttention-3", excerpt: "Standard attention materializes the full N×N score matrix in HBM. FlashAttention tiles the computation so the score matrix never exists — IO drops from Θ(N²) to Θ(N²/M)…", when: "12 minutes ago" },
+  { id: 2, title: "Agent loop decomposition", kind: "summary", notebook: "LLM Agents Survey", source: "LLM Powered Autonomous Agents", excerpt: "Weng's decomposition: planning, memory, tool use. Planning benefits from task decomposition into subgoals; memory splits into short-context and long-term retrieval…", when: "2 hours ago" },
+  { id: 3, title: "RAG vs long context — cost tradeoff", kind: "insight", notebook: "Paper Draft 2026", source: "Retrieval-Augmented Generation…", excerpt: "For repeated queries over a fixed corpus, retrieval amortizes: the index is built once. Long-context pays full attention cost on every call. Break-even depends on query frequency…", when: "Yesterday" },
+  { id: 4, title: "Karpathy's GPT build — key takeaways", kind: "summary", notebook: "Thesis Research: Attention Mechanisms", source: "Let's build GPT (YouTube)", excerpt: "Bigram model first, then self-attention as a weighted average of value vectors where weights come from query-key affinity. Weight tying between embedding and output head…", when: "Yesterday" },
+  { id: 5, title: "Reading list: efficient transformers", kind: "custom", notebook: "Personal Reading", source: "—", excerpt: "Performer, Linformer, Longformer, BigBird, Ring Attention. Revisit each with the IO-aware lens from FlashAttention before citing in related work…", when: "3 days ago" },
+  { id: 6, title: "Workshop proposal draft", kind: "custom", notebook: "Woodworking Journal", source: "—", excerpt: "Half-day workshop: hand-cut dovetails. Materials list and bench plan. Limit to six participants; two vices per bench…", when: "Last week" },
+];
+const PODCASTS = [
+  { id: 1, title: "Attention mechanisms, explained over coffee", notebook: "Thesis Research: Attention Mechanisms", duration: "18:42", sources: 5, status: "ready", template: "Deep Dive", when: "Generated 2 days ago" },
+  { id: 2, title: "LLM Agents Survey — weekly recap", notebook: "LLM Agents Survey", duration: "24:10", sources: 4, status: "ready", template: "Recap", when: "Generated 5 days ago" },
+  { id: 3, title: "RAG draft walkthrough", notebook: "Paper Draft 2026", duration: "—", sources: 3, status: "generating", template: "Deep Dive", when: "Started 4 minutes ago" },
+];
+const MODELS = [
+  { id: 1, provider: "OpenAI", status: "connected", models: ["gpt-4o-mini", "gpt-4o", "o4-mini"], defaultModel: "gpt-4o-mini", usedFor: "Chat, transformations, embeddings" },
+  { id: 2, provider: "Anthropic", status: "connected", models: ["claude-sonnet-4", "claude-opus-4", "claude-haiku-4"], defaultModel: "claude-sonnet-4", usedFor: "Chat, transformations" },
+  { id: 3, provider: "Ollama", status: "local", models: ["llama3.1:8b", "qwen2.5:14b", "mistral-nemo"], defaultModel: "llama3.1:8b", usedFor: "Local chat (offline)" },
+  { id: 4, provider: "OpenRouter", status: "disconnected", models: [], defaultModel: null, usedFor: "Fallback provider" },
+];
+const TRANSFORMS = [
+  { id: 1, name: "Summarize", description: "Condense a source into its key claims and structure.", prompt: "Summarize the following source in 5 bullet points. Preserve terminology. Flag any claims that lack evidence.", enabled: true, scope: "Source" },
+  { id: 2, name: "Translate", description: "Translate a source or note into another language.", prompt: "Translate the text to {language}. Keep technical terms in the original language where a translation would be ambiguous.", enabled: true, scope: "Source, Note" },
+  { id: 3, name: "Explain like I'm new", description: "Rewrite dense material for a reader outside the field.", prompt: "Explain the core ideas to a smart undergraduate outside this field. Use one analogy per major concept.", enabled: true, scope: "Source" },
+  { id: 4, name: "Extract outline", description: "Pull the heading structure and argument flow.", prompt: "Produce a nested outline of the argument. Mark where evidence is given versus asserted.", enabled: false, scope: "Source" },
+  { id: 5, name: "Critique", description: "Adversarial review: assumptions, weaknesses, missing baselines.", prompt: "Act as a hostile reviewer. List the three weakest points of this argument and what evidence would address each.", enabled: false, scope: "Note, Source" },
+  { id: 6, name: "Glossary", description: "Extract domain terms into a linked vocabulary list.", prompt: "Extract every domain-specific term. Define each in one sentence, ordered by first appearance.", enabled: true, scope: "Source" },
+];
+const ACTIVITY = [
+  { icon: "note", text: "You added note “FlashAttention IO complexity” to Thesis Research", when: "12 min ago" },
+  { icon: "file", text: "Source “Attention Is All You Need” finished processing", when: "1 h ago" },
+  { icon: "mic", text: "Podcast “RAG draft walkthrough” started generating", when: "4 min ago" },
+  { icon: "file", text: "Source “Lex Fridman #452” failed — audio download timed out", when: "2 h ago" },
+  { icon: "book", text: "Notebook “LLM Agents Survey” updated", when: "Yesterday" },
+];
+
+const NAV = [
+  { group: "Collect", items: [{ name: "Sources", page: "sources", icon: "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z M14 2v6h6" }] },
+  { group: "Process", items: [
+    { name: "Notebooks", page: "notebooks", icon: "M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20" },
+    { name: "Ask and Search", page: "ask", icon: "M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16Zm10 2-4.35-4.35" },
+  ]},
+  { group: "Create", items: [{ name: "Podcasts", page: "podcasts", icon: "M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3ZM19 10v2a7 7 0 0 1-14 0v-2M12 19v3" }] },
+  { group: "Manage", items: [
+    { name: "Models", page: "models", icon: "M12 8V4H8 M4 8v8h8 M20 8v8h-4 M8 12h8" },
+    { name: "Transformations", page: "transformations", icon: "m18 4 3 3-3 3M6 20l-3-3 3-3M3 17h13M8 7h13" },
+    { name: "Settings", page: "settings", icon: "M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" },
+    { name: "Advanced", page: "advanced", icon: "M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" },
+  ]},
+];
+
+/* ══════════════════════════════════════════════════════════════════════════
+   STATE + HELPERS
+══════════════════════════════════════════════════════════════════════════ */
+let view = localStorage.getItem("proto-view") || "tile";
+let recentOpen = true, archivedOpen = false, sidebarCollapsed = false;
+let srcFilter = "all";
+let srcTab = "content";
+let srcChatOpen = localStorage.getItem("proto-src-chat") !== "0";
+let nbColSrc = true;            // sources column expanded
+let nbColNotes = true;          // notes column expanded
+let nbMobileTab = "chat";       // mobile: sources | notes | chat
+let nbSrcCtx = {};              // source id -> boolean (included in context)
+let nbSrcLevel = {};            // source id -> full | insights (how much content)
+let nbNoteCtx = {};             // note id -> boolean (included in context)
+let askMode = "ask";
+let askScope = [];        // [] = all notebooks, otherwise array of selected notebook names
+let askSearchQ = "";      // preserved across re-renders
+let askDraft = "";        // preserved across re-renders
+let scopePanelOpen = false;
+
+const $ = (s) => document.querySelector(s);
+const $$ = (s) => document.querySelectorAll(s);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+const ICONS = {
+  dot: (c, extra = "") => `<span aria-hidden class="block w-2 h-2 rounded-[3px] ${c} ${extra}"></span>`,
+  file: `<svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z M14 2v6h6"/></svg>`,
+  note: `<svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15.5 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8.5L15.5 3Z M15 3v6h6"/></svg>`,
+  kebab: `<svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/></svg>`,
+  book: `<svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/></svg>`,
+  chevron: (open) => `<svg class="w-4 h-4 transition-transform ${open ? "" : "-rotate-90"}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>`,
+  arrowL: `<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5m7-7-7 7 7 7"/></svg>`,
+  play: `<svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.14v13.72a1 1 0 0 0 1.52.86l11-6.86a1 1 0 0 0 0-1.72l-11-6.86A1 1 0 0 0 8 5.14Z"/></svg>`,
+  mic: `<svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3ZM19 10v2a7 7 0 0 1-14 0v-2M12 19v3"/></svg>`,
+  search: `<svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-ink-faint pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>`,
+  spark: `<svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3v3m0 12v3M5.6 5.6l2.1 2.1m8.6 8.6 2.1 2.1M3 12h3m12 0h3M5.6 18.4l2.1-2.1m8.6-8.6 2.1-2.1"/></svg>`,
+  typeIcon: {
+    pdf: `<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z M14 2v6h6"/></svg>`,
+    video: `<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m10 8 6 4-6 4V8ZM21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/></svg>`,
+    url: `<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>`,
+    audio: `<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 12h2l2-7 4 14 3-10 2 3h5"/></svg>`,
+    text: `<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6h16M4 12h16M4 18h10"/></svg>`,
+  },
+  typeLabel: { pdf: "PDF", video: "Video", url: "Link", audio: "Audio", text: "Text" },
+};
+const STATUS = {
+  ready: `<span class="inline-flex items-center gap-1.5 rounded-[4px] bg-fern-tint px-1.5 py-0.5 text-[11px] font-medium text-fern ring-1 ring-inset ring-line">${ICONS.dot("bg-fern")}Ready</span>`,
+  processing: `<span class="inline-flex items-center gap-1.5 rounded-[4px] bg-recessed px-1.5 py-0.5 text-[11px] font-medium text-gold ring-1 ring-inset ring-line">${ICONS.dot("bg-gold", "pulse")}Processing</span>`,
+  error: `<span class="inline-flex items-center gap-1.5 rounded-[4px] bg-recessed px-1.5 py-0.5 text-[11px] font-medium text-danger ring-1 ring-inset ring-line">${ICONS.dot("bg-danger")}Failed</span>`,
+  generating: `<span class="inline-flex items-center gap-1.5 rounded-[4px] bg-recessed px-1.5 py-0.5 text-[11px] font-medium text-gold ring-1 ring-inset ring-line">${ICONS.dot("bg-gold", "pulse")}Generating</span>`,
+};
+const NOTE_KIND = {
+  insight: `<span class="rounded-[4px] bg-teal-tint px-1.5 py-0.5 text-[11px] font-medium text-teal ring-1 ring-inset ring-line">Insight</span>`,
+  summary: `<span class="rounded-[4px] bg-fern-tint px-1.5 py-0.5 text-[11px] font-medium text-fern ring-1 ring-inset ring-line">Summary</span>`,
+  custom: `<span class="rounded-[4px] bg-recessed px-1.5 py-0.5 text-[11px] font-medium text-ink-soft ring-1 ring-inset ring-line">Note</span>`,
+};
+
+function toast(msg) {
+  const t = $("#toast");
+  t.textContent = msg;
+  t.classList.remove("opacity-0", "translate-y-2");
+  clearTimeout(t._h);
+  t._h = setTimeout(() => t.classList.add("opacity-0", "translate-y-2"), 2200);
+}
+
+function btnPrimary(label, icon = "") {
+  return `<button class="flex items-center gap-2 rounded-md bg-fern px-3.5 py-2 text-sm font-display font-bold text-[#f1f8f3] hover:bg-fern-deep active:scale-[0.98] transition">${icon}${label}</button>`;
+}
+function btnGhost(label, icon = "", onclick = "") {
+  return `<button ${onclick ? `onclick="${onclick}"` : ""} class="flex items-center gap-2 rounded-md border border-line bg-raised px-3 py-2 text-sm font-medium text-ink-soft hover:bg-recessed hover:text-ink active:scale-[0.98] transition">${icon}${label}</button>`;
+}
+function searchInput(id, placeholder, width = "sm:w-64") {
+  return `<div class="relative">${ICONS.search}
+    <input id="${id}" type="search" autocomplete="off" placeholder="${placeholder}"
+      class="w-full ${width} rounded-md border border-line bg-raised pl-9 pr-3 py-2 text-sm placeholder:text-ink-faint focus:outline-none focus:ring-2 focus:ring-teal/40 transition-shadow" /></div>`;
+}
+function emptyState(title, desc, actionLabel) {
+  return `
+    <div class="py-16 text-center">
+      <div class="mx-auto mb-4 flex h-11 w-11 items-center justify-center rounded-lg border border-line bg-recessed text-ink-faint">
+        <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/></svg>
+      </div>
+      <h3 class="mb-1.5 text-lg font-medium">${title}</h3>
+      <p class="mx-auto max-w-[46ch] text-sm text-ink-soft">${desc}</p>
+      ${actionLabel ? `<button class="mt-5 inline-flex items-center gap-2 rounded-md border border-line bg-surface px-3.5 py-2 text-sm font-medium hover:bg-raised transition active:scale-[0.98]">
+        <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M5 12h14M12 5v14"/></svg>${actionLabel}</button>` : ""}
+    </div>`;
+}
+function pageFoot() {
+  return `<p class="pt-10 text-center text-xs text-ink-faintest font-mono">HTML prototype · sample data · not the app</p>`;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   SIDEBAR
+══════════════════════════════════════════════════════════════════════════ */
+let currentPage = "";
+
+function renderNav() {
+  $("#nav").innerHTML = `
+    <div class="mb-4 px-3 sidebar-extra">
+      <button onclick="toast('Creation menu is not wired in the prototype')" class="flex w-full items-center justify-center gap-2 rounded-md bg-fern px-3 py-2 text-sm font-display font-bold text-[#f1f8f3] hover:bg-fern-deep transition-colors">
+        <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M5 12h14M12 5v14"/></svg>
+        <span class="sidebar-label">New</span>
+      </button>
+    </div>
+    <div class="${"space-y-1"}">
+      <a href="#/" data-page="home" class="relative flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-[13px] font-medium transition-colors nav-item text-ink-soft hover:bg-surface">
+        <span aria-hidden class="nav-rail absolute -left-1.5 top-[7px] bottom-[7px] w-[3px] rounded-[2px] bg-fern hidden"></span>
+        <svg class="w-4 h-4 opacity-85" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m3 10 9-7 9 7v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V10Z M9 22V12h6v10"/></svg>
+        <span class="sidebar-label">Home</span>
+      </a>
+    </div>
+    ${NAV.map((sec, i) => `
+      <div class="${i > 0 ? "mt-3 pt-3 border-t border-line" : "mt-3"} space-y-1">
+        <h3 class="sidebar-label mb-1.5 px-3 text-[10.5px] font-bold uppercase tracking-[0.14em] text-ink-faint/70">${sec.group}</h3>
+        ${sec.items.map((it) => `
+          <a href="#/${it.page}" data-page="${it.page}" class="relative flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-[13px] font-medium transition-colors nav-item text-ink-soft hover:bg-surface ${sidebarCollapsed ? "justify-center px-2" : ""}">
+            <span aria-hidden class="nav-rail absolute -left-1.5 top-[7px] bottom-[7px] w-[3px] rounded-[2px] bg-fern hidden"></span>
+            <svg class="w-4 h-4 opacity-85" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="${it.icon}"/></svg>
+            <span class="sidebar-label">${it.name}</span>
+          </a>`).join("")}
+      </div>`).join("")}`;
+  markActiveNav();
+}
+
+function markActiveNav() {
+  $$(".nav-item").forEach((a) => {
+    const active = a.dataset.page === currentPage || (!currentPage && a.dataset.page === "home") || (currentPage === "home" && a.dataset.page === "home");
+    a.classList.toggle("bg-surface", active);
+    a.classList.toggle("font-semibold", active);
+    a.classList.toggle("text-ink", active);
+    a.classList.toggle("ring-1", active);
+    a.classList.toggle("ring-inset", active);
+    a.classList.toggle("ring-line", active);
+    a.classList.toggle("text-ink-soft", !active);
+    const rail = a.querySelector(".nav-rail");
+    if (rail) rail.classList.toggle("hidden", !active);
+    const icon = a.querySelector("svg");
+    if (icon) icon.classList.toggle("text-teal", active);
+  });
+}
+
+function toggleSidebar() {
+  sidebarCollapsed = !sidebarCollapsed;
+  const sb = $("#sidebar");
+  sb.classList.toggle("w-64", !sidebarCollapsed);
+  sb.classList.toggle("w-16", sidebarCollapsed);
+  document.querySelectorAll(".sidebar-label").forEach((el) => el.classList.toggle("hidden", sidebarCollapsed));
+  document.querySelectorAll(".sidebar-extra").forEach((el) => el.classList.toggle("hidden", sidebarCollapsed));
+  document.querySelectorAll(".sidebar-brand span:last-child").forEach((el) => el.classList.toggle("hidden", sidebarCollapsed));
+  $("#chev").style.transform = sidebarCollapsed ? "rotate(180deg)" : "";
+}
+function toggleTheme() { applyTheme(document.documentElement.classList.contains("dark") ? "light" : "dark"); route(); }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   SHARED PIECES (cards, rows, section headers)
+══════════════════════════════════════════════════════════════════════════ */
+function sectionHeader(title, count, { collapsible = false, open = true, ontoggle = "" } = {}) {
+  return `
+    <div class="flex items-center gap-2 border-b border-line pb-3">
+      ${collapsible ? `<button onclick="${ontoggle}" aria-expanded="${open}" class="rounded-md p-1 text-ink-soft hover:bg-surface transition-colors -ml-1">${ICONS.chevron(open)}</button>` : ""}
+      <h2 class="font-display text-lg font-semibold tracking-tight">${title}</h2>
+      <span class="ml-auto font-mono text-xs tabular-nums text-ink-faint ${collapsible ? "mr-1" : ""}">${count}</span>
+    </div>`;
+}
+
+function tileCard(n, i) {
+  return `
+    <a href="#/notebooks/${n.id}" class="rise group relative flex flex-col overflow-hidden rounded-lg border border-line bg-surface card-hover" style="--i:${i}">
+      <header class="px-5 pt-5">
+        <div class="flex items-start justify-between">
+          ${ICONS.dot("bg-teal")}
+          <span aria-hidden class="font-mono text-[11px] tabular-nums text-ink-faint/60">${String(i + 1).padStart(2, "0")}</span>
+        </div>
+        <div class="mt-1 flex items-start justify-between gap-2">
+          <h3 class="flex-1 min-w-0 truncate font-display text-[17px] font-semibold leading-snug">${esc(n.name)}</h3>
+          <button aria-label="Actions" onclick="event.preventDefault(); toast('Notebook actions menu is not wired in the prototype')" class="-mr-2 rounded-md p-1 text-ink-faint opacity-0 group-hover:opacity-100 transition-opacity hover:bg-recessed">${ICONS.kebab}</button>
+        </div>
+        ${n.archived ? `<span class="mt-1.5 inline-block rounded-[4px] bg-recessed px-1.5 py-0.5 text-xs font-medium text-ink-soft ring-1 ring-inset ring-line">Archived</span>` : ""}
+      </header>
+      <div class="flex flex-1 flex-col px-5 pb-5 pt-2">
+        <p class="mb-3 line-clamp-2 text-sm text-ink-soft">${esc(n.description)}</p>
+        <div class="mt-auto flex items-center justify-between gap-3 border-t border-line pt-3 text-xs text-ink-faint">
+          <div class="flex items-center gap-4 font-mono tabular-nums">
+            <span class="flex items-center gap-1.5">${ICONS.file}${n.sources}</span>
+            <span class="flex items-center gap-1.5">${ICONS.note}${n.notes}</span>
+          </div>
+          <span class="truncate">${n.updated}</span>
+        </div>
+      </div>
+    </a>`;
+}
+
+function rowItem(n, i) {
+  return `
+    <a href="#/notebooks/${n.id}" class="group flex items-center gap-4 px-4 py-3 transition-colors hover:bg-recessed/60">
+      <span aria-hidden class="hidden w-7 shrink-0 font-mono text-[11px] tabular-nums text-ink-faint/50 sm:block">${String(i + 1).padStart(2, "0")}</span>
+      <div class="flex-1 min-w-0">
+        <div class="flex items-center gap-2">
+          <span class="truncate font-medium">${esc(n.name)}</span>
+          ${n.archived ? `<span class="shrink-0 rounded-[4px] bg-recessed px-1.5 py-0.5 text-[11px] font-medium text-ink-soft ring-1 ring-inset ring-line">Archived</span>` : ""}
+        </div>
+        <p class="truncate text-sm text-ink-soft">${esc(n.description)}</p>
+      </div>
+      <div class="flex shrink-0 items-center gap-4 font-mono text-xs tabular-nums text-ink-faint">
+        <span class="flex items-center gap-1.5">${ICONS.file}${n.sources}</span>
+        <span class="flex items-center gap-1.5">${ICONS.note}${n.notes}</span>
+      </div>
+      <div class="hidden w-40 shrink-0 text-right text-xs text-ink-faint sm:block">${n.updated}</div>
+      <button aria-label="Actions" onclick="event.preventDefault(); toast('Notebook actions menu is not wired in the prototype')" class="shrink-0 rounded-md p-1 text-ink-faint opacity-0 group-hover:opacity-100 transition-opacity hover:bg-recessed">${ICONS.kebab}</button>
+    </a>`;
+}
+
+function renderRecent(q) {
+  const items = RECENT.filter((r) => r.title.toLowerCase().includes(q));
+  const sec = $("#recent-section");
+  if (!items.length) { sec.innerHTML = ""; sec.classList.add("hidden"); return; }
+  sec.classList.remove("hidden");
+  sec.innerHTML = `
+    ${sectionHeader("Recently Viewed", items.length, { collapsible: true, open: recentOpen, ontoggle: "toggleRecent()" })}
+    ${recentOpen ? `
+      <div class="rail -mx-1 flex snap-x gap-3 overflow-x-auto px-1 pb-1">
+        ${items.map((r) => `
+          <a href="#" class="group w-[240px] shrink-0 snap-start rounded-md border border-line bg-surface px-3 py-2.5 card-hover">
+            <div class="flex items-center gap-3">
+              <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-recessed ${r.type === "notebook" ? "text-teal" : "text-sage"}">${r.type === "notebook" ? ICONS.book : ICONS.file.replace('class="w-3 h-3"', 'class="w-3.5 h-3.5"')}</div>
+              <div class="min-w-0 flex-1">
+                <p class="truncate text-sm font-medium">${esc(r.title)}</p>
+                <p class="mt-0.5 truncate font-mono text-[11px] text-ink-faint">${r.when}</p>
+              </div>
+            </div>
+            <span class="mt-2 block text-[10px] font-semibold uppercase tracking-wider text-ink-faint/70">${r.type === "notebook" ? "Notebook" : "Source"}</span>
+          </a>`).join("")}
+      </div>` : ""}`;
+}
+
+function renderNotebookSection(elId, title, list, q, { collapsible = false, open = true, ontoggle = "" } = {}) {
+  const sec = $(elId);
+  const filtered = list.filter((n) => n.name.toLowerCase().includes(q) || n.description.toLowerCase().includes(q));
+  if (!filtered.length && collapsible) { sec.innerHTML = ""; sec.classList.add("hidden"); return; }
+  sec.classList.remove("hidden");
+  let body;
+  if (!filtered.length) {
+    body = emptyState("No results", "Try a different search term.", null);
+  } else if (view === "tile") {
+    body = `<div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">${filtered.map((n, i) => tileCard(n, i)).join("")}</div>`;
+  } else {
+    body = `<div class="divide-y divide-line overflow-hidden rounded-lg border border-line bg-surface">${filtered.map((n, i) => rowItem(n, i)).join("")}</div>`;
+  }
+  sec.innerHTML = `${sectionHeader(title, filtered.length, { collapsible, open, ontoggle })}
+    ${collapsible && !open ? "" : body}`;
+}
+
+function setView(v) { view = v; localStorage.setItem("proto-view", v); route(); }
+function toggleRecent() { recentOpen = !recentOpen; route(); }
+function toggleArchived() { archivedOpen = !archivedOpen; route(); }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   PAGE: HOME  (#/)
+══════════════════════════════════════════════════════════════════════════ */
+function pageHome() {
+  const active = NOTEBOOKS.filter((n) => !n.archived);
+  const stats = [
+    { label: "Notebooks", value: active.length, icon: "book", page: "#/notebooks" },
+    { label: "Sources", value: SOURCES.length, icon: "file", page: "#/sources" },
+    { label: "Notes", value: NOTES.length + 113, icon: "note", page: "#/notebooks" },
+    { label: "Podcasts", value: PODCASTS.length, icon: "mic", page: "#/podcasts" },
+  ];
+  return `
+  <div class="space-y-10">
+    <div class="flex flex-col gap-1">
+      <p class="font-mono text-xs text-ink-faint">Sunday, September 20</p>
+      <h1 class="font-display text-3xl font-bold tracking-tight">Good evening.</h1>
+      <p class="text-sm text-ink-soft">You have 1 source processing and 1 podcast generating.</p>
+    </div>
+
+    <!-- stats -->
+    <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      ${stats.map((s, i) => `
+        <a href="${s.page}" class="rise group rounded-lg border border-line bg-surface px-5 py-4 card-hover" style="--i:${i}">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-medium text-ink-faint">${s.label}</span>
+            <span class="text-ink-faint/60">${s.icon === "book" ? ICONS.book : s.icon === "note" ? ICONS.note.replace('w-3 h-3', 'w-3.5 h-3.5') : s.icon === "mic" ? ICONS.mic.replace('w-3 h-3', 'w-4 h-4') : ICONS.file.replace('w-3 h-3', 'w-3.5 h-3.5')}</span>
+          </div>
+          <p class="mt-2 font-display text-3xl font-bold tabular-nums tracking-tight">${s.value}</p>
+        </a>`).join("")}
+    </div>
+
+    <!-- continue working -->
+    <section class="space-y-4">
+      ${sectionHeader("Continue Working", active.length)}
+      <div class="rail -mx-1 flex snap-x gap-3 overflow-x-auto px-1 pb-1">
+        ${active.map((n, i) => `
+          <a href="#/notebooks/${n.id}" class="rise group w-[260px] shrink-0 snap-start rounded-lg border border-line bg-surface px-4 py-3.5 card-hover" style="--i:${i}">
+            <div class="flex items-center justify-between">${ICONS.dot("bg-teal")}<span class="font-mono text-[11px] text-ink-faint/60 tabular-nums">${n.sources} src · ${n.notes} notes</span></div>
+            <h3 class="mt-2 truncate font-display text-[15px] font-semibold leading-snug">${esc(n.name)}</h3>
+            <p class="mt-1 truncate text-xs text-ink-soft">${esc(n.description)}</p>
+          </a>`).join("")}
+      </div>
+    </section>
+
+    <div class="grid gap-10 lg:grid-cols-2">
+      <!-- activity -->
+      <section class="space-y-4">
+        ${sectionHeader("Recent Activity", ACTIVITY.length)}
+        <div class="overflow-hidden rounded-lg border border-line bg-surface">
+          ${ACTIVITY.map((a, i) => `
+            <div class="rise flex items-start gap-3 px-4 py-3 ${i > 0 ? "border-t border-line" : ""}" style="--i:${i}">
+              <span class="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-recessed text-ink-faint">${a.icon === "mic" ? ICONS.mic.replace('w-3 h-3', 'w-3.5 h-3.5') : a.icon === "book" ? ICONS.book : a.icon === "note" ? ICONS.note.replace('w-3 h-3', 'w-3.5 h-3.5') : ICONS.file.replace('w-3 h-3', 'w-3.5 h-3.5')}</span>
+              <p class="min-w-0 flex-1 text-sm leading-snug text-ink-soft">${esc(a.text)}</p>
+              <span class="shrink-0 font-mono text-[11px] text-ink-faint">${a.when}</span>
+            </div>`).join("")}
+        </div>
+      </section>
+
+      <!-- quick actions -->
+      <section class="space-y-4">
+        ${sectionHeader("Quick Actions", 4)}
+        <div class="grid grid-cols-2 gap-3">
+          ${[
+            { label: "Add a source", desc: "PDF, link, video or audio", icon: ICONS.typeIcon.pdf.replace('w-4 h-4', 'w-5 h-5'), onclick: "go('sources')" },
+            { label: "Ask a question", desc: "Query across your notebooks", icon: ICONS.spark.replace('w-3.5 h-3.5', 'w-5 h-5'), onclick: "go('ask')" },
+            { label: "New notebook", desc: "Start a fresh collection", icon: ICONS.book.replace('w-3.5 h-3.5', 'w-5 h-5'), onclick: "toast('Notebook creation is not wired in the prototype')" },
+            { label: "Generate podcast", desc: "Turn sources into audio", icon: ICONS.mic.replace('w-3 h-3', 'w-5 h-5'), onclick: "go('podcasts')" },
+          ].map((a, i) => `
+            <button onclick="${a.onclick}" class="rise group rounded-lg border border-line bg-surface px-4 py-4 text-left card-hover" style="--i:${i}">
+              <span class="text-teal">${a.icon}</span>
+              <p class="mt-2.5 text-sm font-semibold">${a.label}</p>
+              <p class="mt-0.5 text-xs text-ink-soft">${a.desc}</p>
+            </button>`).join("")}
+        </div>
+      </section>
+    </div>
+    ${pageFoot()}
+  </div>`;
+}
+function go(page) { location.hash = "#/" + page; }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   PAGE: NOTEBOOKS  (#/notebooks)
+══════════════════════════════════════════════════════════════════════════ */
+function pageNotebooks() {
+  return `
+  <div class="space-y-10">
+    <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+      <h1 class="font-display text-3xl font-bold tracking-tight">Notebooks</h1>
+      <div class="flex flex-col gap-3 sm:flex-row sm:items-center">
+        ${searchInput("search", "Search notebooks...")}
+        <div class="flex items-center gap-2">
+          <div class="flex items-center rounded-md border border-line bg-raised p-0.5">
+            <button onclick="setView('tile')" id="btn-tile" aria-pressed="${view === "tile"}" title="Tile view" class="rounded-[4px] p-1.5 transition-colors">
+              <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>
+            </button>
+            <button onclick="setView('list')" id="btn-list" aria-pressed="${view === "list"}" title="List view" class="rounded-[4px] p-1.5 transition-colors">
+              <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
+            </button>
+          </div>
+          <button onclick="route()" title="Refresh" aria-label="Refresh" class="rounded-md border border-line bg-raised p-2 text-ink-soft hover:bg-recessed active:scale-[0.98] transition">
+            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8M21 3v5h-5M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16M3 21v-5h5"/></svg>
+          </button>
+          ${btnPrimary("New Notebook", `<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M5 12h14M12 5v14"/></svg>`).replace("<button", `<button onclick="toast('Notebook creation is not wired in the prototype')"`)}
+        </div>
+      </div>
+    </div>
+
+    <section id="recent-section" class="space-y-4"></section>
+    <section id="active-section" class="space-y-4"></section>
+    <section id="archived-section" class="space-y-4"></section>
+    ${pageFoot()}
+  </div>`;
+}
+
+function renderNotebooksPage() {
+  const q = ($("#search")?.value || "").trim().toLowerCase();
+  renderRecent(q);
+  renderNotebookSection("#active-section", "Active Notebooks", NOTEBOOKS.filter((n) => !n.archived), q);
+  renderNotebookSection("#archived-section", "Archived Notebooks", NOTEBOOKS.filter((n) => n.archived), q, {
+    collapsible: true, open: archivedOpen, ontoggle: "toggleArchived()",
+  });
+  const on = "bg-recessed text-ink shadow-sm", off = "text-ink-faint hover:text-ink hover:bg-recessed";
+  $("#btn-tile").className = `rounded-[4px] p-1.5 transition-colors ${view === "tile" ? on : off}`;
+  $("#btn-list").className = `rounded-[4px] p-1.5 transition-colors ${view === "list" ? on : off}`;
+  const s = $("#search");
+  if (s) s.oninput = renderNotebooksPage;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   PAGE: NOTEBOOK DETAIL  (#/notebooks/:id)
+   Mirrors the app: NotebookHeader + 3 collapsible columns (Sources / Notes /
+   Chat), each basis-1/3 collapsing to a w-12 rail; chat always expanded.
+══════════════════════════════════════════════════════════════════════════ */
+const NB_ICONS = {
+  archive: `<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="5" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8M10 12h4"/></svg>`,
+  trash: `<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m3 0-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>`,
+  listChecks: `<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m3 17 2 2 4-4M3 7l2 2 4-4M13 6h8M13 12h8M13 18h8"/></svg>`,
+  chat: `<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2Z"/></svg>`,
+  chevL: `<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 18-6-6 6-6"/></svg>`,
+  plus: `<svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M5 12h14M12 5v14"/></svg>`,
+  clock: `<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>`,
+};
+
+function toggleNbCol(col) {
+  if (col === "src") nbColSrc = !nbColSrc; else nbColNotes = !nbColNotes;
+  route();
+}
+function nbBulk(kind, mode) {
+  if (kind === "src") SOURCES.forEach((s) => { nbSrcCtx[s.id] = mode === "include"; });
+  else NOTES.forEach((x) => { nbNoteCtx[x.id] = mode === "include"; });
+  toast("Context updated for all");
+  route();
+}
+function syncNbCtx() { toast("Context updated (prototype)"); route(); }
+
+function nbRail(col, color, label) {
+  return `
+    <button onclick="toggleNbCol('${col}')" aria-label="Expand ${label}" title="${label}"
+      class="flex h-full min-h-[280px] w-full flex-col items-center gap-3 rounded-md border border-line bg-surface px-2 py-4 text-ink-faint transition-colors hover:bg-recessed hover:text-ink lg:w-12">
+      <span aria-hidden class="h-3.5 w-[3px] rounded-full ${color}"></span>
+      <span class="rotate-180 text-[11px] font-semibold uppercase tracking-[0.13em] [writing-mode:vertical-rl]">${label}</span>
+    </button>`;
+}
+function nbCollapseBtn(col, label) {
+  return `<button onclick="toggleNbCol('${col}')" aria-label="Collapse ${label}" title="Collapse ${label}" class="rounded-md p-1.5 text-ink-faint transition-colors hover:bg-recessed hover:text-ink">${NB_ICONS.chevL}</button>`;
+}
+
+function nbSourceCard(s, i) {
+  const on = nbSrcCtx[s.id] !== false;
+  const level = nbSrcLevel[s.id] || "full";
+  return `
+  <div class="rise rounded-md border border-line bg-raised/40 p-3 ${on ? "" : "opacity-60"}" style="--i:${i}">
+    <div class="flex items-start gap-2.5">
+      <span class="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-recessed text-slate-hue">${ICONS.typeIcon[s.type].replace('class="w-4 h-4"', 'class="w-3.5 h-3.5"')}</span>
+      <div class="min-w-0 flex-1">
+        <a href="#/sources/${s.id}" class="block truncate text-[13px] font-medium leading-snug transition-colors hover:text-fern">${esc(s.title)}</a>
+        <p class="mt-0.5 truncate font-mono text-[10.5px] text-ink-faint">${esc(s.meta)}</p>
+      </div>
+      <label class="flex shrink-0 cursor-pointer items-center gap-1 text-[10.5px] text-ink-faint" title="Include in chat context">
+        <input type="checkbox" ${on ? "checked" : ""} onchange="nbSrcCtx[${s.id}]=this.checked; syncNbCtx()" class="accent-[var(--fern)]" />Context
+      </label>
+    </div>
+    <div class="mt-2.5 flex items-center justify-between gap-2 border-t border-line pt-2">
+      ${STATUS[s.status]}
+      <label class="flex items-center gap-1.5 text-[10.5px] text-ink-faint ${on ? "" : "opacity-50"}">Content
+        <select ${on ? "" : "disabled"} onchange="nbSrcLevel[${s.id}]=this.value; syncNbCtx()" class="cursor-pointer rounded-[4px] border border-line bg-surface px-1 py-0.5 text-[10.5px] text-ink-soft disabled:cursor-not-allowed">
+          <option value="full" ${level === "full" ? "selected" : ""}>Full text</option>
+          <option value="insights" ${level === "insights" ? "selected" : ""}>Insights only</option>
+        </select>
+      </label>
+    </div>
+  </div>`;
+}
+
+function nbNoteCard(x, i) {
+  const on = nbNoteCtx[x.id] !== false;
+  return `
+  <div class="rise rounded-md border border-line bg-raised/40 p-3 ${on ? "" : "opacity-60"}" style="--i:${i}">
+    <div class="flex items-start justify-between gap-2">
+      <p class="min-w-0 flex-1 text-[13px] font-medium leading-snug">${esc(x.title)}</p>
+      <label class="flex shrink-0 cursor-pointer items-center gap-1 text-[10.5px] text-ink-faint" title="Include in chat context">
+        <input type="checkbox" ${on ? "checked" : ""} onchange="nbNoteCtx[${x.id}]=this.checked; syncNbCtx()" class="accent-[var(--fern)]" />Context
+      </label>
+    </div>
+    <p class="mt-1.5 line-clamp-3 text-xs leading-relaxed text-ink-soft">${esc(x.excerpt)}</p>
+    <div class="mt-2 flex items-center justify-between">
+      ${NOTE_KIND[x.kind]}
+      <span class="font-mono text-[10.5px] text-ink-faint">${x.when}</span>
+    </div>
+  </div>`;
+}
+
+function nbColumn({ railColor, label, count, headerBtns, body }) {
+  return `
+  <div class="flex h-full min-h-[280px] flex-col overflow-hidden rounded-md border border-line bg-surface">
+    <div class="flex shrink-0 items-center justify-between gap-2 border-b border-line px-4 py-3">
+      <p class="flex min-w-0 items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.13em] text-ink-faint">
+        <span aria-hidden class="h-3.5 w-[3px] shrink-0 rounded-full ${railColor}"></span>
+        <span class="truncate">${label}</span>
+        <span class="font-mono text-[10.5px] tabular-nums">${count}</span>
+      </p>
+      <div class="flex shrink-0 items-center gap-1.5">${headerBtns}</div>
+    </div>
+    <div class="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">${body}</div>
+  </div>`;
+}
+
+function pageNotebookDetail(id) {
+  const n = NOTEBOOKS.find((x) => x.id === Number(id)) || NOTEBOOKS[0];
+  const nbSources = SOURCES.filter((s) => s.notebook === n.name);
+  const nbNotes = NOTES.filter((x) => x.notebook === n.name);
+  const incSources = nbSources.filter((s) => nbSrcCtx[s.id] !== false);
+  const incNotes = nbNotes.filter((x) => nbNoteCtx[x.id] !== false);
+  const insOnly = incSources.filter((s) => (nbSrcLevel[s.id] || "full") === "insights").length;
+  const srcChip = insOnly ? `${incSources.length} sources · ${insOnly} insights-only` : `${incSources.length} sources`;
+  const colCls = (open) => open ? "lg:flex-shrink-0 lg:flex-grow-0 lg:basis-1/3" : "lg:w-12 lg:flex-shrink-0";
+  const mobCls = (tab) => nbMobileTab === tab ? "" : "hidden lg:block";
+  const addBtn = (msg) => `<button onclick="toast('${msg}')" class="flex items-center gap-1 rounded-md bg-fern px-2.5 py-1.5 text-xs font-display font-bold text-[#f1f8f3] transition hover:bg-fern-deep active:scale-[0.98]">${NB_ICONS.plus}Add</button>`;
+
+  return `
+  <div class="flex h-full flex-col">
+    <!-- header (mirrors NotebookHeader: name · actions · fern underline · description · dates) -->
+    <div class="shrink-0 border-b border-line px-6 pb-5 pt-6 lg:px-8">
+      <div class="flex items-start justify-between gap-3">
+        <div class="flex min-w-0 items-center gap-3">
+          <h1 class="truncate font-display text-2xl font-bold tracking-tight">${esc(n.name)}</h1>
+          ${n.archived ? `<span class="shrink-0 rounded-md bg-recessed px-2 py-0.5 text-xs font-medium text-ink-soft ring-1 ring-inset ring-line">Archived</span>` : ""}
+        </div>
+        <div class="flex shrink-0 items-center gap-2">
+          <button onclick="toast('Archiving is not wired in the prototype')" class="flex items-center gap-1.5 rounded-md border border-line bg-raised px-3 py-2 text-sm font-medium text-ink-soft transition hover:bg-recessed hover:text-ink active:scale-[0.98]">${NB_ICONS.archive}Archive</button>
+          <button onclick="toast('Deletion is not wired in the prototype')" class="flex items-center gap-1.5 rounded-md border border-line bg-raised px-3 py-2 text-sm font-medium text-danger transition hover:bg-recessed active:scale-[0.98]">${NB_ICONS.trash}Delete</button>
+        </div>
+      </div>
+      <div aria-hidden class="mt-3.5 h-[3px] w-14 rounded-[1px] bg-fern"></div>
+      <p class="mt-3 max-w-[65ch] text-sm text-ink-soft">${esc(n.description)}</p>
+      <p class="mt-2 text-xs text-ink-faint">Created 4 months ago · ${esc(n.updated)}</p>
+    </div>
+
+    <!-- columns -->
+    <div class="flex min-h-0 flex-1 flex-col gap-4 p-6 lg:flex-row lg:gap-6 lg:p-8">
+      <!-- mobile tabs (mirrors mobile Sources / Notes / Chat tabs) -->
+      <div class="grid shrink-0 grid-cols-3 gap-1 rounded-md border border-line bg-raised p-1 lg:hidden">
+        ${[["sources", "Sources", NB_ICONS.listChecks && `<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z M14 2v6h6"/></svg>`],
+           ["notes", "Notes", `<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15.5 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8.5L15.5 3Z M15 3v6h6"/></svg>`],
+           ["chat", "Chat", NB_ICONS.chat]].map(([key, label, icon]) => `
+          <button onclick="nbMobileTab='${key}'; route()" aria-pressed="${nbMobileTab === key}"
+            class="flex items-center justify-center gap-1.5 rounded-[4px] py-1.5 text-xs font-medium transition-colors ${nbMobileTab === key ? "bg-surface text-ink shadow-sm ring-1 ring-inset ring-line" : "text-ink-faint hover:text-ink"}">${icon}${label}</button>`).join("")}
+      </div>
+
+      <!-- sources column (sage rail) -->
+      <div class="min-h-0 min-w-0 ${mobCls("sources")} ${colCls(nbColSrc)}">
+        ${nbColSrc ? nbColumn({
+          railColor: "bg-sage",
+          label: "Sources",
+          count: nbSources.length,
+          headerBtns: `
+            <button onclick="nbBulk('src','include')" title="Include all in context" class="rounded-md p-1.5 text-ink-faint transition-colors hover:bg-recessed hover:text-ink">${NB_ICONS.listChecks}</button>
+            ${addBtn("Source upload is not wired in the prototype")}
+            ${nbCollapseBtn("src", "Sources")}`,
+          body: nbSources.length
+            ? nbSources.map((s, i) => nbSourceCard(s, i)).join("")
+            : `<p class="rounded-md border border-dashed border-line px-3 py-8 text-center text-xs text-ink-faint">No sources yet — add one to get started.</p>`,
+        }) : nbRail("src", "bg-sage", "Sources")}
+      </div>
+
+      <!-- notes column (gold rail) -->
+      <div class="min-h-0 min-w-0 ${mobCls("notes")} ${colCls(nbColNotes)}">
+        ${nbColNotes ? nbColumn({
+          railColor: "bg-gold",
+          label: "Notes",
+          count: nbNotes.length,
+          headerBtns: `
+            <button onclick="nbBulk('notes','include')" title="Include all in context" class="rounded-md p-1.5 text-ink-faint transition-colors hover:bg-recessed hover:text-ink">${NB_ICONS.listChecks}</button>
+            ${addBtn("Note editor is not wired in the prototype")}
+            ${nbCollapseBtn("notes", "Notes")}`,
+          body: nbNotes.length
+            ? nbNotes.map((x, i) => nbNoteCard(x, i)).join("")
+            : `<p class="rounded-md border border-dashed border-line px-3 py-8 text-center text-xs text-ink-faint">No notes yet — write one or generate an insight.</p>`,
+        }) : nbRail("notes", "bg-gold", "Notes")}
+      </div>
+
+      <!-- chat column (teal rail, always expanded) -->
+      <div class="min-w-0 flex-1 ${mobCls("chat")}">
+        <div class="flex h-full min-h-[280px] flex-col overflow-hidden rounded-md border border-line bg-surface">
+          <div class="flex shrink-0 items-center justify-between border-b border-line px-4 py-3">
+            <p class="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.13em] text-ink-faint">
+              <span aria-hidden class="h-3.5 w-[3px] rounded-full bg-teal"></span>Chat with notebook
+            </p>
+            <button onclick="toast('Chat sessions are not wired in the prototype')" aria-label="Sessions" class="rounded-md p-1.5 text-ink-faint transition-colors hover:bg-recessed hover:text-ink">${NB_ICONS.clock}</button>
+          </div>
+          <!-- context indicators -->
+          <div class="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-line px-4 py-2.5">
+            ${[["bg-sage", srcChip], ["bg-gold", `${incNotes.length} notes`], ["bg-teal", "~32k tokens"]].map(([c, l]) => `
+              <span class="inline-flex items-center gap-1.5 rounded-[4px] bg-recessed px-2 py-1 font-mono text-[10.5px] text-ink-soft ring-1 ring-inset ring-line"><span class="h-1.5 w-1.5 rounded-full ${c}"></span>${l}</span>`).join("")}
+          </div>
+          <div class="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
+            ${CHAT.slice(0, 3).map((m, i) => chatMessage(m, i)).join("")}
+          </div>
+          <div class="shrink-0 space-y-2 border-t border-line p-3">
+            <select aria-label="Model" class="w-full cursor-pointer rounded-md border border-line bg-raised px-2 py-1.5 font-mono text-xs text-ink-soft focus:outline-none focus:ring-2 focus:ring-teal/40">
+              ${MODELS.filter((m) => m.models.length).flatMap((m) => m.models.map((md) => `<option ${md === m.defaultModel ? "selected" : ""}>${md}</option>`)).join("")}
+            </select>
+            <div class="flex items-end gap-2">
+              <textarea rows="2" placeholder="Ask across this notebook…" class="flex-1 resize-none rounded-md border border-line bg-raised px-3 py-2 text-sm placeholder:text-ink-faint focus:outline-none focus:ring-2 focus:ring-teal/40 transition-shadow"></textarea>
+              <button onclick="toast('Chat is not wired in the prototype')" aria-label="Send" class="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-fern text-[#f1f8f3] transition hover:bg-fern-deep active:scale-95">
+                <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m22 2-7 20-4-9-9-4Z M22 2 11 13"/></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   PAGE: SOURCES  (#/sources)  + SOURCE DETAIL
+══════════════════════════════════════════════════════════════════════════ */
+function sourceRow(s, i) {
+  return `
+    <a href="#/sources/${s.id}" class="group flex items-center gap-4 px-4 py-3 transition-colors hover:bg-recessed/60">
+      <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-recessed text-slate-hue">${ICONS.typeIcon[s.type]}</span>
+      <div class="min-w-0 flex-1">
+        <div class="flex items-center gap-2">
+          <span class="truncate font-medium">${esc(s.title)}</span>
+        </div>
+        <p class="mt-0.5 truncate text-xs text-ink-faint">${esc(s.origin)} · ${esc(s.meta)} · ${esc(s.notebook)}</p>
+      </div>
+      <div class="hidden shrink-0 sm:block">${STATUS[s.status]}</div>
+      <span class="hidden w-24 shrink-0 text-right font-mono text-[11px] text-ink-faint md:block">${s.added}</span>
+      <button aria-label="Actions" onclick="event.preventDefault(); toast('Source actions menu is not wired in the prototype')" class="shrink-0 rounded-md p-1 text-ink-faint opacity-0 group-hover:opacity-100 transition-opacity hover:bg-recessed">${ICONS.kebab}</button>
+    </a>`;
+}
+
+function pageSources() {
+  const filters = [
+    { key: "all", label: "All" },
+    { key: "pdf", label: "PDFs" },
+    { key: "video", label: "Videos" },
+    { key: "url", label: "Links" },
+    { key: "audio", label: "Audio" },
+    { key: "text", label: "Text" },
+  ];
+  return `
+  <div class="space-y-8">
+    <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+      <div>
+        <h1 class="font-display text-3xl font-bold tracking-tight">Sources</h1>
+        <p class="mt-1 text-sm text-ink-soft">Everything you have collected, across all notebooks.</p>
+      </div>
+      <div class="flex flex-col gap-3 sm:flex-row sm:items-center">
+        ${searchInput("src-search", "Search sources...")}
+        ${btnPrimary("Add Source", `<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M5 12h14M12 5v14"/></svg>`).replace("<button", `<button onclick="toast('Source upload is not wired in the prototype')"`)}
+      </div>
+    </div>
+
+    <div class="rail -mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
+      ${filters.map((f) => `
+        <button onclick="srcFilter='${f.key}'; route()" aria-pressed="${srcFilter === f.key}"
+          class="shrink-0 rounded-md border px-3 py-1.5 text-xs font-medium transition-colors ${srcFilter === f.key ? "border-fern bg-fern-tint text-fern" : "border-line bg-surface text-ink-soft hover:bg-recessed"}">${f.label}</button>`).join("")}
+    </div>
+
+    <div id="src-list"></div>
+    ${pageFoot()}
+  </div>`;
+}
+
+function renderSourcesList() {
+  const q = ($("#src-search")?.value || "").trim().toLowerCase();
+  const list = SOURCES.filter((s) => (srcFilter === "all" || s.type === srcFilter) &&
+    (s.title.toLowerCase().includes(q) || s.notebook.toLowerCase().includes(q)));
+  const el = $("#src-list");
+  if (!list.length) { el.innerHTML = emptyState("No sources found", "Try a different filter or search term.", null); return; }
+  el.innerHTML = `<div class="divide-y divide-line overflow-hidden rounded-lg border border-line bg-surface">${list.map((s, i) => sourceRow(s, i)).join("")}</div>`;
+  const s = $("#src-search");
+  if (s) s.oninput = renderSourcesList;
+}
+
+function goBack(fallback) {
+  if (history.length > 1) history.back();
+  else location.hash = fallback;
+}
+
+function toggleSrcChat() {
+  srcChatOpen = !srcChatOpen;
+  localStorage.setItem("proto-src-chat", srcChatOpen ? "1" : "0");
+  route();
+}
+
+function pageSourceDetail(id) {
+  const s = SOURCES.find((x) => x.id === Number(id)) || SOURCES[0];
+  const srcInsights = NOTES.filter((n) => n.source !== "—").slice(0, 2);
+  const tabs = [
+    { key: "content", label: "Content" },
+    { key: "insights", label: "Insights", count: srcInsights.length },
+    { key: "details", label: "Details" },
+  ];
+  return `
+  <div class="flex h-full flex-col">
+    <!-- back -->
+    <div class="shrink-0 px-6 pt-6 lg:px-8">
+      <button onclick="goBack('#/sources')" class="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-sm text-ink-faint transition-colors hover:bg-surface hover:text-ink">
+        ${ICONS.arrowL} Back
+      </button>
+    </div>
+
+    <div class="grid min-h-0 flex-1 gap-6 px-6 pb-6 pt-4 ${srcChatOpen ? "lg:grid-cols-[2fr_1fr]" : "lg:grid-cols-[1fr_auto]"} lg:px-8">
+      <!-- ══ LEFT: source detail (mirrors SourceDetailContent) ══ -->
+      <div class="min-h-0 overflow-y-auto pr-1">
+        <div class="pb-5">
+          <div class="flex items-start justify-between gap-3">
+            <div class="min-w-0">
+              <h1 class="font-display text-2xl font-bold leading-snug tracking-tight">${esc(s.title)}</h1>
+              <p class="mt-1 font-mono text-xs text-ink-faint">source:sghve73vwzkdmvi4f0ml</p>
+            </div>
+            <div class="flex shrink-0 items-center gap-2">
+              <span class="text-ink-soft">${ICONS.typeIcon[s.type]}</span>
+              <span class="rounded-md bg-recessed px-2 py-0.5 text-xs font-medium text-ink-soft ring-1 ring-inset ring-line">${ICONS.typeLabel[s.type].toLowerCase()}</span>
+              <button onclick="toast('Download · embed · delete live in the actions menu in the app')" aria-label="Actions" class="rounded-md p-1.5 text-ink-faint transition-colors hover:bg-recessed hover:text-ink">${ICONS.kebab}</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- tabs (sticky within this column) -->
+        <div class="sticky top-0 z-10 -mx-1 flex items-center gap-1 border-b border-line bg-bg px-1">
+          ${tabs.map((t) => `
+            <button onclick="srcTab='${t.key}'; route()" aria-selected="${srcTab === t.key}"
+              class="relative -mb-px flex items-center gap-2 border-b-2 px-3 py-2 text-sm font-medium transition-colors ${srcTab === t.key ? "border-fern text-ink" : "border-transparent text-ink-faint hover:text-ink"}">
+              ${t.label}
+              ${t.count != null ? `<span class="rounded-[4px] bg-recessed px-1.5 py-0.5 font-mono text-[10.5px] tabular-nums text-ink-faint ring-1 ring-inset ring-line">${t.count}</span>` : ""}
+            </button>`).join("")}
+        </div>
+
+        <div class="pt-5">${renderSrcTab(s, srcInsights)}</div>
+      </div>
+
+      <!-- ══ RIGHT: chat with source (mirrors ChatPanel) ══ -->
+      ${srcChatOpen ? `
+      <div class="min-h-0">
+        <div class="flex h-full flex-col overflow-hidden rounded-md border border-line bg-surface">
+          <div class="flex shrink-0 items-center justify-between border-b border-line px-4 py-3">
+            <p class="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.13em] text-ink-faint">
+              <span aria-hidden class="h-3.5 w-[3px] rounded-full bg-teal"></span>Chat with source
+            </p>
+            <div class="flex items-center gap-1">
+              <button onclick="toggleSrcChat()" aria-label="Collapse chat" title="Collapse chat" class="rounded-md p-1.5 text-ink-faint transition-colors hover:bg-recessed hover:text-ink">
+                <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
+              </button>
+              <button onclick="toast('Chat sessions are not wired in the prototype')" aria-label="Sessions" class="rounded-md p-1.5 text-ink-faint transition-colors hover:bg-recessed hover:text-ink">
+                <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+              </button>
+            </div>
+          </div>
+          <div class="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
+            ${CHAT.slice(0, 3).map((m, i) => chatMessage(m, i)).join("")}
+          </div>
+          <div class="shrink-0 space-y-2 border-t border-line p-3">
+            <select aria-label="Model" class="w-full cursor-pointer rounded-md border border-line bg-raised px-2 py-1.5 font-mono text-xs text-ink-soft focus:outline-none focus:ring-2 focus:ring-teal/40">
+              ${MODELS.filter((m) => m.models.length).flatMap((m) => m.models.map((md) => `<option ${md === m.defaultModel ? "selected" : ""}>${md}</option>`)).join("")}
+            </select>
+            <div class="flex items-end gap-2">
+              <textarea rows="2" placeholder="Ask about this source…" class="flex-1 resize-none rounded-md border border-line bg-raised px-3 py-2 text-sm placeholder:text-ink-faint focus:outline-none focus:ring-2 focus:ring-teal/40 transition-shadow"></textarea>
+              <button onclick="toast('Chat is not wired in the prototype')" aria-label="Send" class="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-fern text-[#f1f8f3] transition hover:bg-fern-deep active:scale-95">
+                <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m22 2-7 20-4-9-9-4Z M22 2 11 13"/></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>` : `
+      <!-- collapsed: slim rail to reopen -->
+      <div class="min-h-0">
+        <button onclick="toggleSrcChat()" aria-label="Expand chat" title="Chat with source"
+          class="flex h-full min-h-[140px] w-full flex-col items-center justify-center gap-3 rounded-md border border-line bg-surface px-2 py-4 text-ink-faint transition-colors hover:bg-recessed hover:text-ink lg:w-12">
+          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 18-6-6 6-6"/></svg>
+          <span class="text-[11px] font-semibold uppercase tracking-[0.13em] [writing-mode:vertical-rl] rotate-180">Chat with source</span>
+        </button>
+      </div>`}
+    </div>
+  </div>`;
+}
+
+function renderSrcTab(s, srcInsights) {
+  if (srcTab === "insights") {
+    return `
+    <section>
+      <div class="flex items-center gap-2">
+        <svg class="h-4 w-4 text-teal" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M15 14c.2-1 .7-1.7 1.5-2.5A6.9 6.9 0 1 0 8 18a7 7 0 0 0 4 1c.7 0 1.4-.1 2-.4.5-.2 1-.1 1.5.1M9 18h6M10 22h4"/></svg>
+        <h3 class="text-[15.5px] font-semibold">Insights</h3>
+        <span class="font-mono text-xs tabular-nums text-ink-faint">${srcInsights.length}</span>
+      </div>
+      <p class="mt-1 text-sm text-ink-soft">Run a transformation against this source to generate an insight.</p>
+
+      <!-- generate -->
+      <div class="mt-5 border-b border-line pb-5">
+        <p class="mb-3 flex items-center gap-2 text-sm font-medium">${ICONS.spark.replace('w-3.5 h-3.5', 'w-4 h-4')}<span>Generate new insight</span></p>
+        <div class="flex gap-2">
+          <select class="min-w-0 flex-1 cursor-pointer rounded-md border border-line bg-raised px-2.5 py-2 text-sm text-ink-soft focus:outline-none focus:ring-2 focus:ring-teal/40">
+            <option>Select a transformation…</option>
+            ${TRANSFORMS.filter((t) => t.enabled).map((t) => `<option>${esc(t.name)}</option>`).join("")}
+          </select>
+          <button onclick="toast('Insight generation is not wired in the prototype')" class="flex shrink-0 items-center gap-1.5 rounded-md bg-fern px-3 py-2 text-sm font-display font-bold text-[#f1f8f3] transition hover:bg-fern-deep active:scale-[0.98]">
+            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M5 12h14M12 5v14"/></svg>Create
+          </button>
+        </div>
+      </div>
+
+      <!-- list -->
+      ${srcInsights.length ? `
+      <div class="divide-y divide-line">
+        ${srcInsights.map((x) => `
+          <div class="py-4">
+            <div class="flex items-center gap-2">
+              ${ICONS.dot("bg-teal")}
+              <span class="text-xs font-semibold uppercase tracking-wider text-teal">${x.kind}</span>
+            </div>
+            <p class="mt-2 text-sm leading-relaxed text-ink-soft">${esc(x.excerpt.slice(0, 180))}${x.excerpt.length > 180 ? "…" : ""}</p>
+            <div class="mt-3 flex justify-end gap-2">
+              <button onclick="toast('Insight viewer is not wired in the prototype')" class="rounded-md border border-line bg-raised px-3 py-1.5 text-xs font-medium text-ink-soft transition hover:bg-recessed">View</button>
+              <button onclick="toast('Deletion is not wired in the prototype')" aria-label="Delete insight" class="rounded-md border border-line bg-raised px-2 py-1.5 text-danger transition hover:bg-recessed">
+                <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m3 0-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+              </button>
+            </div>
+          </div>`).join("")}
+      </div>` : `
+      <div class="py-10 text-center">
+        <svg class="mx-auto mb-3 h-12 w-12 text-ink-faintest" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M15 14c.2-1 .7-1.7 1.5-2.5A6.9 6.9 0 1 0 8 18a7 7 0 0 0 4 1c.7 0 1.4-.1 2-.4.5-.2 1-.1 1.5.1M9 18h6M10 22h4"/></svg>
+        <p class="text-sm text-ink-soft">No insights yet</p>
+        <p class="mt-1 text-xs text-ink-faint">Select a transformation above to create the first one.</p>
+      </div>`}
+    </section>`;
+  }
+  if (srcTab === "details") {
+    return `
+    <section class="space-y-5">
+      <h3 class="text-[15.5px] font-semibold">Details</h3>
+      <div class="space-y-4">
+        <div>
+          <h4 class="mb-2 text-sm font-medium">${s.type === "url" ? "URL" : "Uploaded file"}</h4>
+          <div class="flex flex-wrap items-center gap-2">
+            <code class="min-w-0 flex-1 truncate rounded-md bg-recessed px-2 py-1.5 font-mono text-xs text-ink-soft ring-1 ring-inset ring-line">${esc(s.origin)}</code>
+            <button onclick="toast('Copied (not really — prototype)')" class="rounded-md border border-line bg-raised p-2 text-ink-soft transition hover:bg-recessed" aria-label="Copy">
+              <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            </button>
+            <button onclick="toast('External open is not wired in the prototype')" class="rounded-md border border-line bg-raised p-2 text-ink-soft transition hover:bg-recessed" aria-label="Open external">
+              <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h6v6M10 14 21 3M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5"/></svg>
+            </button>
+          </div>
+        </div>
+        <div>
+          <h4 class="mb-2 text-sm font-medium">Topics</h4>
+          <div class="flex flex-wrap gap-2">
+            ${["attention", "memory-bandwidth", "efficiency"].map((t) => `<span class="rounded-md bg-recessed px-2 py-0.5 text-xs text-ink-soft ring-1 ring-inset ring-line">${t}</span>`).join("")}
+          </div>
+        </div>
+      </div>
+      <div class="border-t border-line pt-5">
+        <div class="mb-3 flex items-center justify-between">
+          <h4 class="text-sm font-medium">Metadata</h4>
+          <span class="inline-flex items-center gap-1.5 rounded-[4px] bg-fern-tint px-1.5 py-0.5 text-[11px] font-medium text-fern ring-1 ring-inset ring-line">${ICONS.dot("bg-fern")}Embedded</span>
+        </div>
+        <div class="grid gap-4 sm:grid-cols-2">
+          ${[["Created", "2 days ago", "Sep 18, 2026, 14:32"], ["Updated", "12 minutes ago", "Sep 20, 2026, 21:05"]].map(([k, rel, abs]) => `
+            <div>
+              <p class="text-xs font-medium text-ink-faint">${k}</p>
+              <p class="mt-0.5 text-sm">${rel}</p>
+              <p class="text-xs text-ink-faint">${abs}</p>
+            </div>`).join("")}
+        </div>
+      </div>
+      <div class="border-t border-line pt-5">
+        <div class="mb-3 flex items-center justify-between">
+          <h4 class="text-sm font-medium">Notebooks</h4>
+          <button onclick="toast('Association editor is not wired in the prototype')" class="text-xs font-medium text-fern hover:text-fern-deep transition-colors">Manage</button>
+        </div>
+        <div class="flex flex-wrap gap-2">
+          <a href="#/notebooks/1" class="rounded-md bg-recessed px-2 py-1 text-xs font-medium text-ink-soft ring-1 ring-inset ring-line transition hover:bg-surface">${esc(s.notebook)}</a>
+        </div>
+      </div>
+    </section>`;
+  }
+  // content
+  return `
+    <section>
+      ${s.type === "video" ? `
+      <div class="mb-6">
+        <div class="aspect-video rounded-md bg-[#16181a] flex items-center justify-center">
+          <button onclick="toast('Playback is not wired in the prototype')" class="flex h-14 w-14 items-center justify-center rounded-full bg-fern text-[#f1f8f3] transition hover:bg-fern-deep active:scale-95" aria-label="Play video">${ICONS.play.replace('w-4 h-4', 'w-6 h-6')}</button>
+        </div>
+        <a href="#" onclick="toast('External open is not wired in the prototype'); return false;" class="mt-2 inline-flex items-center gap-1 text-sm text-ink-soft hover:text-ink transition-colors">
+          <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h6v6M10 14 21 3M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5"/></svg>
+          Open on YouTube
+        </a>
+      </div>` : s.type === "url" || s.type === "audio" ? `
+      <p class="mb-4 flex items-center gap-2 text-xs text-ink-faint">
+        <svg class="h-3.5 w-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+        <a href="#" onclick="toast('External open is not wired in the prototype'); return false;" class="truncate font-mono hover:underline">${esc(s.origin)}</a>
+      </p>` : ""}
+      <div class="reader text-[15px]">
+        <h2 class="mb-4 font-display text-xl font-semibold tracking-tight text-ink">1 · Introduction</h2>
+        <p>Scaling transformer-based models to longer sequences is bottlenecked by the memory bandwidth of the attention operation. The standard implementation materializes the full <mark>N×N</mark> matrix of attention scores in high-bandwidth memory, even though only one row is ever needed at a time.</p>
+        <p>FlashAttention reformulates the computation using <span class="annot" title="Note: IO complexity drops from Θ(N²) to Θ(N²/M)">tiling and online softmax</span>, keeping the score matrix in on-chip SRAM. The result is exact attention — no approximation — with memory usage linear rather than quadratic in sequence length.</p>
+        <p>The third iteration adds <mark>asynchrony</mark> between tensor cores and the CUDA cores that compute the softmax correction, together with a low-precision path that recovers accuracy through careful rescaling of intermediate statistics.</p>
+        <h2 class="mb-4 mt-8 font-display text-xl font-semibold tracking-tight text-ink">2 · Related work</h2>
+        <p>Prior efficient-attention methods trade exactness for speed: sparse patterns, low-rank projections, and kernelized softmax approximations. FlashAttention-3 takes the opposite position and removes overhead from the exact computation itself.</p>
+        <p class="text-xs text-ink-faint">Sample excerpt for the prototype — not the full document.</p>
+      </div>
+    </section>`;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   PAGE: ASK & SEARCH  (#/ask)
+══════════════════════════════════════════════════════════════════════════ */
+const CHAT = [
+  { role: "user", text: "How does FlashAttention reduce memory usage without approximating attention?" },
+  { role: "ai", text: "Standard attention writes the full N×N score matrix to HBM and reads it back for the softmax. FlashAttention tiles the sequence, keeps each tile in SRAM, and rescales with an online softmax so the full matrix never exists in memory. The output is exact — the savings come purely from avoiding HBM round-trips.", citations: [1, 3] },
+  { role: "user", text: "And where does the third version improve on the second?" },
+  { role: "ai", text: "Two places. First, it overlaps the tensor-core matmuls with the CUDA-core softmax correction using asynchronous execution. Second, it adds a low-precision path (FP8) with per-block rescaling that keeps accuracy within a fraction of a point of FP16.", citations: [1] },
+];
+const SUGGESTED = [
+  "Summarize the FlashAttention-3 paper in three sentences",
+  "What do my sources say about retrieval vs. long context?",
+  "Which papers cover low-precision attention?",
+];
+const SEARCH_RESULTS = [
+  { type: "pdf", title: "FlashAttention-3: Fast and Accurate Attention…", source: "FlashAttention-3 · arXiv 2407.08608", snippet: "…the full <mark>N×N</mark> matrix of attention scores in high-bandwidth memory… adds asynchrony between tensor cores and CUDA cores…", notebook: "Thesis Research: Attention Mechanisms" },
+  { type: "video", title: "Karpathy's GPT build — key takeaways", source: "Let's build GPT · YouTube", snippet: "…self-attention as a weighted average of value vectors where weights come from <mark>query-key</mark> affinity…", notebook: "Thesis Research: Attention Mechanisms" },
+  { type: "note", title: "FlashAttention IO complexity", source: "Note · linked to FlashAttention-3", snippet: "…IO drops from Θ(N²) to Θ(N²/M) — the score matrix never materializes in HBM…", notebook: "Thesis Research: Attention Mechanisms" },
+  { type: "pdf", title: "RAG vs long context — cost tradeoff", source: "Retrieval-Augmented Generation · arXiv 2005.11401", snippet: "…the index is built once. Long-context pays full <mark>attention</mark> cost on every call…", notebook: "Paper Draft 2026" },
+  { type: "note", title: "Related work paragraph, v3", source: "Note · Paper Draft 2026", snippet: "…we compare against <mark>query-key</mark> caching baselines and report latency at 8k and 32k context…", notebook: "Paper Draft 2026" },
+  { type: "url", title: "Agent loop decomposition", source: "LLM Powered Autonomous Agents · lilianweng.github.io", snippet: "…planning benefits from task decomposition into subgoals; memory splits into short-context and long-term retrieval…", notebook: "LLM Agents Survey" },
+  { type: "url", title: "Notes on slow reading", source: "Personal Reading", snippet: "…a slower second pass beats skimming — <mark>attention</mark> is the bottleneck of understanding, not bandwidth…", notebook: "Personal Reading" },
+];
+
+function askHeader() {
+  return `
+    <div class="space-y-1.5 text-center">
+      <h1 class="font-display text-3xl font-bold tracking-tight">Ask and Search</h1>
+      <p class="text-sm text-ink-soft">Query your library — every answer cites its sources.</p>
+    </div>`;
+}
+function askToggle() {
+  return `
+    <div class="mx-auto flex w-fit items-center gap-1 rounded-md border border-line bg-raised p-1">
+      ${[{ key: "ask", label: "Ask" }, { key: "search", label: "Search" }].map((m) => `
+        <button onclick="askMode='${m.key}'; route()" aria-pressed="${askMode === m.key}"
+          class="rounded-[4px] px-5 py-1.5 text-sm font-medium transition-colors ${askMode === m.key ? "bg-surface text-ink shadow-sm ring-1 ring-inset ring-line" : "text-ink-faint hover:text-ink"}">${m.label}</button>`).join("")}
+    </div>`;
+}
+
+function pageAsk() {
+  if (askMode === "search") {
+    return `
+    <div class="max-w-3xl mx-auto space-y-7">
+      ${askHeader()}
+      ${askToggle()}
+      ${searchView()}
+      ${pageFoot()}
+    </div>`;
+  }
+  // Ask mode: only the chat area scrolls — header, suggestions and composer stay put
+  return `
+  <div class="flex h-full flex-col">
+    <div class="mx-auto w-full max-w-3xl shrink-0 space-y-5 px-6 pt-6 lg:px-8">
+      ${askHeader()}
+      ${askToggle()}
+    </div>
+    <div id="ask-chat" class="min-h-0 flex-1 overflow-y-auto">
+      <div class="mx-auto w-full max-w-3xl space-y-6 px-6 py-6 lg:px-8">
+        ${CHAT.map((m, i) => chatMessage(m, i)).join("")}
+      </div>
+    </div>
+    <div class="shrink-0 border-t border-line bg-bg px-6 py-4 lg:px-8">
+      <div class="mx-auto w-full max-w-3xl space-y-2.5">
+        <div class="flex flex-wrap gap-2">
+          ${SUGGESTED.map((s) => `<button onclick="fillAsk(this.textContent)" class="rounded-md border border-line bg-surface px-3 py-1.5 text-xs text-ink-soft transition-colors hover:bg-recessed hover:text-ink">${esc(s)}</button>`).join("")}
+        </div>
+        ${composer("Ask anything across your library…", { scope: true })}
+      </div>
+    </div>
+  </div>`;
+}
+function fillAsk(text) {
+  const el = document.getElementById("ask-input");
+  if (el) { el.value = text; askDraft = text; el.focus(); }
+}
+
+/* ── Scope: right slide-in panel with checkbox list ─────────────────────── */
+function scopeLabel() {
+  if (!askScope.length) return "All notebooks";
+  if (askScope.length === 1) return askScope[0];
+  return `${askScope.length} notebooks`;
+}
+function scopeButton() {
+  return `
+    <button onclick="toggleScopePanel()" class="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-line bg-raised px-2.5 py-1.5 text-xs font-medium text-ink-soft transition-colors hover:bg-recessed hover:text-ink">
+      <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M7 12h10M10 18h4"/></svg>
+      <span data-scope-label class="max-w-[180px] truncate">${esc(scopeLabel())}</span>
+      <svg class="w-3 h-3 text-ink-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>
+    </button>`;
+}
+function toggleScopePanel(open) {
+  scopePanelOpen = open === undefined ? !scopePanelOpen : open;
+  $("#scope-panel").classList.toggle("translate-x-full", !scopePanelOpen);
+  $("#scope-overlay").classList.toggle("hidden", !scopePanelOpen);
+}
+function onScopeToggle() {
+  const allBox = document.querySelector("#scope-panel-body input[data-all]");
+  const boxes = [...document.querySelectorAll("#scope-panel-body input[data-nb]")];
+  if (event.target.hasAttribute("data-all")) {
+    boxes.forEach((b) => { b.checked = allBox.checked; });
+  }
+  let sel = boxes.filter((b) => b.checked).map((b) => b.dataset.nb);
+  if (sel.length === 0) {
+    // never allow an empty scope: restore everything if the master was unchecked,
+    // otherwise keep the last-toggled notebook selected
+    if (event.target.hasAttribute("data-all")) {
+      allBox.checked = true;
+      boxes.forEach((b) => { b.checked = true; });
+      sel = boxes.map((b) => b.dataset.nb);
+    } else {
+      event.target.checked = true;
+      sel = [event.target.dataset.nb];
+    }
+  }
+  allBox.checked = sel.length === boxes.length;
+  allBox.indeterminate = sel.length > 0 && sel.length < boxes.length;
+  askScope = sel.length === boxes.length ? [] : sel;
+  syncScopeUI();
+}
+function syncScopeUI() {
+  document.querySelectorAll("[data-scope-label]").forEach((el) => { el.textContent = scopeLabel(); });
+  if (currentPage === "ask" && askMode === "search") renderSearchResults();
+}
+function renderScopePanel() {
+  const all = NOTEBOOKS.filter((n) => !n.archived);
+  const isAll = askScope.length === 0;
+  const box = (attrs, checked, label, bold) => `
+    <label class="flex cursor-pointer items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-colors hover:bg-recessed">
+      <input type="checkbox" ${attrs} ${checked ? "checked" : ""} onchange="onScopeToggle()" class="accent-[var(--fern)]" />
+      <span class="truncate ${bold ? "font-medium" : "text-ink-soft"}">${label}</span>
+    </label>`;
+  $("#scope-panel-body").innerHTML =
+    box("data-all", isAll, "All notebooks", isAll) +
+    all.map((n) => box(`data-nb="${esc(n.name)}"`, isAll || askScope.includes(n.name), esc(n.name), isAll || askScope.includes(n.name))).join("");
+}
+
+function composer(placeholder, opts = {}) {
+  const scopeControl = opts.scope
+    ? scopeButton()
+    : `<span class="inline-flex items-center gap-1.5 rounded-md bg-fern-tint px-2 py-1.5 text-xs font-medium text-fern">${ICONS.dot("bg-fern")}Scoped to ${esc(opts.scopedTo)}</span>`;
+  return `
+  <div class="rounded-md border border-line bg-surface shadow-sm transition-shadow focus-within:shadow-md focus-within:ring-2 focus-within:ring-teal/40">
+    <textarea id="ask-input" rows="3" placeholder="${placeholder}" oninput="askDraft=this.value" class="w-full resize-none bg-transparent px-4 pt-3.5 pb-2 text-[15px] leading-relaxed placeholder:text-ink-faint focus:outline-none">${esc(askDraft)}</textarea>
+    <div class="flex items-center justify-between gap-3 border-t border-line px-3 py-2">
+      ${scopeControl}
+      <div class="flex shrink-0 items-center gap-3">
+        <span class="hidden font-mono text-[11px] text-ink-faintest sm:block">⏎ to send</span>
+        <button onclick="toast('Chat is not wired in the prototype')" aria-label="Send" class="flex h-8 w-8 items-center justify-center rounded-md bg-fern text-[#f1f8f3] transition hover:bg-fern-deep active:scale-95">
+          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m22 2-7 20-4-9-9-4Z M22 2 11 13"/></svg>
+        </button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function chatMessage(m, i) {
+  if (m.role === "user") return `
+    <div class="rise flex justify-end" style="--i:${i}">
+      <div class="bubble rounded-lg bg-fern px-4 py-2.5 text-sm leading-relaxed text-[#f1f8f3]">${esc(m.text)}</div>
+    </div>`;
+  return `
+    <div class="rise flex items-start gap-3" style="--i:${i}">
+      <span class="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-fern-tint text-fern">${ICONS.spark.replace('w-3.5 h-3.5', 'w-4 h-4')}</span>
+      <div class="min-w-0 flex-1">
+        <div class="bubble rounded-lg bg-surface px-4 py-3 text-sm leading-relaxed text-ink ring-1 ring-inset ring-line">${esc(m.text)}</div>
+        ${m.citations ? `<div class="mt-2 flex flex-wrap gap-1.5">${m.citations.map((c) => {
+          const s = SOURCES.find((x) => x.id === c);
+          return `<a href="#/sources/${c}" class="inline-flex max-w-full items-center gap-1.5 rounded-[4px] border border-line bg-raised px-2 py-1 text-[11px] text-ink-soft transition-colors hover:bg-recessed">${ICONS.file}<span class="truncate">${esc((s ? s.title : "Source").slice(0, 38))}…</span></a>`;
+        }).join("")}</div>` : ""}
+      </div>
+    </div>`;
+}
+
+/* ── Search mode ────────────────────────────────────────────────────────── */
+function searchView() {
+  return `
+  <div class="space-y-4">
+    <div class="relative">
+      <svg class="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-ink-faint pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+      <input id="ask-search" type="search" autocomplete="off" placeholder="Search sources, notes, transcripts…" value="${esc(askSearchQ)}"
+        oninput="askSearchQ=this.value; renderSearchResults()"
+        class="w-full rounded-lg border border-line bg-surface pl-10 pr-4 py-3 text-[15px] shadow-sm placeholder:text-ink-faint focus:outline-none focus:ring-2 focus:ring-teal/40 transition-shadow" />
+    </div>
+    <div class="flex items-center justify-between gap-3">
+      ${scopeButton()}
+      <p id="ask-count" class="shrink-0 font-mono text-xs text-ink-faint"></p>
+    </div>
+    <div id="ask-results" class="space-y-7"></div>
+  </div>`;
+}
+
+function renderSearchResults() {
+  const q = askSearchQ.trim().toLowerCase();
+  const list = SEARCH_RESULTS.filter((r) =>
+    (!askScope.length || askScope.includes(r.notebook)) &&
+    (!q || r.title.toLowerCase().includes(q) || r.source.toLowerCase().includes(q) ||
+      r.snippet.toLowerCase().includes(q) || r.notebook.toLowerCase().includes(q)));
+  const groups = {};
+  list.forEach((r) => (groups[r.notebook] = groups[r.notebook] || []).push(r));
+  const notebooks = Object.keys(groups);
+  const count = $("#ask-count"), box = $("#ask-results");
+  if (!count || !box) return;
+  count.textContent = list.length
+    ? `${list.length} match${list.length === 1 ? "" : "es"} in ${notebooks.length} notebook${notebooks.length === 1 ? "" : "s"}`
+    : "";
+  if (!list.length) {
+    box.innerHTML = emptyState("No matches", "Try a different term — search covers titles, transcripts, notes and annotations.", null);
+    return;
+  }
+  box.innerHTML = notebooks.map((nb, i) => `
+    <section class="rise space-y-2.5" style="--i:${i}">
+      <div class="flex items-center gap-2.5 border-b border-line pb-2">
+        ${ICONS.dot("bg-teal")}
+        <h2 class="font-display text-[15px] font-semibold tracking-tight">${esc(nb)}</h2>
+        <span class="ml-auto font-mono text-xs tabular-nums text-ink-faint">${groups[nb].length}</span>
+      </div>
+      <div class="divide-y divide-line overflow-hidden rounded-lg border border-line bg-surface">
+        ${groups[nb].map((r) => `
+          <a href="#/sources/1" class="group flex items-start gap-3.5 px-4 py-3.5 transition-colors hover:bg-recessed/60">
+            <span class="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-recessed text-slate-hue">${r.type === "note" ? ICONS.note.replace('class="w-3 h-3"', 'class="w-4 h-4"') : ICONS.typeIcon[r.type]}</span>
+            <div class="min-w-0">
+              <p class="text-sm font-semibold text-fern transition-colors group-hover:text-fern-deep">${esc(r.title)}</p>
+              <p class="mt-1 text-sm leading-relaxed text-ink-soft">${r.snippet}</p>
+              <p class="mt-1.5 truncate text-xs text-ink-faint">${esc(r.source)}</p>
+            </div>
+          </a>`).join("")}
+      </div>
+    </section>`).join("");
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   PAGE: PODCASTS  (#/podcasts)
+══════════════════════════════════════════════════════════════════════════ */
+function waveform(active) {
+  const bars = [8, 14, 10, 18, 12, 20, 9, 15, 11, 19, 13, 8, 16, 10, 14, 18, 9, 12, 17, 10, 15, 8, 13, 19, 11, 16, 9, 14, 10, 18, 12, 15];
+  return `<div class="flex h-10 items-center gap-[2px]" aria-hidden>${bars.map((h, i) => `<span class="w-[3px] rounded-full ${active ? "bg-fern" : "bg-line"}" style="height:${h}px"></span>`).join("")}</div>`;
+}
+
+function pagePodcasts() {
+  return `
+  <div class="space-y-8">
+    <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+      <div>
+        <h1 class="font-display text-3xl font-bold tracking-tight">Podcasts</h1>
+        <p class="mt-1 text-sm text-ink-soft">AI-generated conversations about your sources. Generation runs in the background.</p>
+      </div>
+      ${btnPrimary("Generate Podcast", ICONS.mic.replace('w-3 h-3', 'w-4 h-4')).replace("<button", `<button onclick="toast('Podcast generation is not wired in the prototype')"`)}
+    </div>
+
+    <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+      ${PODCASTS.map((p, i) => `
+        <article class="rise group rounded-lg border border-line bg-surface card-hover p-5" style="--i:${i}">
+          <div class="flex items-start justify-between gap-3">
+            <div class="min-w-0">
+              <div class="flex items-center gap-2">
+                <h3 class="truncate font-display text-[17px] font-semibold tracking-tight">${esc(p.title)}</h3>
+              </div>
+              <p class="mt-1 text-xs text-ink-faint">${esc(p.notebook)} · ${p.sources} sources · ${esc(p.template)}</p>
+            </div>
+            ${STATUS[p.status]}
+          </div>
+          <div class="mt-4 flex items-center gap-4">
+            <button onclick="toast('Playback is not wired in the prototype')" aria-label="Play" class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-fern text-[#f1f8f3] hover:bg-fern-deep active:scale-95 transition">${ICONS.play}</button>
+            ${waveform(p.status === "ready")}
+            <span class="shrink-0 font-mono text-xs tabular-nums text-ink-faint">${p.duration}</span>
+          </div>
+          <div class="mt-4 flex items-center justify-between border-t border-line pt-3">
+            <span class="text-xs text-ink-faint">${esc(p.when)}</span>
+            <button onclick="toast('Podcast actions menu is not wired in the prototype')" class="rounded-md p-1 text-ink-faint opacity-0 transition-opacity hover:bg-recessed group-hover:opacity-100">${ICONS.kebab}</button>
+          </div>
+        </article>`).join("")}
+    </div>
+
+    <div class="rounded-lg border border-dashed border-line px-6 py-10 text-center">
+      <div class="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-lg border border-line bg-recessed text-ink-faint">${ICONS.mic.replace('w-3 h-3', 'w-5 h-5')}</div>
+      <h3 class="text-lg font-medium">Pick a template, choose sources, press generate</h3>
+      <p class="mx-auto mt-1.5 max-w-[52ch] text-sm text-ink-soft">Deep Dive walks through one source in detail. Recap connects the latest additions to a notebook. Generation is queued on the worker and takes a few minutes.</p>
+    </div>
+    ${pageFoot()}
+  </div>`;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   PAGE: MODELS  (#/models)
+══════════════════════════════════════════════════════════════════════════ */
+function pageModels() {
+  const dot = { connected: ["bg-fern", "Connected"], local: ["bg-teal", "Local"], disconnected: ["bg-ink-faintest", "Not configured"] };
+  return `
+  <div class="space-y-8">
+    <div>
+      <h1 class="font-display text-3xl font-bold tracking-tight">Models</h1>
+      <p class="mt-1 text-sm text-ink-soft">AI providers and the models available for chat, transformations and embeddings.</p>
+    </div>
+
+    <div class="space-y-4">
+      ${MODELS.map((m, i) => `
+        <div class="rise rounded-lg border border-line bg-surface" style="--i:${i}">
+          <div class="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+            <div class="flex items-center gap-3">
+              ${ICONS.dot(dot[m.status][0])}
+              <h3 class="font-display text-[17px] font-semibold tracking-tight">${m.provider}</h3>
+              <span class="font-mono text-[11px] text-ink-faint">${dot[m.status][1]}</span>
+            </div>
+            <div class="flex items-center gap-2">
+              ${m.status === "disconnected"
+                ? btnGhost("Configure", "", `toast('Provider setup is not wired in the prototype')`)
+                : btnGhost("Test connection", "", `toast('Connection test is not wired in the prototype')`)}
+            </div>
+          </div>
+          ${m.models.length ? `
+          <div class="border-t border-line px-5 py-3.5">
+            <p class="mb-2.5 text-xs text-ink-faint">${m.usedFor}</p>
+            <div class="flex flex-wrap gap-2">
+              ${m.models.map((md) => `
+                <label class="flex cursor-pointer items-center gap-2 rounded-md border border-line bg-raised px-2.5 py-1.5 text-xs transition-colors hover:bg-recessed has-[:checked]:border-fern has-[:checked]:bg-fern-tint/60">
+                  <input type="radio" name="default-${m.id}" ${md === m.defaultModel ? "checked" : ""} class="accent-[var(--fern)]" />
+                  <span class="font-mono">${md}</span>
+                  ${md === m.defaultModel ? `<span class="text-[10px] font-semibold uppercase tracking-wider text-fern">Default</span>` : ""}
+                </label>`).join("")}
+            </div>
+          </div>` : `
+          <div class="border-t border-line px-5 py-3.5 text-sm text-ink-faint">Add an API key in Settings to see available models.</div>`}
+        </div>`).join("")}
+    </div>
+
+    <div class="rounded-lg border border-line bg-surface p-5">
+      <h3 class="font-display text-sm font-semibold tracking-tight">Routing</h3>
+      <div class="mt-3 grid gap-3 sm:grid-cols-3">
+        ${[["Chat", "claude-sonnet-4"], ["Transformations", "gpt-4o-mini"], ["Embeddings", "text-embedding-3-small"]].map(([k, v]) => `
+          <div class="rounded-md border border-line bg-raised px-3.5 py-3">
+            <p class="text-xs text-ink-faint">${k}</p>
+            <p class="mt-0.5 font-mono text-sm">${v}</p>
+          </div>`).join("")}
+      </div>
+    </div>
+    ${pageFoot()}
+  </div>`;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   PAGE: TRANSFORMATIONS  (#/transformations)
+══════════════════════════════════════════════════════════════════════════ */
+function pageTransformations() {
+  return `
+  <div class="space-y-8">
+    <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+      <div>
+        <h1 class="font-display text-3xl font-bold tracking-tight">Transformations</h1>
+        <p class="mt-1 text-sm text-ink-soft">Reusable AI operations you can run against any source or note.</p>
+      </div>
+      ${btnPrimary("New Transformation", `<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M5 12h14M12 5v14"/></svg>`).replace("<button", `<button onclick="toast('Transformation editor is not wired in the prototype')"`)}
+    </div>
+
+    <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+      ${TRANSFORMS.map((t, i) => `
+        <div class="rise flex flex-col rounded-lg border border-line bg-surface p-5" style="--i:${i}">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <h3 class="font-display text-[17px] font-semibold tracking-tight">${esc(t.name)}</h3>
+              <p class="mt-1 text-sm text-ink-soft">${esc(t.description)}</p>
+            </div>
+            <button class="switch" role="switch" aria-checked="${t.enabled}" aria-label="Enable ${esc(t.name)}" onclick="this.setAttribute('aria-checked', this.getAttribute('aria-checked') !== 'true'); toast('${esc(t.name)} ' + (this.getAttribute('aria-checked') === 'true' ? 'enabled' : 'disabled'))"></button>
+          </div>
+          <div class="mt-4 flex-1 rounded-md border border-line bg-recessed/60 p-3.5">
+            <p class="font-mono text-xs leading-relaxed text-ink-soft">${esc(t.prompt)}</p>
+          </div>
+          <div class="mt-4 flex items-center justify-between border-t border-line pt-3">
+            <span class="text-xs text-ink-faint">Applies to: ${esc(t.scope)}</span>
+            <button onclick="toast('Transformation editor is not wired in the prototype')" class="text-xs font-medium text-fern hover:text-fern-deep transition-colors">Edit prompt</button>
+          </div>
+        </div>`).join("")}
+    </div>
+    ${pageFoot()}
+  </div>`;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   PAGE: SETTINGS  (#/settings)
+══════════════════════════════════════════════════════════════════════════ */
+function pageSettings() {
+  const dark = document.documentElement.classList.contains("dark");
+  return `
+  <div class="max-w-3xl space-y-8">
+    <div>
+      <h1 class="font-display text-3xl font-bold tracking-tight">Settings</h1>
+      <p class="mt-1 text-sm text-ink-soft">Account, providers and defaults for this Open Notebook instance.</p>
+    </div>
+
+    <!-- profile -->
+    <section class="rounded-lg border border-line bg-surface">
+      <h2 class="border-b border-line px-5 py-3.5 font-display text-base font-semibold tracking-tight">Profile</h2>
+      <div class="space-y-4 p-5">
+        <div class="grid gap-4 sm:grid-cols-2">
+          <div>
+            <label for="set-name" class="mb-1.5 block text-sm font-medium">Display name</label>
+            <input id="set-name" value="Z" class="w-full rounded-md border border-line bg-raised px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal/40 transition-shadow" />
+          </div>
+          <div>
+            <label for="set-lang" class="mb-1.5 block text-sm font-medium">Language</label>
+            <select id="set-lang" class="w-full rounded-md border border-line bg-raised px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal/40 transition-shadow">
+              <option>English</option><option>Português (BR)</option><option>Deutsch</option><option>Español</option>
+            </select>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- providers -->
+    <section class="rounded-lg border border-line bg-surface">
+      <h2 class="border-b border-line px-5 py-3.5 font-display text-base font-semibold tracking-tight">API keys</h2>
+      <div class="divide-y divide-line">
+        ${[["OpenAI", "sk-••••••••••••••••3fA2", true], ["Anthropic", "sk-ant-••••••••••••••••9cB1", true], ["OpenRouter", "Not configured", false]].map(([name, key, set]) => `
+          <div class="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p class="text-sm font-medium">${name}</p>
+              <p class="mt-0.5 font-mono text-xs text-ink-faint">${key}</p>
+            </div>
+            <div class="flex shrink-0 items-center gap-2">
+              ${set ? `<button onclick="toast('Key copied (not really — prototype)')" class="rounded-md border border-line bg-raised px-3 py-1.5 text-xs font-medium text-ink-soft hover:bg-recessed transition">Copy</button>` : ""}
+              <button onclick="toast('Key editing is not wired in the prototype')" class="rounded-md border border-line bg-raised px-3 py-1.5 text-xs font-medium text-ink-soft hover:bg-recessed transition">${set ? "Replace" : "Add key"}</button>
+            </div>
+          </div>`).join("")}
+      </div>
+    </section>
+
+    <!-- appearance -->
+    <section class="rounded-lg border border-line bg-surface">
+      <h2 class="border-b border-line px-5 py-3.5 font-display text-base font-semibold tracking-tight">Appearance</h2>
+      <div class="p-5">
+        <p class="mb-2 text-sm font-medium">Theme</p>
+        <div class="grid grid-cols-2 gap-3">
+          ${[["light", "Light", "#f5f5f2", "#2e6b4f"], ["dark", "Dark", "#17181b", "#55b285"]].map(([mode, label, bg, dot]) => `
+            <button onclick="applyTheme('${mode}'); route()" aria-pressed="${(dark ? "dark" : "light") === mode}"
+              class="rounded-lg border p-3.5 text-left transition-colors ${(dark ? "dark" : "light") === mode ? "border-fern ring-1 ring-fern/30" : "border-line hover:bg-recessed"}">
+              <span class="block h-14 rounded-md border border-line" style="background:${bg}">
+                <span class="mt-2.5 ml-2.5 block h-2.5 w-10 rounded-full" style="background:${dot}22"></span>
+                <span class="ml-2.5 mt-1.5 block h-1.5 w-16 rounded-full" style="background:${dot}44"></span>
+              </span>
+              <span class="mt-2.5 block text-sm font-medium">${label}</span>
+            </button>`).join("")}
+        </div>
+      </div>
+    </section>
+
+    <!-- defaults -->
+    <section class="rounded-lg border border-line bg-surface">
+      <h2 class="border-b border-line px-5 py-3.5 font-display text-base font-semibold tracking-tight">Defaults</h2>
+      <div class="p-5">
+        <label for="set-nb" class="mb-1.5 block text-sm font-medium">Default notebook for new sources</label>
+        <select id="set-nb" class="w-full rounded-md border border-line bg-raised px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal/40 transition-shadow">
+          ${NOTEBOOKS.filter((n) => !n.archived).map((n) => `<option ${n.id === 1 ? "selected" : ""}>${esc(n.name)}</option>`).join("")}
+        </select>
+      </div>
+    </section>
+
+    <div class="flex justify-end gap-2">
+      ${btnGhost("Cancel", "", "route()")}
+      ${btnPrimary("Save changes").replace("<button", `<button onclick="toast('Settings saved (prototype)')"`)}
+    </div>
+    ${pageFoot()}
+  </div>`;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   PAGE: ADVANCED  (#/advanced)
+══════════════════════════════════════════════════════════════════════════ */
+function pageAdvanced() {
+  const storage = [
+    { label: "Documents", pct: 46, used: "1.9 GB", color: "bg-fern" },
+    { label: "Audio (podcasts)", pct: 38, used: "1.6 GB", color: "bg-teal" },
+    { label: "Embeddings index", pct: 11, used: "470 MB", color: "bg-gold" },
+    { label: "Other", pct: 5, used: "210 MB", color: "bg-ink-faintest" },
+  ];
+  return `
+  <div class="max-w-3xl space-y-8">
+    <div>
+      <h1 class="font-display text-3xl font-bold tracking-tight">Advanced</h1>
+      <p class="mt-1 text-sm text-ink-soft">Storage, system state and data management.</p>
+    </div>
+
+    <section class="rounded-lg border border-line bg-surface">
+      <h2 class="border-b border-line px-5 py-3.5 font-display text-base font-semibold tracking-tight">Storage</h2>
+      <div class="space-y-4 p-5">
+        <div class="flex items-baseline justify-between">
+          <p class="font-display text-2xl font-bold tabular-nums tracking-tight">4.2 GB</p>
+          <p class="font-mono text-xs text-ink-faint">of 20 GB</p>
+        </div>
+        <div class="flex h-2 w-full overflow-hidden rounded-full bg-recessed">
+          ${storage.map((s) => `<span class="${s.color}" style="width:${s.pct}%"></span>`).join("")}
+        </div>
+        <div class="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+          ${storage.map((s) => `
+            <div class="rounded-md border border-line bg-raised px-3 py-2.5">
+              <div class="flex items-center gap-1.5">${ICONS.dot(s.color)}<span class="truncate text-xs text-ink-soft">${s.label}</span></div>
+              <p class="mt-1 font-mono text-xs tabular-nums text-ink-faint">${s.used}</p>
+            </div>`).join("")}
+        </div>
+      </div>
+    </section>
+
+    <section class="rounded-lg border border-line bg-surface">
+      <h2 class="border-b border-line px-5 py-3.5 font-display text-base font-semibold tracking-tight">System</h2>
+      <dl class="divide-y divide-line">
+        ${[
+          ["Database", "SurrealDB · connected"],
+          ["Worker", "surreal-commands · running"],
+          ["Embeddings", "text-embedding-3-small · 38 sources indexed"],
+          ["Encryption", "At rest · key set"],
+          ["Version", "v0.2.1 (prototype build)"],
+        ].map(([k, v]) => `
+          <div class="flex items-center justify-between gap-4 px-5 py-3.5">
+            <dt class="text-sm text-ink-faint">${k}</dt>
+            <dd class="flex items-center gap-2 font-mono text-xs text-ink-soft">${ICONS.dot("bg-fern")}${v}</dd>
+          </div>`).join("")}
+      </dl>
+    </section>
+
+    <section class="rounded-lg border border-line bg-surface">
+      <h2 class="border-b border-line px-5 py-3.5 font-display text-base font-semibold tracking-tight">Export</h2>
+      <div class="flex flex-col gap-3 p-5 sm:flex-row">
+        ${btnGhost("Export all (JSON)", "", "toast('Export is not wired in the prototype')")}
+        ${btnGhost("Export notebooks as Markdown", "", "toast('Export is not wired in the prototype')")}
+      </div>
+    </section>
+
+    <section class="rounded-lg border border-danger/40 bg-surface">
+      <h2 class="border-b border-danger/30 px-5 py-3.5 font-display text-base font-semibold tracking-tight text-danger">Danger zone</h2>
+      <div class="flex flex-col gap-3 p-5 sm:flex-row">
+        ${btnGhost("Clear embeddings index", "", "toast('This action is not wired in the prototype')")}
+        <button onclick="toast('Deletion is not wired in the prototype — thankfully')" class="flex items-center gap-2 rounded-md border border-danger/50 px-3 py-2 text-sm font-medium text-danger hover:bg-danger/10 active:scale-[0.98] transition">Delete all data</button>
+      </div>
+    </section>
+    ${pageFoot()}
+  </div>`;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   ROUTER
+══════════════════════════════════════════════════════════════════════════ */
+function route() {
+  const hash = location.hash.replace(/^#\/?/, "");
+  const [page, param] = hash.split("/");
+  currentPage = page || "home";
+  const scroll = $("#scroll");
+  const pageEl = $("#page");
+  scroll.scrollTop = 0;
+  scroll.classList.remove("overflow-hidden");
+  pageEl.className = "p-6 lg:p-8 max-w-[1400px] mx-auto";
+  markActiveNav();
+
+  switch (currentPage) {
+    case "home": $("#page").innerHTML = pageHome(); break;
+    case "notebooks":
+      if (param) {
+        // fixed 3-column layout — columns scroll independently
+        scroll.classList.add("overflow-hidden");
+        pageEl.className = "h-full";
+        pageEl.innerHTML = pageNotebookDetail(param);
+        break;
+      }
+      pageEl.innerHTML = pageNotebooks();
+      renderNotebooksPage();
+      break;
+    case "sources":
+      if (param) {
+        // fixed two-column layout — each column scrolls independently
+        scroll.classList.add("overflow-hidden");
+        pageEl.className = "h-full";
+        pageEl.innerHTML = pageSourceDetail(param);
+        break;
+      }
+      pageEl.innerHTML = pageSources();
+      renderSourcesList();
+      break;
+    case "ask":
+      pageEl.innerHTML = pageAsk();
+      if (askMode === "ask") {
+        // only the chat area scrolls — freeze the page container, composer stays pinned
+        scroll.classList.add("overflow-hidden");
+        pageEl.className = "h-full";
+      } else {
+        renderSearchResults();
+      }
+      break;
+    case "podcasts": $("#page").innerHTML = pagePodcasts(); break;
+    case "models": $("#page").innerHTML = pageModels(); break;
+    case "transformations": $("#page").innerHTML = pageTransformations(); break;
+    case "settings": $("#page").innerHTML = pageSettings(); break;
+    case "advanced": $("#page").innerHTML = pageAdvanced(); break;
+    default:
+      currentPage = "home";
+      $("#page").innerHTML = pageHome();
+      markActiveNav();
+  }
+}
+window.addEventListener("hashchange", route);
+
+renderNav();
+renderScopePanel();
+route();
+</script>
+</body>
+</html>

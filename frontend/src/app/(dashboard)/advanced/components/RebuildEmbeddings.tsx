@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { useMutation } from '@tanstack/react-query'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { SectionCard } from '@/components/shell/section-card'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -120,16 +120,17 @@ export function RebuildEmbeddings() {
   const processingTimeSeconds = stats?.processing_time ?? computedDuration
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
+    <SectionCard
+      title={
+        <>
           {t('advanced.rebuildEmbeddings')}
-        </CardTitle>
-        <CardDescription>
-          {t('advanced.rebuildEmbeddingsDesc')}
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-6">
+          <span className="mt-1 block font-sans text-sm font-normal tracking-normal text-muted-foreground">
+            {t('advanced.rebuildEmbeddingsDesc')}
+          </span>
+        </>
+      }
+    >
+      <div className="space-y-6 p-5">
         {/* Configuration Form */}
         {!isRebuildActive && (
           <div className="space-y-6">
@@ -332,7 +333,7 @@ export function RebuildEmbeddings() {
             </AccordionContent>
           </AccordionItem>
         </Accordion>
-      </CardContent>
-    </Card>
+      </div>
+    </SectionCard>
   )
 }

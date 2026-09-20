@@ -33,6 +33,14 @@ OPENROUTER_CONTEXT_LENGTH_400 = (
     "(395117 of text input, 8192 in the output).\", 'code': 400}}"
 )
 
+# The message OpenRouter returns when credits are exhausted by in-flight
+# requests, as the OpenAI SDK surfaces it.
+OPENROUTER_INSUFFICIENT_CREDITS_402 = (
+    "Error code: 402 - {'error': {'message': 'This request would exceed your "
+    "available credits given your current in-flight requests. Retry after "
+    "in-flight requests settle, or add credits.', 'code': 402}}"
+)
+
 # Commands whose retry config must treat context-length errors as permanent.
 RETRY_COMMANDS = [
     "open_notebook.process_source",
@@ -86,6 +94,26 @@ class TestClassification:
 
         assert exc_class is ExternalServiceError
         assert not issubclass(exc_class, ContextLengthExceededError)
+
+    def test_openrouter_402_insufficient_credits(self):
+        exc_class, message = classify_error(Exception(OPENROUTER_INSUFFICIENT_CREDITS_402))
+
+        assert exc_class is ExternalServiceError
+        assert "Insufficient credits" in message
+        # The raw SDK payload must not leak into the user-facing message.
+        assert "Error code" not in message
+        assert "'error'" not in message
+
+    def test_already_classified_error_is_not_double_wrapped(self):
+        """A graph node wraps the provider error before the stream layer sees
+        it; re-classifying must not stack a second "AI service error:" prefix."""
+        _, node_message = classify_error(Exception(OPENROUTER_INSUFFICIENT_CREDITS_402))
+        already_wrapped = ExternalServiceError(f"AI service error: {node_message}")
+
+        exc_class, message = classify_error(already_wrapped)
+
+        assert exc_class is ExternalServiceError
+        assert message.count("AI service error:") == 1
 
 
 @pytest.mark.parametrize("command_id", RETRY_COMMANDS)

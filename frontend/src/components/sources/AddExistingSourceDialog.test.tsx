@@ -22,6 +22,12 @@ vi.mock('@/lib/hooks/use-sources', () => ({
   useAddSourcesToNotebook: () => ({ mutateAsync, isPending: false }),
 }))
 
+vi.mock('@/lib/hooks/use-notebooks', () => ({
+  useNotebook: () => ({
+    data: { id: 'notebook:1', team_id: 'team:hr', visibility: 'team' },
+  }),
+}))
+
 const mockSearch = vi.mocked(searchApi.search)
 const mockList = vi.mocked(sourcesApi.list)
 
@@ -69,5 +75,53 @@ describe('AddExistingSourceDialog', () => {
     await waitFor(() => expect(mockSearch).toHaveBeenCalled())
     expect(screen.getByText('Direct source match')).toBeInTheDocument()
     expect(screen.queryByText('Insight from same source')).not.toBeInTheDocument()
+  })
+
+  it('hides sources owned by another team (T5 same-team link rule)', async () => {
+    mockList.mockResolvedValue([
+      {
+        id: 'source:same',
+        title: 'Same team source',
+        topics: [],
+        asset: null,
+        embedded: false,
+        embedded_chunks: 0,
+        insights_count: 0,
+        created: '2026-01-01T00:00:00Z',
+        updated: '2026-01-01T00:00:00Z',
+        team_id: 'team:hr',
+        visibility: 'team',
+      },
+      {
+        id: 'source:other',
+        title: 'Other team source',
+        topics: [],
+        asset: null,
+        embedded: false,
+        embedded_chunks: 0,
+        insights_count: 0,
+        created: '2026-01-01T00:00:00Z',
+        updated: '2026-01-01T00:00:00Z',
+        team_id: 'team:finance',
+        visibility: 'team',
+      },
+    ])
+
+    render(
+      <AddExistingSourceDialog
+        open={true}
+        onOpenChange={vi.fn()}
+        notebookId="notebook:1"
+      />
+    )
+
+    await waitFor(() =>
+      expect(screen.getByText('Same team source')).toBeInTheDocument()
+    )
+    expect(screen.queryByText('Other team source')).not.toBeInTheDocument()
+    // The dialog tells the user why some sources are not listed.
+    expect(
+      screen.getByText('sources.hiddenOtherTeamSources')
+    ).toBeInTheDocument()
   })
 })

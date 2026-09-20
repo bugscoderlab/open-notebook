@@ -19,6 +19,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { searchApi } from '@/lib/api/search'
 import { sourcesApi } from '@/lib/api/sources'
 import { useSources, useAddSourcesToNotebook } from '@/lib/hooks/use-sources'
+import { useNotebook } from '@/lib/hooks/use-notebooks'
 import { SourceListResponse } from '@/lib/types/api'
 import { useTranslation } from '@/lib/hooks/use-translation'
 
@@ -50,6 +51,29 @@ export function AddExistingSourceDialog({
     [currentNotebookSources]
   )
 
+  // The notebook's team drives the same-team link rule: sources owned by
+  // another team cannot be linked (T5) and are filtered out below.
+  // Depend on primitive values — the useNotebook result object is a fresh
+  // reference every render, which would otherwise retrigger the load/filter
+  // effects below on every render.
+  const { data: notebook } = useNotebook(notebookId)
+  const notebookTeamId = notebook?.team_id
+  const notebookVisibility = notebook?.visibility
+
+  const isLinkable = useCallback(
+    (source: SourceListResponse) => {
+      if (!notebookTeamId) return true
+      if (source.team_id && source.team_id !== notebookTeamId) return false
+      if (
+        source.visibility === 'company_shared' &&
+        notebookVisibility !== 'company_shared'
+      )
+        return false
+      return true
+    },
+    [notebookTeamId, notebookVisibility]
+  )
+
   const addSources = useAddSourcesToNotebook()
 
   const loadAllSources = useCallback(async () => {
@@ -64,18 +88,18 @@ export function AddExistingSourceDialog({
       })
 
       setAllSources(sources)
-      setFilteredSources(sources)
+      setFilteredSources(sources.filter(isLinkable))
     } catch (error) {
       console.error('Error loading sources:', error)
     } finally {
       setIsSearching(false)
     }
-  }, [])
+  }, [isLinkable])
 
   const performSearch = useCallback(async () => {
     if (!debouncedSearchQuery.trim()) {
       // Empty query - show all sources
-      setFilteredSources(allSources)
+      setFilteredSources(allSources.filter(isLinkable))
       setIsSearching(false)
       return
     }
@@ -92,31 +116,40 @@ export function AddExistingSourceDialog({
       })
 
       const sourceIds = new Set<string>()
+      // Search results carry no team info, so resolve it from allSources
+      // (already fetched with team_id); unknown sources stay visible and
+      // the server-side link rule remains the backstop.
+      const teamById = new Map(allSources.map(s => [s.id, s]))
       const sources = response.results.filter(r => {
         if (sourceIds.has(r.parent_id)) return false
         sourceIds.add(r.parent_id)
         return true
-      }).map(r => ({
-        id: r.parent_id,
-        title: r.title || 'Untitled',
-        topics: [],
-        asset: null,
-        embedded: false,
-        embedded_chunks: 0,
-        insights_count: 0,
-        created: r.created,
-        updated: r.updated,
-      })) as SourceListResponse[]
+      }).map(r => {
+        const known = teamById.get(r.parent_id)
+        return {
+          id: r.parent_id,
+          title: r.title || 'Untitled',
+          topics: [],
+          asset: null,
+          embedded: false,
+          embedded_chunks: 0,
+          insights_count: 0,
+          created: r.created,
+          updated: r.updated,
+          team_id: known?.team_id ?? null,
+          visibility: known?.visibility ?? null,
+        }
+      }).filter(isLinkable) as SourceListResponse[]
 
       setFilteredSources(sources)
     } catch (error) {
       console.error('Error searching sources:', error)
       // On error, fall back to showing all sources
-      setFilteredSources(allSources)
+      setFilteredSources(allSources.filter(isLinkable))
     } finally {
       setIsSearching(false)
     }
-  }, [debouncedSearchQuery, allSources])
+  }, [debouncedSearchQuery, allSources, isLinkable])
 
   // Load all sources initially
   useEffect(() => {
@@ -128,13 +161,18 @@ export function AddExistingSourceDialog({
   // Filter sources when search query changes
   useEffect(() => {
     if (!debouncedSearchQuery) {
-      setFilteredSources(allSources)
+      setFilteredSources(allSources.filter(isLinkable))
       setIsSearching(false)
       return
     }
 
     performSearch()
-  }, [debouncedSearchQuery, allSources, performSearch])
+  }, [debouncedSearchQuery, allSources, isLinkable, performSearch])
+
+  const hiddenCount = useMemo(
+    () => allSources.filter(s => !isLinkable(s)).length,
+    [allSources, isLinkable]
+  )
 
   const handleToggleSource = (sourceId: string) => {
     setSelectedSourceIds(prev =>
@@ -266,6 +304,13 @@ export function AddExistingSourceDialog({
               </div>
             )}
           </ScrollArea>
+
+          {/* Cross-team sources hidden by the T5 same-team link rule */}
+          {hiddenCount > 0 && (
+            <p className="text-xs text-muted-foreground">
+              {t('sources.hiddenOtherTeamSources', { count: hiddenCount })}
+            </p>
+          )}
 
           {/* Truncation Warning */}
           {allSources.length >= 100 && !debouncedSearchQuery && (

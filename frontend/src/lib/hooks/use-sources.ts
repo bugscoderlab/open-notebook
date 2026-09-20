@@ -54,9 +54,19 @@ export function useNotebookSources(notebookId: string) {
     refetchOnWindowFocus: true,
   })
 
-  // Flatten all pages into a single array (memoized to prevent infinite re-renders)
+  // Flatten all pages into a single array (memoized to prevent infinite re-renders).
+  // Dedupe by id: offset pagination over the volatile `updated` sort can overlap
+  // while sources are being processed/retried, returning the same source on two
+  // pages (duplicate React keys in the sources list).
   const sources: SourceListResponse[] = useMemo(
-    () => query.data?.pages.flatMap(page => page.sources) ?? [],
+    () => {
+      const seen = new Set<string>()
+      return (query.data?.pages ?? []).flatMap(page => page.sources).filter((source) => {
+        if (seen.has(source.id)) return false
+        seen.add(source.id)
+        return true
+      })
+    },
     [query.data?.pages]
   )
 
@@ -306,8 +316,11 @@ export function useAddSourcesToNotebook() {
       // Count successes and failures
       const successes = results.filter(r => r.status === 'fulfilled').length
       const failures = results.filter(r => r.status === 'rejected').length
+      const firstError = results.find(
+        (r): r is PromiseRejectedResult => r.status === 'rejected'
+      )?.reason
 
-      return { successes, failures, total: sourceIds.length }
+      return { successes, failures, total: sourceIds.length, firstError }
     },
     onSuccess: (result, { notebookId, sourceIds }) => {
       // Invalidate ALL sources queries to refresh all lists
@@ -328,13 +341,24 @@ export function useAddSourcesToNotebook() {
       } else if (result.successes === 0) {
         toast({
           title: t('common.error'),
-          description: t('sources.failedToAddSourcesToNotebook'),
+          description: getApiErrorMessage(
+            result.firstError,
+            (key) => t(key),
+            t('sources.failedToAddSourcesToNotebook')
+          ),
           variant: 'destructive',
         })
       } else {
         toast({
           title: t('common.success'),
-          description: t('sources.partialAddSuccess', { success: result.successes.toString(), failed: result.failures.toString() }),
+          description: getApiErrorMessage(
+            result.firstError,
+            (key) => t(key),
+            t('sources.partialAddSuccess', {
+              success: result.successes.toString(),
+              failed: result.failures.toString(),
+            })
+          ),
           variant: 'default',
         })
       }

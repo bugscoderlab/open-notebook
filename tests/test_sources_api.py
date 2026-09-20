@@ -291,3 +291,64 @@ class TestTitleSortUsesAlias:
         auth_session()
         response = client.get("/api/sources?sort_by=bogus", cookies=auth_cookie)
         assert response.status_code == 400
+
+
+class TestNotebookSourceListingDistinct:
+    """Regression for duplicate React keys in the notebook sources list.
+
+    The notebook-scoped FROM clause reads source ids from the `reference`
+    edge table; without DISTINCT, a duplicate edge (same source linked twice
+    to one notebook) would list the source twice.
+    """
+
+    @pytest.mark.asyncio
+    @patch("api.routers.sources.check_notebook_read", new_callable=AsyncMock)
+    @patch("api.routers.sources.repo_query", new_callable=AsyncMock)
+    async def test_notebook_listing_dedupes_reference_edges(
+        self, mock_query, mock_check_nb, client, auth_session, auth_cookie
+    ):
+        auth_session()
+        mock_query.return_value = []
+
+        response = client.get(
+            "/api/sources?notebook_id=notebook:1", cookies=auth_cookie
+        )
+
+        assert response.status_code == 200
+        query = mock_query.call_args[0][0]
+        assert (
+            "array::distinct((SELECT VALUE in FROM reference"
+            in query
+        )
+
+    @pytest.mark.asyncio
+    @patch("api.routers.sources.check_notebook_read", new_callable=AsyncMock)
+    @patch("api.routers.sources.repo_query", new_callable=AsyncMock)
+    async def test_notebook_listing_exposes_team_scoping(
+        self, mock_query, mock_check_nb, client, auth_session, auth_cookie
+    ):
+        """List rows carry team_id/visibility for the add-existing-source
+        dialog's same-team pre-filter (T5)."""
+        auth_session()
+        mock_query.return_value = [
+            {
+                "id": "source:1",
+                "title": "A",
+                "topics": [],
+                "asset": None,
+                "created": "2024-01-01T00:00:00Z",
+                "updated": "2024-01-02T00:00:00Z",
+                "team": "team:hr",
+                "visibility": "team",
+                "insights_count": 0,
+            }
+        ]
+
+        response = client.get(
+            "/api/sources?notebook_id=notebook:1", cookies=auth_cookie
+        )
+
+        assert response.status_code == 200
+        rows = response.json()
+        assert rows[0]["team_id"] == "team:hr"
+        assert rows[0]["visibility"] == "team"

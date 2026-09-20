@@ -57,5 +57,6 @@ What this makes easier, what it makes harder, what to watch. (bullets)
 | [ADR-013](ADR-013-classification.md) | Content classification: flags as teamlessness, company-shared ownership, and the login gate | Accepted |
 | [ADR-014](ADR-014-analytics-permissions.md) | Analytics permissions under real auth: injection refusal, query-log ownership, bypass removal | Accepted |
 | [ADR-015](ADR-015-agentic-text-to-sql.md) | Analytics answers free-form questions via agentic text-to-SQL — validation instead of forbidden | Accepted |
+| [ADR-016](ADR-016-home-unified-ask-chat.md) | Home as a unified ask chat: auto-routing, server-side checkpoint memory, LLM follow-up suggestions | Accepted |
 | [PDR-001](PDR-001-single-user-first.md) | Single-user first; don't preclude multi-user | Accepted |
 | [PDR-002](PDR-002-provider-agnostic-core.md) | Provider-agnostic core by default | Accepted |

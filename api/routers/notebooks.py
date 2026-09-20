@@ -313,6 +313,9 @@ async def get_notebook(
             updated=str(nb.get("updated", "")),
             source_count=nb.get("source_count", 0),
             note_count=nb.get("note_count", 0),
+            # T5 team scoping for the add-existing-source dialog
+            team_id=str(nb["team"]) if nb.get("team") else None,
+            visibility=nb.get("visibility"),
         )
     except HTTPException:
         raise

@@ -63,7 +63,7 @@ describe('AnalyticsMode', () => {
     expect(screen.getByText('searchPage.analyticsNoDatasets')).toBeInTheDocument()
   })
 
-  it('renders KPIs, bars, table and scope for an ok answer', () => {
+  it('renders KPIs, bars and scope for an ok answer — the chart replaces the table', () => {
     mockDatasets.mockReturnValue({
       data: [SALES_DATASET],
       isSuccess: true,
@@ -80,12 +80,30 @@ describe('AnalyticsMode', () => {
     expect(screen.getByText('TOTAL SPEND')).toBeInTheDocument()
     expect(screen.getByText('MYR 8,460')).toBeInTheDocument()
     expect(screen.getByText('Top customers by spend')).toBeInTheDocument()
-    expect(screen.getByText('customer_name')).toBeInTheDocument()
+    // A graphed answer shows the chart instead of the table.
+    expect(screen.queryByText('customer_name')).not.toBeInTheDocument()
     // The answer surface carries the dataset as a scope chip.
     expect(screen.getAllByText('Sales 2026').length).toBeGreaterThanOrEqual(1)
     // View-query disclosure (AN-009)
     fireEvent.click(screen.getByText('searchPage.analyticsViewQuery'))
     expect(screen.getByText(/data_team IN \(:authorized_team_ids\)/)).toBeInTheDocument()
+  })
+
+  it('falls back to the table when the answer has no chart', () => {
+    mockDatasets.mockReturnValue({
+      data: [SALES_DATASET],
+      isSuccess: true,
+    } as unknown as ReturnType<typeof useAnalyticsDatasets>)
+    mockAsk.mockReturnValue({
+      mutate: vi.fn(),
+      isPending: false,
+      data: { ...OK_ANSWER, chart: null },
+    } as unknown as ReturnType<typeof useAnalyticsAsk>)
+
+    render(<AnalyticsMode />)
+
+    expect(screen.getByText('customer_name')).toBeInTheDocument()
+    expect(screen.queryByText('Top customers by spend')).not.toBeInTheDocument()
   })
 
   it('renders a denied answer without any data surfaces', () => {

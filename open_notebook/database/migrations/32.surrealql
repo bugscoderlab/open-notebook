@@ -1,0 +1,6 @@
+-- Migration 32: home_chat_session table for the unified Home ask chat.
+-- Sessions are owned by a user via a plain user_id field (schemaless table);
+-- every query filters by the authenticated caller. Conversation memory lives
+-- in the LangGraph SqliteSaver checkpoints keyed by the session id, the same
+-- pattern as chat_session.
+DEFINE TABLE IF NOT EXISTS home_chat_session SCHEMALESS;

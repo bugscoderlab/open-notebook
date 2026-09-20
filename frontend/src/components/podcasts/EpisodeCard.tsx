@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { formatDistanceToNow } from 'date-fns'
 import { getDateLocale } from '@/lib/utils/date-locale'
-import { InfoIcon, RefreshCcw, Trash2 } from 'lucide-react'
+import { InfoIcon, Play, RefreshCcw, Trash2 } from 'lucide-react'
 
 import apiClient from '@/lib/api/client'
 import { resolvePodcastAssetUrl } from '@/lib/api/podcasts'
@@ -97,6 +97,26 @@ function StatusBadge({ status }: { status?: EpisodeStatus | null }) {
     >
       {meta.label}
     </Badge>
+  )
+}
+
+// Static decorative waveform bars (catalog prototype `waveform()`).
+const WAVEFORM_HEIGHTS = [
+  8, 14, 10, 18, 12, 20, 9, 15, 11, 19, 13, 8, 16, 10, 14, 18,
+  9, 12, 17, 10, 15, 8, 13, 19, 11, 16, 9, 14, 10, 18, 12, 15,
+]
+
+function Waveform({ active }: { active: boolean }) {
+  return (
+    <div className="flex h-10 items-center gap-[2px]" aria-hidden>
+      {WAVEFORM_HEIGHTS.map((height, index) => (
+        <span
+          key={index}
+          className={cn('w-[3px] rounded-full', active ? 'bg-fern' : 'bg-border')}
+          style={{ height }}
+        />
+      ))}
+    </div>
   )
 }
 
@@ -225,225 +245,235 @@ export function EpisodeCard({ episode, onDelete, deleting, onRetry, retrying }: 
   const isFailed = FAILED_EPISODE_STATUSES.includes(episode.job_status as EpisodeStatus)
 
   return (
-    <Card>
-      <CardContent className="space-y-4 p-4">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="space-y-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <h3 className="text-base font-semibold text-foreground">
+    <Card className="card-hover">
+      <CardContent className="p-5">
+        <Dialog open={detailsOpen} onOpenChange={setDetailsOpen}>
+          {/* Band 1: title + meta + status */}
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <h3 className="truncate font-display text-[17px] font-semibold tracking-tight">
                 {episode.name}
               </h3>
-              <StatusBadge status={episode.job_status} />
+              <p className="mt-1 text-xs text-muted-foreground">
+                {t('podcasts.profile')}: {episode.episode_profile?.name || t('common.unknown')}
+              </p>
             </div>
-            <p className="text-xs text-muted-foreground">
-              {t('podcasts.profile')}: {episode.episode_profile?.name || t('common.unknown')}
-              {createdLabel ? ` • ${createdLabel}` : ''}
-            </p>
+            <StatusBadge status={episode.job_status} />
           </div>
-          <div className="flex items-center gap-2">
-            <Dialog open={detailsOpen} onOpenChange={setDetailsOpen}>
+
+          {/* Band 2: play affordance + waveform */}
+          <div className="mt-4 flex items-center gap-4">
+            <DialogTrigger asChild>
+              <button
+                type="button"
+                disabled={!audioSrc}
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-fern text-[#f1f8f3] hover:bg-fern-deep active:scale-95 transition disabled:pointer-events-none disabled:opacity-50"
+              >
+                <Play className="h-4 w-4" />
+              </button>
+            </DialogTrigger>
+            <Waveform active={Boolean(audioSrc)} />
+          </div>
+
+          {/* Band 3: generated-when + actions */}
+          <div className="mt-4 flex items-center justify-between border-t border-border pt-3">
+            <span className="text-xs text-muted-foreground">{createdLabel}</span>
+            <div className="flex items-center gap-2">
               <DialogTrigger asChild>
                 <Button variant="outline" size="sm">
                   <InfoIcon className="mr-2 h-4 w-4" /> {t('podcasts.details')}
                 </Button>
               </DialogTrigger>
-              <DialogContent className="w-[min(90vw,720px)] max-h-[85vh] overflow-hidden">
-                <DialogHeader>
-                  <DialogTitle>{episode.name}</DialogTitle>
-                  <DialogDescription>
-                    {episode.episode_profile?.name || t('common.unknown')}
-                    {createdLabel ? ` • ${createdLabel}` : ''}
-                  </DialogDescription>
-                </DialogHeader>
-                <div className="space-y-4 overflow-hidden">
-                  {audioSrc ? (
-                    <div className="rounded-md border bg-card p-2">
-                      <audio controls preload="none" src={audioSrc} className="w-full" />
-                    </div>
-                  ) : audioError ? (
-                    <p className="text-sm text-destructive">{audioError}</p>
-                  ) : null}
+              {isFailed && onRetry ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleRetry}
+                  disabled={retrying}
+                >
+                  <RefreshCcw className={cn('mr-2 h-4 w-4', retrying && 'animate-spin')} />
+                  {retrying ? t('podcasts.retrying') : t('podcasts.retry')}
+                </Button>
+              ) : null}
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button variant="ghost" size="sm" className="text-destructive">
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    {t('podcasts.delete')}
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>{t('podcasts.deleteEpisodeTitle')}</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      {t('podcasts.deleteEpisodeDesc', { name: episode.name })}
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+                    <AlertDialogAction onClick={handleDelete} disabled={deleting}>
+                      {deleting ? t('podcasts.deleting') : t('podcasts.delete')}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </div>
+          </div>
 
-                  <Tabs defaultValue="summary" className="h-[60vh] flex flex-col">
-                    <TabsList className="grid w-full grid-cols-3">
-                      <TabsTrigger value="summary">{t('podcasts.summaryTab')}</TabsTrigger>
-                      <TabsTrigger value="outline">{t('podcasts.outlineTab')}</TabsTrigger>
-                      <TabsTrigger value="transcript">{t('podcasts.transcriptTab')}</TabsTrigger>
-                    </TabsList>
+          {isFailed && episode.error_message ? (
+            <div className="mt-4 rounded-md border border-destructive/30 bg-destructive-tint p-3">
+              <p className="text-xs font-medium text-destructive">{t('podcasts.errorDetails')}</p>
+              <p className="mt-1 text-xs whitespace-pre-wrap text-destructive">{episode.error_message}</p>
+            </div>
+          ) : null}
 
-                    <TabsContent value="summary" className="flex-1 overflow-hidden">
-                      <ScrollArea className="h-full pr-4">
-                        <div className="space-y-6">
-                          <section className="space-y-2">
-                            <h4 className="text-sm font-semibold text-foreground">{t('podcasts.episodeProfile')}</h4>
-                            <div className="grid gap-2 text-sm md:grid-cols-2">
-                              <div>
-                                <p className="text-muted-foreground">{t('podcasts.outlineModel')}</p>
-                                <p>
-                                  {formatModelLabel(
-                                    episode.episode_profile?.outline_model_provider,
-                                    episode.episode_profile?.outline_model_name,
-                                    episode.episode_profile?.outline_provider,
-                                    episode.episode_profile?.outline_model
-                                  )}
-                                </p>
-                              </div>
-                              <div>
-                                <p className="text-muted-foreground">{t('podcasts.transcriptModel')}</p>
-                                <p>
-                                  {formatModelLabel(
-                                    episode.episode_profile?.transcript_model_provider,
-                                    episode.episode_profile?.transcript_model_name,
-                                    episode.episode_profile?.transcript_provider,
-                                    episode.episode_profile?.transcript_model
-                                  )}
-                                </p>
-                              </div>
-                              <div>
-                                <p className="text-muted-foreground">{t('podcasts.segments')}</p>
-                                <p>{episode.episode_profile?.num_segments ?? '—'}</p>
-                              </div>
-                              <div>
-                                <p className="text-muted-foreground">{t('podcasts.maxTokens')}</p>
-                                <p>{episode.episode_profile?.max_tokens ?? '—'}</p>
-                              </div>
-                            </div>
-                            {episode.episode_profile?.default_briefing ? (
-                              <div className="rounded border bg-muted/30 p-3 text-xs whitespace-pre-wrap">
-                                {episode.episode_profile.default_briefing}
-                              </div>
-                            ) : null}
-                          </section>
+          <DialogContent className="w-[min(90vw,720px)] max-h-[85vh] overflow-hidden">
+            <DialogHeader>
+              <DialogTitle>{episode.name}</DialogTitle>
+              <DialogDescription>
+                {episode.episode_profile?.name || t('common.unknown')}
+                {createdLabel ? ` • ${createdLabel}` : ''}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 overflow-hidden">
+              {audioSrc ? (
+                <div className="rounded-md border bg-card p-2">
+                  <audio controls preload="none" src={audioSrc} className="w-full" />
+                </div>
+              ) : audioError ? (
+                <p className="text-sm text-destructive">{audioError}</p>
+              ) : null}
 
-                          <section className="space-y-2">
-                            <h4 className="text-sm font-semibold text-foreground">{t('podcasts.speakerProfile')}</h4>
-                            <p className="text-xs text-muted-foreground">
+              <Tabs defaultValue="summary" className="h-[60vh] flex flex-col">
+                <TabsList className="grid w-full grid-cols-3">
+                  <TabsTrigger value="summary">{t('podcasts.summaryTab')}</TabsTrigger>
+                  <TabsTrigger value="outline">{t('podcasts.outlineTab')}</TabsTrigger>
+                  <TabsTrigger value="transcript">{t('podcasts.transcriptTab')}</TabsTrigger>
+                </TabsList>
+
+                <TabsContent value="summary" className="flex-1 overflow-hidden">
+                  <ScrollArea className="h-full pr-4">
+                    <div className="space-y-6">
+                      <section className="space-y-2">
+                        <h4 className="text-sm font-semibold text-foreground">{t('podcasts.episodeProfile')}</h4>
+                        <div className="grid gap-2 text-sm md:grid-cols-2">
+                          <div>
+                            <p className="text-muted-foreground">{t('podcasts.outlineModel')}</p>
+                            <p>
                               {formatModelLabel(
-                                episode.speaker_profile?.voice_model_provider,
-                                episode.speaker_profile?.voice_model_name,
-                                episode.speaker_profile?.tts_provider,
-                                episode.speaker_profile?.tts_model
+                                episode.episode_profile?.outline_model_provider,
+                                episode.episode_profile?.outline_model_name,
+                                episode.episode_profile?.outline_provider,
+                                episode.episode_profile?.outline_model
                               )}
                             </p>
-                            {episode.speaker_profile?.speakers?.map((speaker, index) => (
-                              <div
-                                key={`${speaker.name}-${index}`}
-                                className="rounded-md border bg-muted/20 p-3 text-xs"
-                              >
-                                <p className="font-semibold text-foreground">{speaker.name}</p>
-                                <p className="text-muted-foreground">{t('podcasts.voiceId')}: {speaker.voice_id}</p>
-                                <p className="mt-2 whitespace-pre-wrap text-muted-foreground">
-                                  <span className="font-semibold">{t('podcasts.backstory')}:</span> {speaker.backstory}
-                                </p>
-                                <p className="mt-2 whitespace-pre-wrap text-muted-foreground">
-                                  <span className="font-semibold">{t('podcasts.personality')}:</span> {speaker.personality}
-                                </p>
-                              </div>
-                            ))}
-                          </section>
-
-                          {episode.briefing ? (
-                            <section className="space-y-2">
-                              <h4 className="text-sm font-semibold text-foreground">{t('podcasts.briefing')}</h4>
-                              <div className="rounded border bg-muted/30 p-3 text-xs whitespace-pre-wrap">
-                                {episode.briefing}
-                              </div>
-                            </section>
-                          ) : null}
-                        </div>
-                      </ScrollArea>
-                    </TabsContent>
-
-                    <TabsContent value="outline" className="flex-1 overflow-hidden">
-                      <ScrollArea className="h-full pr-4">
-                        {outlineSegments.length > 0 ? (
-                          <div className="space-y-3">
-                            {outlineSegments.map((segment, index) => (
-                              <div key={index} className="rounded border bg-muted/20 p-3 text-xs space-y-1">
-                                <div className="flex items-center justify-between gap-2">
-                                  <p className="font-semibold text-foreground">{segment.name ?? `${t('podcasts.segment')} ${index + 1}`}</p>
-                                  {segment.size ? (
-                                    <Badge variant="outline" className="text-[10px] uppercase tracking-wide">{segment.size}</Badge>
-                                  ) : null}
-                                </div>
-                                <p className="text-muted-foreground whitespace-pre-wrap">{segment.description ?? t('podcasts.noDescription')}</p>
-                              </div>
-                            ))}
                           </div>
-                        ) : (
-                          <p className="text-xs text-muted-foreground">{t('podcasts.noOutline')}</p>
-                        )}
-                      </ScrollArea>
-                    </TabsContent>
+                          <div>
+                            <p className="text-muted-foreground">{t('podcasts.transcriptModel')}</p>
+                            <p>
+                              {formatModelLabel(
+                                episode.episode_profile?.transcript_model_provider,
+                                episode.episode_profile?.transcript_model_name,
+                                episode.episode_profile?.transcript_provider,
+                                episode.episode_profile?.transcript_model
+                              )}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-muted-foreground">{t('podcasts.segments')}</p>
+                            <p>{episode.episode_profile?.num_segments ?? '—'}</p>
+                          </div>
+                          <div>
+                            <p className="text-muted-foreground">{t('podcasts.maxTokens')}</p>
+                            <p>{episode.episode_profile?.max_tokens ?? '—'}</p>
+                          </div>
+                        </div>
+                        {episode.episode_profile?.default_briefing ? (
+                          <div className="rounded border bg-muted/30 p-3 text-xs whitespace-pre-wrap">
+                            {episode.episode_profile.default_briefing}
+                          </div>
+                        ) : null}
+                      </section>
 
-                    <TabsContent value="transcript" className="flex-1 overflow-hidden">
-                      <ScrollArea className="h-full pr-4 space-y-3">
-                        {transcriptEntries.length > 0 ? (
-                          transcriptEntries.map((entry, index) => (
-                            <div key={index} className="rounded border bg-muted/20 p-3 text-xs space-y-1">
-                              <p className="font-semibold text-foreground">{entry.speaker ?? t('podcasts.speaker')}</p>
-                              <p className="text-muted-foreground whitespace-pre-wrap">{entry.dialogue ?? ''}</p>
+                      <section className="space-y-2">
+                        <h4 className="text-sm font-semibold text-foreground">{t('podcasts.speakerProfile')}</h4>
+                        <p className="text-xs text-muted-foreground">
+                          {formatModelLabel(
+                            episode.speaker_profile?.voice_model_provider,
+                            episode.speaker_profile?.voice_model_name,
+                            episode.speaker_profile?.tts_provider,
+                            episode.speaker_profile?.tts_model
+                          )}
+                        </p>
+                        {episode.speaker_profile?.speakers?.map((speaker, index) => (
+                          <div
+                            key={`${speaker.name}-${index}`}
+                            className="rounded-md border bg-muted/20 p-3 text-xs"
+                          >
+                            <p className="font-semibold text-foreground">{speaker.name}</p>
+                            <p className="text-muted-foreground">{t('podcasts.voiceId')}: {speaker.voice_id}</p>
+                            <p className="mt-2 whitespace-pre-wrap text-muted-foreground">
+                              <span className="font-semibold">{t('podcasts.backstory')}:</span> {speaker.backstory}
+                            </p>
+                            <p className="mt-2 whitespace-pre-wrap text-muted-foreground">
+                              <span className="font-semibold">{t('podcasts.personality')}:</span> {speaker.personality}
+                            </p>
+                          </div>
+                        ))}
+                      </section>
+
+                      {episode.briefing ? (
+                        <section className="space-y-2">
+                          <h4 className="text-sm font-semibold text-foreground">{t('podcasts.briefing')}</h4>
+                          <div className="rounded border bg-muted/30 p-3 text-xs whitespace-pre-wrap">
+                            {episode.briefing}
+                          </div>
+                        </section>
+                      ) : null}
+                    </div>
+                  </ScrollArea>
+                </TabsContent>
+
+                <TabsContent value="outline" className="flex-1 overflow-hidden">
+                  <ScrollArea className="h-full pr-4">
+                    {outlineSegments.length > 0 ? (
+                      <div className="space-y-3">
+                        {outlineSegments.map((segment, index) => (
+                          <div key={index} className="rounded border bg-muted/20 p-3 text-xs space-y-1">
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="font-semibold text-foreground">{segment.name ?? `${t('podcasts.segment')} ${index + 1}`}</p>
+                              {segment.size ? (
+                                <Badge variant="outline" className="text-[10px] uppercase tracking-wide">{segment.size}</Badge>
+                              ) : null}
                             </div>
-                          ))
-                        ) : (
-                          <p className="text-xs text-muted-foreground">{t('podcasts.noTranscript')}</p>
-                        )}
-                      </ScrollArea>
-                    </TabsContent>
-                  </Tabs>
-                </div>
-              </DialogContent>
-            </Dialog>
-            {isFailed && onRetry ? (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleRetry}
-                disabled={retrying}
-              >
-                <RefreshCcw className={cn('mr-2 h-4 w-4', retrying && 'animate-spin')} />
-                {retrying ? t('podcasts.retrying') : t('podcasts.retry')}
-              </Button>
-            ) : null}
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button variant="ghost" size="sm" className="text-destructive">
-                  <Trash2 className="mr-2 h-4 w-4" />
-                  {t('podcasts.delete')}
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>{t('podcasts.deleteEpisodeTitle')}</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    {t('podcasts.deleteEpisodeDesc', { name: episode.name })}
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-                  <AlertDialogAction onClick={handleDelete} disabled={deleting}>
-                    {deleting ? t('podcasts.deleting') : t('podcasts.delete')}
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-          </div>
-        </div>
+                            <p className="text-muted-foreground whitespace-pre-wrap">{segment.description ?? t('podcasts.noDescription')}</p>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">{t('podcasts.noOutline')}</p>
+                    )}
+                  </ScrollArea>
+                </TabsContent>
 
-        {audioSrc ? (
-          <div className="rounded-md border bg-card p-2">
-            <audio controls preload="none" src={audioSrc} className="w-full" />
-          </div>
-        ) : audioError ? (
-          <p className="text-sm text-destructive">{audioError}</p>
-        ) : null}
-
-        {isFailed && episode.error_message ? (
-          <div className="rounded-md border border-destructive/30 bg-destructive-tint p-3">
-            <p className="text-xs font-medium text-destructive">{t('podcasts.errorDetails')}</p>
-            <p className="mt-1 text-xs whitespace-pre-wrap text-destructive">{episode.error_message}</p>
-          </div>
-        ) : null}
+                <TabsContent value="transcript" className="flex-1 overflow-hidden">
+                  <ScrollArea className="h-full pr-4 space-y-3">
+                    {transcriptEntries.length > 0 ? (
+                      transcriptEntries.map((entry, index) => (
+                        <div key={index} className="rounded border bg-muted/20 p-3 text-xs space-y-1">
+                          <p className="font-semibold text-foreground">{entry.speaker ?? t('podcasts.speaker')}</p>
+                          <p className="text-muted-foreground whitespace-pre-wrap">{entry.dialogue ?? ''}</p>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-xs text-muted-foreground">{t('podcasts.noTranscript')}</p>
+                    )}
+                  </ScrollArea>
+                </TabsContent>
+              </Tabs>
+            </div>
+          </DialogContent>
+        </Dialog>
       </CardContent>
     </Card>
   )

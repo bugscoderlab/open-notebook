@@ -58,67 +58,62 @@ export function RecentlyViewed({ limit = 12 }: RecentlyViewedProps) {
 
   return (
     <Collapsible open={isOpen} onOpenChange={setIsOpen} className="space-y-4">
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 border-b pb-3">
         <CollapsibleTrigger asChild>
-          <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+          <Button variant="ghost" size="sm" className="-ml-1 h-7 w-7 p-0" aria-expanded={isOpen}>
             {isOpen ? (
               <ChevronDown className="h-4 w-4" />
             ) : (
               <ChevronRight className="h-4 w-4" />
             )}
             <span className="sr-only">
-              {t('notebooks.toggleRecentlyViewed', {
-                defaultValue: 'Toggle recently viewed',
-              })}
+              {t('notebooks.toggleRecentlyViewed')}
             </span>
           </Button>
         </CollapsibleTrigger>
         <h2 className="font-display text-lg font-semibold tracking-tight">
-          {t('notebooks.recentlyViewed', { defaultValue: 'Recently Viewed' })}
+          {t('notebooks.recentlyViewed')}
         </h2>
-        <span className="text-sm text-muted-foreground">({items.length})</span>
+        <span className="ml-auto font-mono text-xs tabular-nums text-muted-foreground">
+          {items.length}
+        </span>
       </div>
 
       <CollapsibleContent>
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+        <div className="rail -mx-1 flex snap-x gap-3 overflow-x-auto px-1 pb-1">
           {items.map((item) => {
             const Icon = item.type === 'notebook' ? BookOpen : FileText
             const typeLabel =
               item.type === 'notebook'
-                ? t('notebooks.recentlyViewedNotebook', {
-                    defaultValue: 'Notebook',
-                  })
-                : t('notebooks.recentlyViewedSource', {
-                    defaultValue: 'Source',
-                  })
+                ? t('notebooks.recentlyViewedNotebook')
+                : t('notebooks.recentlyViewedSource')
 
             return (
               <Link
                 key={`${item.type}-${item.id}`}
                 href={getItemHref(item)}
-                className="group flex items-center gap-3 rounded-md border bg-card px-3 py-2 card-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="group w-[240px] shrink-0 snap-start rounded-md border bg-card px-3 py-2.5 card-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
-                <div
-                  className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-muted ${
-                    item.type === 'notebook' ? 'text-teal' : 'text-sage'
-                  }`}
-                >
-                  <Icon className="h-3.5 w-3.5" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex min-w-0 items-center gap-2">
-                    <p className="truncate text-sm font-medium">{item.title}</p>
-                    <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                      {typeLabel}
-                    </span>
+                <div className="flex items-center gap-3">
+                  <div
+                    className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-muted ${
+                      item.type === 'notebook' ? 'text-teal' : 'text-sage'
+                    }`}
+                  >
+                    <Icon className="h-3.5 w-3.5" />
                   </div>
-                  <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                    {t('notebooks.lastViewed', {
-                      time: formatViewedAt(item.last_viewed_at, locale),
-                      defaultValue: 'Viewed {{time}}',
-                    })}
-                  </p>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium">{item.title}</p>
+                    <p className="mt-0.5 truncate font-mono text-[11px] text-muted-foreground">
+                      {t('notebooks.lastViewed', {
+                        time: formatViewedAt(item.last_viewed_at, locale),
+                      })}
+                    </p>
+                  </div>
                 </div>
+                <span className="mt-2 block text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+                  {typeLabel}
+                </span>
               </Link>
             )
           })}

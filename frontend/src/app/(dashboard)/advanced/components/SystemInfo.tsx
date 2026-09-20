@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Card } from '@/components/ui/card'
+import { SectionCard } from '@/components/shell/section-card'
 import { getConfig } from '@/lib/config'
 import { Badge } from '@/components/ui/badge'
 import { useTranslation } from '@/lib/hooks/use-translation'
@@ -32,21 +32,15 @@ export function SystemInfo() {
 
   if (isLoading) {
     return (
-      <Card className="p-6">
-        <div className="space-y-4">
-          <h2 className="font-display text-xl font-semibold tracking-tight">{t('advanced.systemInfo')}</h2>
-          <div className="text-sm text-muted-foreground">{t('common.loading')}</div>
-        </div>
-      </Card>
+      <SectionCard title={t('advanced.systemInfo')}>
+        <div className="p-5 text-sm text-muted-foreground">{t('common.loading')}</div>
+      </SectionCard>
     )
   }
 
   return (
-    <Card className="p-6">
-      <div className="space-y-4">
-        <h2 className="font-display text-xl font-semibold tracking-tight">{t('advanced.systemInfo')}</h2>
-
-        <div className="space-y-3">
+    <SectionCard title={t('advanced.systemInfo')}>
+      <div className="space-y-3 p-5">
           {/* Current Version */}
           <div className="flex items-center justify-between">
             <span className="text-sm font-medium">{t('advanced.currentVersion')}</span>
@@ -112,8 +106,7 @@ export function SystemInfo() {
               {t('advanced.updateCheckFailed')}
             </div>
           )}
-        </div>
       </div>
-    </Card>
+    </SectionCard>
   )
 }

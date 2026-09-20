@@ -12,7 +12,7 @@ export default function AdvancedPage() {
     <AppShell>
       <div className="flex-1 overflow-y-auto">
         <div className="p-6">
-          <div className="max-w-4xl mx-auto space-y-6">
+          <div className="max-w-3xl mx-auto space-y-8">
             <PageHead title={t('advanced.title')} description={t('advanced.desc')} />
 
             <SystemInfo />

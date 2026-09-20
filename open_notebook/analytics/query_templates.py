@@ -8,9 +8,10 @@ filter). Template SQL is static, reviewed, and always contains
 ``AND data_team IN (:authorized_team_ids)``.
 """
 
+import calendar
 import re
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 from open_notebook.analytics.engine import MAX_ROWS
@@ -22,6 +23,19 @@ REFUNDS_INCLUSIVE_STATUSES = ["completed", "refunded", "voided"]
 
 _YEAR_RE = re.compile(r"\b(20\d{2})\b")
 _NAME_RE = re.compile(r"\b([A-Z][a-z]+(?: [A-Z][a-z]+)+)\b")
+# Full dates ("1 October 2026") and month-year pairs ("October 2026").
+_FULL_DATE_RE = re.compile(r"\b(\d{1,2})\s+([A-Za-z]+)\s+(20\d{2})\b")
+_MONTH_YEAR_RE = re.compile(r"\b([A-Za-z]+)\s+(20\d{2})\b")
+# "after <date>" / "since <date>" / "from <date>" leave the period open-ended.
+_OPEN_ENDED_RE = re.compile(r"\b(after|since|from)\b", re.IGNORECASE)
+# Sentinel end for open-ended periods; SQL compares transaction_date < :end_date.
+_OPEN_END = date(9999, 12, 31)
+
+_MONTHS = {
+    name.lower(): number
+    for number, name in enumerate(calendar.month_name)
+    if name
+}
 
 # Capitalized multi-word phrases that are NOT customer names (service names
 # from the test-pack data and dataset names). Keeps the deterministic
@@ -230,11 +244,39 @@ def extract_customer_name(question: str) -> Optional[str]:
 def parse_period(question: str) -> Tuple[date, date]:
     """Resolve the [start, end) date range for a question.
 
-    A 4-digit year in the question wins (e.g. "in 2027"); otherwise "this
-    year" and anything else default to the current calendar year. AN-008
-    relies on this: a future year simply yields an empty result set, which
-    the service reports honestly as ``no_data``.
+    Precedence: a full date ("1 October 2026") wins over a month-year pair
+    ("October 2026"), which wins over a bare 4-digit year ("in 2027"); with
+    no date mention, the current calendar year is used. "after <date>" leaves
+    the period open-ended (end = 9999-12-31) and is exclusive ("after 1
+    October" starts on 2 October); "since"/"from" are inclusive and also
+    open-ended. AN-008 relies on this: "after 1 October 2026" resolves to a
+    future, still-empty range, which the service reports honestly as
+    ``no_data`` instead of silently falling back to the year's data.
     """
+    full = _FULL_DATE_RE.search(question)
+    if full and full.group(2).lower() in _MONTHS:
+        day, year = int(full.group(1)), int(full.group(3))
+        start = date(year, _MONTHS[full.group(2).lower()], day)
+        if _OPEN_ENDED_RE.search(question, 0, full.start()):
+            if "after" in question.lower()[: full.start()]:
+                start += timedelta(days=1)
+            return start, _OPEN_END
+        return start, date(year + 1, 1, 1)
+
+    month_year = _MONTH_YEAR_RE.search(question)
+    if month_year and month_year.group(1).lower() in _MONTHS:
+        year = int(month_year.group(2))
+        start = date(year, _MONTHS[month_year.group(1).lower()], 1)
+        if _OPEN_ENDED_RE.search(question, 0, month_year.start()):
+            if "after" in question.lower()[: month_year.start()]:
+                start = date(
+                    year + (start.month == 12), start.month % 12 + 1, 1
+                )
+            return start, _OPEN_END
+        return start, date(
+            year + (start.month == 12), start.month % 12 + 1, 1
+        )
+
     year_match = _YEAR_RE.search(question)
     year = int(year_match.group(1)) if year_match else date.today().year
     return date(year, 1, 1), date(year + 1, 1, 1)
@@ -279,7 +321,13 @@ def classify_intent_keywords(question: str) -> Optional[str]:
             return "customer_average_ticket"
     if any(
         k in lowered
-        for k in ("highest spender", "top spender", "biggest spender", "spends the most")
+        for k in (
+            "highest spender",
+            "top spender",
+            "biggest spender",
+            "spends the most",
+            "spent the most",
+        )
     ):
         return "highest_spender"
     if any(k in lowered for k in ("rank", "ranking", "top customer")):

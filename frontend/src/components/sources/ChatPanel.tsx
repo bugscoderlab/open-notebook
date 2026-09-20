@@ -7,7 +7,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
-import { Bot, User, Send, Loader2, FileText, Lightbulb, StickyNote, Clock } from 'lucide-react'
+import { Bot, User, Send, Loader2, FileText, Lightbulb, StickyNote, Clock, Sparkles } from 'lucide-react'
 import { MarkdownRenderer } from '@/components/ui/markdown-renderer'
 import {
   SourceChatMessage,
@@ -103,10 +103,10 @@ export function ChatPanel({
 
   return (
     <>
-    <Card className="flex flex-col h-full flex-1 overflow-hidden">
-      <CardHeader className="pb-3 flex-shrink-0">
-        <div className="flex items-center justify-between">
-          <CardTitle className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.13em] text-muted-foreground">
+    <Card className="flex flex-col h-full min-h-[280px] flex-1 overflow-hidden rounded-md py-0 gap-0">
+      <CardHeader className="shrink-0 p-0">
+        <div className="flex items-center justify-between gap-2 border-b px-4 py-3">
+          <CardTitle className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.13em] text-muted-foreground">
             <span aria-hidden className="h-3.5 w-[3px] rounded-full bg-teal" />
             {title || (contextType === 'source' ? t('chat.chatWith', { name: t('navigation.sources') }) : t('chat.chatWith', { name: t('common.notebook') }))}
           </CardTitle>
@@ -141,6 +141,18 @@ export function ChatPanel({
           )}
         </div>
       </CardHeader>
+
+      {/* Notebook context indicators sit directly under the column header */}
+      {notebookContextStats && (
+        <ContextIndicator
+          sourcesInsights={notebookContextStats.sourcesInsights}
+          sourcesFull={notebookContextStats.sourcesFull}
+          notesCount={notebookContextStats.notesCount}
+          tokenCount={notebookContextStats.tokenCount}
+          charCount={notebookContextStats.charCount}
+        />
+      )}
+
       <CardContent className="flex-1 flex flex-col min-h-0 p-0">
         <ScrollArea className="flex-1 min-h-0 px-4" ref={scrollAreaRef}>
           <div className="space-y-4 py-4">
@@ -164,11 +176,9 @@ export function ChatPanel({
             )}
             {isStreaming && (
               <div className="flex gap-3 justify-start">
-                <div className="flex-shrink-0">
-                  <div className="h-8 w-8 rounded-full bg-teal-tint flex items-center justify-center">
-                    <Bot className="h-4 w-4 text-teal" />
-                  </div>
-                </div>
+                <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-fern-tint text-fern">
+                  <Sparkles className="h-4 w-4" />
+                </span>
                 <div className="rounded-lg px-4 py-2 bg-card border">
                   <Loader2 className="h-4 w-4 animate-spin" />
                 </div>
@@ -202,17 +212,6 @@ export function ChatPanel({
               )}
             </div>
           </div>
-        )}
-
-        {/* Notebook Context Indicator */}
-        {notebookContextStats && (
-          <ContextIndicator
-            sourcesInsights={notebookContextStats.sourcesInsights}
-            sourcesFull={notebookContextStats.sourcesFull}
-            notesCount={notebookContextStats.notesCount}
-            tokenCount={notebookContextStats.tokenCount}
-            charCount={notebookContextStats.charCount}
-          />
         )}
 
         {/* Input Area */}
@@ -334,18 +333,16 @@ const ChatMessage = memo(function ChatMessage({
       }`}
     >
       {message.type === 'ai' && (
-        <div className="flex-shrink-0">
-          <div className="h-8 w-8 rounded-full bg-teal-tint flex items-center justify-center">
-            <Bot className="h-4 w-4 text-teal" />
-          </div>
-        </div>
+        <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-fern-tint text-fern">
+          <Sparkles className="h-4 w-4" />
+        </span>
       )}
-      <div className="flex flex-col gap-2 max-w-[80%]">
+      <div className="flex flex-col gap-2 min-w-0 max-w-[75%]">
         <div
-          className={`rounded-lg px-4 py-2 border ${
+          className={`rounded-lg ${
             message.type === 'human'
-              ? 'bg-muted'
-              : 'bg-card'
+              ? 'bg-fern px-4 py-2.5 text-sm leading-relaxed text-primary-foreground'
+              : 'bg-card px-4 py-3 text-sm leading-relaxed ring-1 ring-inset ring-border'
           }`}
         >
           {message.type === 'ai' ? (

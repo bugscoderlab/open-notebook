@@ -3,7 +3,7 @@
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
+import { SectionCard } from '@/components/shell/section-card'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { LoadingSpinner } from '@/components/common/LoadingSpinner'
@@ -114,15 +114,18 @@ export function SettingsForm() {
   }
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle>{t('settings.contentProcessing')}</CardTitle>
-          <CardDescription>
-            {t('settings.contentProcessingDesc')}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
+    <form onSubmit={handleSubmit(onSubmit)} className="space-y-8">
+      <SectionCard
+        title={
+          <>
+            {t('settings.contentProcessing')}
+            <span className="mt-1 block font-sans text-sm font-normal tracking-normal text-muted-foreground">
+              {t('settings.contentProcessingDesc')}
+            </span>
+          </>
+        }
+      >
+        <div className="space-y-6 p-5">
           <div className="space-y-3">
             <Label htmlFor="doc_engine">{t('settings.docEngine')}</Label>
             <Controller
@@ -257,17 +260,20 @@ export function SettingsForm() {
               </CollapsibleContent>
             </Collapsible>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </SectionCard>
 
-       <Card>
-        <CardHeader>
-          <CardTitle>{t('settings.embeddingAndSearch')}</CardTitle>
-          <CardDescription>
-            {t('settings.embeddingAndSearchDesc')}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
+       <SectionCard
+        title={
+          <>
+            {t('settings.embeddingAndSearch')}
+            <span className="mt-1 block font-sans text-sm font-normal tracking-normal text-muted-foreground">
+              {t('settings.embeddingAndSearchDesc')}
+            </span>
+          </>
+        }
+      >
+        <div className="space-y-6 p-5">
            <div className="space-y-3">
             <Label htmlFor="embedding">{t('settings.defaultEmbeddingOption')}</Label>
             <Controller
@@ -302,17 +308,20 @@ export function SettingsForm() {
               </CollapsibleContent>
             </Collapsible>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </SectionCard>
 
-       <Card>
-        <CardHeader>
-          <CardTitle>{t('settings.fileManagement')}</CardTitle>
-          <CardDescription>
-            {t('settings.fileManagementDesc')}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
+       <SectionCard
+        title={
+          <>
+            {t('settings.fileManagement')}
+            <span className="mt-1 block font-sans text-sm font-normal tracking-normal text-muted-foreground">
+              {t('settings.fileManagementDesc')}
+            </span>
+          </>
+        }
+      >
+        <div className="space-y-6 p-5">
            <div className="space-y-3">
             <Label htmlFor="auto_delete">{t('settings.autoDeleteFiles')}</Label>
             <Controller
@@ -346,8 +355,8 @@ export function SettingsForm() {
               </CollapsibleContent>
             </Collapsible>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </SectionCard>
 
       <div className="flex justify-end">
          <Button 

@@ -140,7 +140,12 @@ down() {
   for port in 5055 3000; do
     lsof -ti :$port 2>/dev/null | xargs kill 2>/dev/null || true
   done
-  echo "dev-herdr: stack stopped (tab '$TAB_LABEL' left in place for logs)"
+  if [ -n "${TAB}" ]; then
+    herdr tab close "$TAB" >/dev/null 2>&1 || true
+    echo "dev-herdr: stack stopped, tab '$TAB_LABEL' closed"
+  else
+    echo "dev-herdr: stack stopped (no tab '$TAB_LABEL' to close)"
+  fi
 }
 
 status() {

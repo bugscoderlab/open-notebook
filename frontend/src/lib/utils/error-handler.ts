@@ -35,6 +35,8 @@ export const ERROR_MAP: Record<string, string> = {
   "Answer model": "apiErrors.answerModelNotFound",
   "Final answer model": "apiErrors.finalAnswerModelNotFound",
   "No answer generated": "apiErrors.noAnswerGenerated",
+  // T5 team link rule (add-existing-source backstop)
+  "Cannot link content across teams": "sources.cannotLinkAcrossTeams",
 };
 
 /**

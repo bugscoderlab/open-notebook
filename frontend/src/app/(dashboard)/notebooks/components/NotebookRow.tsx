@@ -21,9 +21,10 @@ import { getDateLocale } from '@/lib/utils/date-locale'
 
 interface NotebookRowProps {
   notebook: NotebookResponse
+  index?: number
 }
 
-export function NotebookRow({ notebook }: NotebookRowProps) {
+export function NotebookRow({ notebook, index = 0 }: NotebookRowProps) {
   const { t, language } = useTranslation()
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const router = useRouter()
@@ -47,38 +48,43 @@ export function NotebookRow({ notebook }: NotebookRowProps) {
           the accessible primary action (a real link) for keyboard/screen-reader
           users — avoiding nested interactive (button-in-button) semantics. */}
       <div
-        className="group flex items-center gap-4 rounded-lg border bg-card px-4 py-3 card-hover"
+        className="group flex cursor-pointer items-center gap-4 px-4 py-3 transition-colors hover:bg-muted/60"
         onClick={handleRowClick}
-        style={{ cursor: 'pointer' }}
       >
+        <span
+          aria-hidden
+          className="hidden w-7 shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground/50 sm:block"
+        >
+          {String(index + 1).padStart(2, '0')}
+        </span>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <Link
               href={`/notebooks/${encodeURIComponent(notebook.id)}`}
               onClick={(e) => e.stopPropagation()}
-              className="font-medium truncate rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="truncate rounded-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               {notebook.name}
             </Link>
             {notebook.archived && (
-              <Badge variant="secondary">
+              <Badge variant="secondary" className="shrink-0 ring-1 ring-inset ring-border">
                 {t('notebooks.archived')}
               </Badge>
             )}
           </div>
           {notebook.description && (
-            <p className="text-sm text-muted-foreground truncate">
+            <p className="truncate text-sm text-muted-foreground">
               {notebook.description}
             </p>
           )}
         </div>
 
-        <div className="flex items-center gap-3 shrink-0 text-xs text-muted-foreground">
-          <span className="flex items-center gap-1">
+        <div className="flex shrink-0 items-center gap-4 font-mono text-xs tabular-nums text-muted-foreground">
+          <span className="flex items-center gap-1.5">
             <FileText className="h-3 w-3" />
             <span>{notebook.source_count}</span>
           </span>
-          <span className="flex items-center gap-1">
+          <span className="flex items-center gap-1.5">
             <StickyNote className="h-3 w-3" />
             <span>{notebook.note_count}</span>
           </span>

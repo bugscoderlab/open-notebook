@@ -3,13 +3,14 @@
 import { ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { ChevronLeft, LucideIcon } from 'lucide-react'
+import { ChevronLeft } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 interface CollapsibleColumnProps {
   isCollapsed: boolean
   onToggle: () => void
-  collapsedIcon: LucideIcon
+  /** Color bar shown at the top of the collapsed rail (e.g. 'bg-sage', 'bg-gold'). */
+  collapsedColor: string
   collapsedLabel: string
   children: ReactNode
 }
@@ -17,7 +18,7 @@ interface CollapsibleColumnProps {
 export function CollapsibleColumn({
   isCollapsed,
   onToggle,
-  collapsedIcon: CollapsedIcon,
+  collapsedColor,
   collapsedLabel,
   children,
 }: CollapsibleColumnProps) {
@@ -31,19 +32,23 @@ export function CollapsibleColumn({
             <button
               onClick={onToggle}
               className={cn(
-                'flex flex-col items-center justify-center gap-3',
-                'w-12 h-full min-h-0',
-                'border rounded-lg',
+                'flex h-full min-h-[280px] w-full flex-col items-center gap-3',
+                'rounded-md border',
                 'bg-card hover:bg-accent/50',
-                'transition-all duration-150',
+                'px-2 py-4',
+                'text-muted-foreground hover:text-foreground',
+                'transition-colors',
                 'cursor-pointer group',
-                'py-6'
+                'lg:w-12'
               )}
               aria-label={`Expand ${collapsedLabel}`}
             >
-              <CollapsedIcon className="h-5 w-5 text-muted-foreground group-hover:text-foreground transition-colors flex-shrink-0" />
+              <span
+                aria-hidden
+                className={cn('h-3.5 w-[3px] shrink-0 rounded-full', collapsedColor)}
+              />
               <div
-                className="text-xs font-medium text-muted-foreground group-hover:text-foreground transition-colors whitespace-nowrap"
+                className="text-[11px] font-semibold uppercase tracking-[0.13em] whitespace-nowrap"
                 style={{ writingMode: 'vertical-rl', transform: isCJK ? 'none' : 'rotate(180deg)', textOrientation: 'mixed' }}
               >
                 {collapsedLabel}

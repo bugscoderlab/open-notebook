@@ -1,16 +1,12 @@
 'use client'
 
 import { useState } from 'react'
-import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { ConfirmDialog } from '@/components/common/ConfirmDialog'
-import { Badge } from '@/components/ui/badge'
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
-import { ChevronDown, ChevronRight, Trash2, Wand2, Edit } from 'lucide-react'
+import { Trash2, Wand2, Edit } from 'lucide-react'
 import { Transformation } from '@/lib/types/transformations'
-import { useDeleteTransformation } from '@/lib/hooks/use-transformations'
+import { useDeleteTransformation, useUpdateTransformation } from '@/lib/hooks/use-transformations'
 import { useTranslation } from '@/lib/hooks/use-translation'
-import { cn } from '@/lib/utils'
 
 interface TransformationCardProps {
   transformation: Transformation
@@ -20,89 +16,72 @@ interface TransformationCardProps {
 
 export function TransformationCard({ transformation, onPlayground, onEdit }: TransformationCardProps) {
   const { t } = useTranslation()
-  const [isExpanded, setIsExpanded] = useState(false)
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const deleteTransformation = useDeleteTransformation()
+  const updateTransformation = useUpdateTransformation()
 
   const handleDelete = () => {
     deleteTransformation.mutate(transformation.id)
     setShowDeleteDialog(false)
   }
 
+  const handleToggleDefault = () => {
+    updateTransformation.mutate({
+      id: transformation.id,
+      data: { apply_default: !transformation.apply_default },
+    })
+  }
+
   return (
     <>
-      <Collapsible open={isExpanded} onOpenChange={setIsExpanded}>
-        <Card>
-          <CardHeader>
-            <div className="flex items-start justify-between gap-4">
-              <CollapsibleTrigger className="flex-1 text-left">
-                <div className={cn('flex items-center gap-3', isExpanded ? 'mb-2' : '')}>
-                  {isExpanded ? (
-                    <ChevronDown className="h-5 w-5" />
-                  ) : (
-                    <ChevronRight className="h-5 w-5" />
-                  )}
-                  <div className="flex flex-col">
-                    <span className="font-semibold">{transformation.name}</span>
-                    {!isExpanded && transformation.description && (
-                      <span className="text-sm text-muted-foreground">{transformation.description}</span>
-                    )}
-                  </div>
-                  {transformation.apply_default && (
-                    <Badge variant="secondary">{t('common.default')}</Badge>
-                  )}
-                </div>
-              </CollapsibleTrigger>
+      <div className="card-hover flex flex-col rounded-lg border bg-card p-5">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h3 className="font-display text-[17px] font-semibold tracking-tight">{transformation.name}</h3>
+            {transformation.description && (
+              <p className="mt-1 text-sm text-muted-foreground">{transformation.description}</p>
+            )}
+          </div>
+          <button
+            type="button"
+            className="switch"
+            role="switch"
+            aria-checked={transformation.apply_default}
+            aria-label={t('transformations.suggestDefault')}
+            disabled={updateTransformation.isPending}
+            onClick={handleToggleDefault}
+          />
+        </div>
 
-              <div className="flex items-center gap-2">
-                {onPlayground && (
-                  <Button variant="outline" size="sm" onClick={onPlayground}>
-                    <Wand2 className="h-4 w-4 mr-2" />
-                    {t('transformations.playground')}
-                  </Button>
-                )}
-                {onEdit && (
-                  <Button variant="outline" size="sm" onClick={onEdit}>
-                    <Edit className="h-4 w-4 mr-2" />
-                    {t('common.edit')}
-                  </Button>
-                )}
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="text-destructive hover:text-destructive"
-                  onClick={() => setShowDeleteDialog(true)}
-                >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
-          </CardHeader>
+        <div className="mt-4 flex-1 rounded-md border bg-muted/60 p-3.5">
+          <pre className="whitespace-pre-wrap font-mono text-xs leading-relaxed text-muted-foreground">
+            {transformation.prompt}
+          </pre>
+        </div>
 
-          <CollapsibleContent>
-            <CardContent className="space-y-4">
-              <div>
-                <p className="text-sm text-muted-foreground">{t('common.title')}</p>
-                <p className="text-sm font-medium">{transformation.title || t('sources.untitledSource')}</p>
-              </div>
-
-              {transformation.description && (
-                <div>
-                  <p className="text-sm text-muted-foreground">{t('common.description')}</p>
-                  <p className="text-sm leading-6">{transformation.description}</p>
-                </div>
-              )}
-
-              <div>
-                <p className="text-sm text-muted-foreground">{t('transformations.systemPrompt')}</p>
-                <pre className="mt-2 whitespace-pre-wrap rounded-md bg-muted p-3 text-sm font-mono">
-                  {transformation.prompt}
-                </pre>
-              </div>
-            </CardContent>
-          </CollapsibleContent>
-        </Card>
-      </Collapsible>
+        <div className="mt-4 flex items-center justify-end gap-2 border-t border-border pt-3">
+          {onEdit && (
+            <Button variant="ghost" size="sm" onClick={onEdit}>
+              <Edit className="h-4 w-4 mr-2" />
+              {t('common.edit')}
+            </Button>
+          )}
+          {onPlayground && (
+            <Button variant="ghost" size="sm" onClick={onPlayground}>
+              <Wand2 className="h-4 w-4 mr-2" />
+              {t('transformations.playground')}
+            </Button>
+          )}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-destructive hover:text-destructive"
+            onClick={() => setShowDeleteDialog(true)}
+          >
+            <Trash2 className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
 
       <ConfirmDialog
         open={showDeleteDialog}

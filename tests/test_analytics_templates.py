@@ -70,6 +70,7 @@ class TestKeywordClassifier:
         [
             "Who is the highest spender this year?",
             "Who is the top spender in 2026?",
+            "Who spent the most after 1 October 2026?",
         ],
     )
     def test_highest_spender(self, question):
@@ -137,6 +138,29 @@ class TestQuestionParsing:
         start, end = qt.parse_period("Who is the highest spender this year?")
         assert start.month == 1 and start.day == 1
         assert end.year == start.year + 1
+
+    def test_parse_period_an008_after_full_date_is_future_open_ended(self):
+        # AN-008: "after 1 October 2026" must NOT fall back to the bare year
+        # (that would return 2026 YTD data for a future period). "after" is
+        # exclusive and open-ended.
+        start, end = qt.parse_period("Who spent the most after 1 October 2026?")
+        assert (start.isoformat(), end.isoformat()) == ("2026-10-02", "9999-12-31")
+
+    def test_parse_period_since_full_date_is_inclusive_open_ended(self):
+        start, end = qt.parse_period("Who spent the most since 1 October 2026?")
+        assert (start.isoformat(), end.isoformat()) == ("2026-10-01", "9999-12-31")
+
+    def test_parse_period_month_year(self):
+        start, end = qt.parse_period("highest spender in October 2026")
+        assert (start.isoformat(), end.isoformat()) == ("2026-10-01", "2026-11-01")
+
+    def test_parse_period_full_date_without_after_covers_year_remainder(self):
+        start, end = qt.parse_period("total spend on 1 October 2026")
+        assert (start.isoformat(), end.isoformat()) == ("2026-10-01", "2027-01-01")
+
+    def test_parse_period_after_month_year_rolls_to_next_month(self):
+        start, end = qt.parse_period("spend after October 2026")
+        assert (start.isoformat(), end.isoformat()) == ("2026-11-01", "9999-12-31")
 
     def test_build_template_params_are_server_controlled(self):
         template = qt.get_template("highest_spender")

@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { AppShell } from '@/components/layout/AppShell'
+import { PageContainer } from '@/components/layout/page-container'
 import { PageHead } from '@/components/shell/page-head'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -27,7 +28,7 @@ export default function TransformationsPage() {
   return (
     <AppShell>
       <div className="flex-1 overflow-y-auto">
-        <div className="p-6 space-y-6">
+        <PageContainer className="space-y-6">
           <PageHead
             title={t('transformations.title')}
             description={t('transformations.desc')}
@@ -69,7 +70,7 @@ export default function TransformationsPage() {
             />
           </TabsContent>
         </Tabs>
-        </div>
+        </PageContainer>
       </div>
     </AppShell>
   )

@@ -26,6 +26,10 @@ class NotebookResponse(BaseModel):
     updated: str
     source_count: int
     note_count: int
+    # T5: team scoping — the "add existing source" dialog matches these
+    # against each source's team to pre-filter the same-team link rule.
+    team_id: Optional[str] = None
+    visibility: Optional[str] = None
 
 
 class RecentlyViewedResponse(BaseModel):
@@ -423,6 +427,10 @@ class SourceListResponse(BaseModel):
     command_id: Optional[str] = None
     status: Optional[str] = None
     processing_info: Optional[Dict[str, Any]] = None
+    # T5: team scoping — lets the "add existing source" dialog filter out
+    # sources the same-team link rule would reject with a 403.
+    team_id: Optional[str] = None
+    visibility: Optional[str] = None
 
 
 # Insights API models

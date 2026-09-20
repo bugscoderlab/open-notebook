@@ -2,6 +2,7 @@
 
 import { useMemo } from 'react'
 import { AppShell } from '@/components/layout/AppShell'
+import { PageContainer } from '@/components/layout/page-container'
 import { LoadingSpinner } from '@/components/common/LoadingSpinner'
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert'
 import { Key, ShieldAlert, AlertCircle } from 'lucide-react'
@@ -75,6 +76,27 @@ export default function ApiKeysPage() {
 
   const isLoading = credentialsLoading || modelsLoading || defaultsLoading || providersLoading
 
+  // Routing summary: currently-selected default models (mirrors backend
+  // fallback where an unset transformation model uses the chat default).
+  const modelName = (id: string | null | undefined) =>
+    models?.find(m => m.id === id)?.name ?? null
+  const routing = defaults
+    ? [
+        {
+          label: t('models.chatModelLabel'),
+          value: modelName(defaults.default_chat_model),
+        },
+        {
+          label: t('models.transformationModelLabel'),
+          value: modelName(defaults.default_transformation_model) ?? modelName(defaults.default_chat_model),
+        },
+        {
+          label: t('models.embedding'),
+          value: modelName(defaults.default_embedding_model),
+        },
+      ]
+    : null
+
   if (isLoading) {
     return (
       <AppShell>
@@ -88,7 +110,7 @@ export default function ApiKeysPage() {
   return (
     <AppShell>
       <div className="flex-1 overflow-y-auto">
-        <div className="p-6 space-y-6">
+        <PageContainer className="space-y-6">
           {/* Header */}
           <div>
             <h1 className="font-display text-2xl font-bold tracking-tight flex items-center gap-2">
@@ -142,6 +164,23 @@ export default function ApiKeysPage() {
             </div>
           )}
 
+          {/* Routing summary */}
+          {routing && (
+            <div className="rounded-lg border bg-card p-5">
+              <h3 className="font-display text-sm font-semibold tracking-tight">
+                {t('models.defaultAssignments')}
+              </h3>
+              <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                {routing.map(item => (
+                  <div key={item.label} className="rounded-md border bg-muted px-3.5 py-3">
+                    <p className="text-xs text-muted-foreground">{item.label}</p>
+                    <p className="mt-0.5 font-mono text-sm">{item.value ?? '—'}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Help link */}
           <div className="border-t pt-4">
             <a
@@ -153,7 +192,7 @@ export default function ApiKeysPage() {
               {t('apiKeys.learnMore')}
             </a>
           </div>
-        </div>
+        </PageContainer>
       </div>
     </AppShell>
   )

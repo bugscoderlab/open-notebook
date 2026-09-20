@@ -50,8 +50,7 @@ export function NotebookHeader({ notebook }: NotebookHeaderProps) {
 
   return (
     <>
-      <div className="border-b pb-6">
-        <div className="space-y-2">
+      <div className="space-y-2">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3 flex-1">
               <InlineEdit
@@ -116,7 +115,6 @@ export function NotebookHeader({ notebook }: NotebookHeaderProps) {
             {t('common.created', { time: formatDistanceToNow(new Date(notebook.created), { addSuffix: true, locale: dfLocale }) })} • 
             {t('common.updated', { time: formatDistanceToNow(new Date(notebook.updated), { addSuffix: true, locale: dfLocale }) })}
           </div>
-        </div>
       </div>
 
       <NotebookDeleteDialog

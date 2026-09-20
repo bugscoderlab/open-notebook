@@ -54,6 +54,8 @@ function BarsChart({ answer }: { answer: AnalyticsAnswer }) {
 export function AnalyticsAnswerSurface({ answer }: { answer: AnalyticsAnswer }) {
   const { t } = useTranslation()
   const denied = answer.status === 'denied'
+  // A graphed answer replaces the table; the table is the no-chart fallback.
+  const hasChart = !!answer.chart && answer.chart.items.length > 0
   return (
     <div className="mt-4 rounded-xl border bg-card p-4" data-testid="analytics-answer">
       <div className="flex items-start justify-between gap-3">
@@ -95,7 +97,7 @@ export function AnalyticsAnswerSurface({ answer }: { answer: AnalyticsAnswer }) 
 
       {!denied && <BarsChart answer={answer} />}
 
-      {!denied && answer.table && (
+      {!denied && !hasChart && answer.table && (
         <div className="mt-4 overflow-x-auto">
           <table className="w-full text-left text-xs">
             <thead>

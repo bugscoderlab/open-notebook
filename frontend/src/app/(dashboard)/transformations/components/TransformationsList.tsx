@@ -78,7 +78,7 @@ export function TransformationsList({ transformations, isLoading, onPlayground }
           </Button>
         </div>
 
-        <div className="space-y-4">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           {transformations.map((transformation) => (
             <TransformationCard
               key={transformation.id}

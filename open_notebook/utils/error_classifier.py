@@ -31,6 +31,13 @@ _CLASSIFICATION_RULES: list[tuple[list[str], type[OpenNotebookError], str | None
         RateLimitError,
         "Rate limit exceeded. Please wait a moment and try again.",
     ),
+    # Insufficient credits (OpenRouter 402 and provider equivalents)
+    (
+        ["402", "insufficient credits", "exceed your available credits", "add credits"],
+        ExternalServiceError,
+        "Insufficient credits with the AI provider. Retry once in-flight "
+        "requests settle, or add credits to your provider account.",
+    ),
     # Model not found (pass through original message)
     (
         ["model not found", "does not exist", "model_not_found"],
@@ -83,6 +90,12 @@ def classify_error(exception: BaseException) -> tuple[type[OpenNotebookError], s
     error_str = str(exception).lower()
     error_type_name = type(exception).__name__.lower()
     combined = f"{error_type_name}: {error_str}"
+
+    # Already classified (e.g. a graph node wrapped the raw provider error
+    # before the stream layer saw it): pass the message through instead of
+    # re-wrapping it, which would double the "AI service error:" prefix.
+    if isinstance(exception, OpenNotebookError):
+        return type(exception), _truncate(str(exception))
 
     for keywords, exc_class, message in _CLASSIFICATION_RULES:
         for keyword in keywords:

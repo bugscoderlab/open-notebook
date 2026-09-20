@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Plus, Check, X } from 'lucide-react'
+import { Plus } from 'lucide-react'
 import { useTranslation } from '@/lib/hooks/use-translation'
 import { Credential } from '@/lib/api/credentials'
 import { ProviderInfo } from '@/lib/api/providers'
@@ -49,36 +49,31 @@ export function ProviderSection({
   const activeTypes = new Set<string>(providerModels.map(m => m.type))
 
   return (
-    <Card className={hasCredentials ? 'border-l-2 border-l-fern' : undefined}>
+    <Card>
       <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3 flex-wrap">
-            <CardTitle className={`text-lg capitalize ${hasCredentials ? '' : 'text-muted-foreground'}`}>{displayName}</CardTitle>
-            <div className="flex items-center gap-1">
-              {modalities.map((type) => (
-                <Badge
-                  key={type}
-                  variant="secondary"
-                  className={`text-xs gap-1 ${activeTypes.has(type) ? getTypeColor(type) : TYPE_COLOR_INACTIVE}`}
-                >
-                  {getTypeIcon(type)}
-                  <span className="hidden sm:inline">{getTypeLabel(type)}</span>
-                </Badge>
-              ))}
-            </div>
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <span
+              className={`h-2 w-2 rounded-full ${hasCredentials ? 'bg-fern' : 'bg-muted-foreground/40'}`}
+            />
+            <CardTitle className="font-display text-[17px] font-semibold tracking-tight">
+              {displayName}
+            </CardTitle>
+            <span className="font-mono text-[11px] text-muted-foreground">
+              {hasCredentials ? t('apiKeys.configured') : t('apiKeys.notConfigured')}
+            </span>
           </div>
-          <div className="flex items-center gap-2">
-            {hasCredentials ? (
-              <span className="inline-flex items-center gap-1.5 text-xs font-medium text-fern">
-                <Check className="h-3 w-3" />
-                {t('apiKeys.configured')}
-              </span>
-            ) : (
-              <span className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-                <X className="h-3 w-3" />
-                {t('apiKeys.notConfigured')}
-              </span>
-            )}
+          <div className="flex items-center gap-1">
+            {modalities.map((type) => (
+              <Badge
+                key={type}
+                variant="secondary"
+                className={`text-xs gap-1 ${activeTypes.has(type) ? getTypeColor(type) : TYPE_COLOR_INACTIVE}`}
+              >
+                {getTypeIcon(type)}
+                <span className="hidden sm:inline">{getTypeLabel(type)}</span>
+              </Badge>
+            ))}
           </div>
         </div>
       </CardHeader>

@@ -416,8 +416,8 @@ function SourceDetailContentInner({
             <InlineEdit
               value={source.title || ''}
               onSave={handleUpdateTitle}
-              className="text-2xl font-bold"
-              inputClassName="text-2xl font-bold"
+              className="font-display text-2xl font-bold leading-snug tracking-tight"
+              inputClassName="font-display text-2xl font-bold leading-snug tracking-tight"
               placeholder={t('sources.titlePlaceholder')}
               emptyText={t('sources.untitledSource')}
             />
@@ -486,12 +486,30 @@ function SourceDetailContentInner({
       {/* Tabs Content */}
       <div className="flex-1 overflow-y-auto">
         <Tabs defaultValue="content" className="w-full">
-          <TabsList className="w-full sticky top-0 z-10 bg-card">
-            <TabsTrigger value="content">{t('sources.content')}</TabsTrigger>
-            <TabsTrigger value="insights">
-              {t('common.insights')} {insights.length > 0 && `(${insights.length})`}
+          <TabsList className="sticky top-0 z-10 -mx-1 flex w-full items-center gap-1 border-b border-border bg-background px-1">
+            <TabsTrigger
+              value="content"
+              className="relative -mb-px flex h-auto flex-initial items-center gap-2 border-b-2 border-transparent px-3 py-2 data-[state=active]:border-fern"
+            >
+              {t('sources.content')}
             </TabsTrigger>
-            <TabsTrigger value="details">{t('sources.details')}</TabsTrigger>
+            <TabsTrigger
+              value="insights"
+              className="relative -mb-px flex h-auto flex-initial items-center gap-2 border-b-2 border-transparent px-3 py-2 data-[state=active]:border-fern"
+            >
+              {t('common.insights')}
+              {insights.length > 0 && (
+                <span className="rounded-[4px] bg-muted px-1.5 py-0.5 font-mono text-[10.5px] tabular-nums text-muted-foreground ring-1 ring-inset ring-border">
+                  {insights.length}
+                </span>
+              )}
+            </TabsTrigger>
+            <TabsTrigger
+              value="details"
+              className="relative -mb-px flex h-auto flex-initial items-center gap-2 border-b-2 border-transparent px-3 py-2 data-[state=active]:border-fern"
+            >
+              {t('sources.details')}
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="content" className="mt-5">

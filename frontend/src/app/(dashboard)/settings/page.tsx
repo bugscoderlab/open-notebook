@@ -16,7 +16,7 @@ export default function SettingsPage() {
     <AppShell>
       <div className="flex-1 overflow-y-auto">
         <div className="p-6">
-          <div className="max-w-4xl">
+          <div className="max-w-3xl">
             <PageHead
               className="mb-6"
               title={t('navigation.settings')}

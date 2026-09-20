@@ -2,7 +2,6 @@
 
 import { useRouter, useParams } from 'next/navigation'
 import { useCallback } from 'react'
-import { Button } from '@/components/ui/button'
 import { ArrowLeft } from 'lucide-react'
 import { useSourceChat } from '@/lib/hooks/use-source-chat'
 import { ChatPanel } from '@/components/sources/ChatPanel'
@@ -26,23 +25,22 @@ export default function SourceDetailPage() {
 
   return (
     <div className="flex flex-col h-screen">
-      {/* Back button */}
-      <div className="pt-6 pb-4 px-6">
-        <Button
-          variant="ghost"
-          size="sm"
+      {/* Back link */}
+      <div className="shrink-0 px-6 pt-6 lg:px-8">
+        <button
+          type="button"
           onClick={handleBack}
-          className="mb-4"
+          className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-sm text-muted-foreground transition-colors hover:bg-card hover:text-foreground"
         >
-          <ArrowLeft className="mr-2 h-4 w-4" />
+          <ArrowLeft className="h-4 w-4" />
           {navigation.getReturnLabel()}
-        </Button>
+        </button>
       </div>
 
       {/* Main content: Source detail + Chat */}
-      <div className="flex-1 grid gap-6 lg:grid-cols-[2fr_1fr] overflow-hidden px-6">
+      <div className="grid min-h-0 flex-1 gap-6 px-6 pb-6 pt-4 lg:grid-cols-[2fr_1fr] lg:px-8">
         {/* Left column - Source detail */}
-        <div className="overflow-y-auto px-4 pb-6">
+        <div className="min-h-0 overflow-y-auto pr-1">
           <SourceDetailContent
             sourceId={sourceId}
             showChatButton={false}
@@ -51,7 +49,7 @@ export default function SourceDetailPage() {
         </div>
 
         {/* Right column - Chat */}
-        <div className="overflow-y-auto px-4 pb-6">
+        <div className="min-h-0 overflow-y-auto">
           <ChatPanel
             messages={chat.messages}
             isStreaming={chat.isStreaming}

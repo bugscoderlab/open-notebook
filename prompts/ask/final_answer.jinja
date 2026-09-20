@@ -8,6 +8,12 @@ You are responsible for the last step of the process, which is to provide the fi
 
 This is the question originally made by the user:
 
+{% if chat_history %}
+# CONVERSATION SO FAR
+
+{{chat_history}}
+
+{% endif %}
 {{question}}
 
 # REASONS

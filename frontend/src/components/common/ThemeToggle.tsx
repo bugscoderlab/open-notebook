@@ -25,7 +25,7 @@ export function ThemeToggle({ iconOnly = false }: ThemeToggleProps) {
         <Button 
           variant={iconOnly ? "ghost" : "outline"} 
           size={iconOnly ? "icon" : "default"} 
-          className={iconOnly ? "h-9 w-full sidebar-menu-item" : "w-full justify-start gap-2 px-3 sidebar-menu-item"}
+          className={iconOnly ? "h-9 w-full sidebar-menu-item" : "w-full justify-start gap-2 px-3 sidebar-menu-item bg-card"}
         >
           <span className="relative size-4">
             <Sun className="absolute inset-0 size-4 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />

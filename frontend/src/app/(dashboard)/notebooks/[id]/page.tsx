@@ -154,15 +154,15 @@ export default function NotebookPage() {
   return (
     <AppShell>
       <div className="flex flex-col flex-1 min-h-0">
-        <div className="flex-shrink-0 p-6 pb-0">
+        <div className="shrink-0 border-b border-border px-6 pb-5 pt-6 lg:px-8">
           <NotebookHeader notebook={notebook} />
         </div>
 
-        <div className="flex-1 p-6 pt-6 overflow-x-auto flex flex-col">
+        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-x-auto p-6 lg:flex-row lg:gap-6 lg:p-8">
           {/* Mobile: Tabbed interface - only render on mobile to avoid double-mounting */}
           {!isDesktop && (
             <>
-              <div className="lg:hidden mb-4">
+              <div className="lg:hidden">
                 <Tabs value={mobileActiveTab} onValueChange={(value) => setMobileActiveTab(value as 'sources' | 'notes' | 'chat')}>
                   <TabsList className="grid w-full grid-cols-3">
                     <TabsTrigger value="sources" className="gap-2">
@@ -182,7 +182,7 @@ export default function NotebookPage() {
               </div>
 
               {/* Mobile: Show only active tab */}
-              <div className="flex-1 overflow-hidden lg:hidden">
+              <div className="min-h-0 flex-1 overflow-hidden lg:hidden">
                 {mobileActiveTab === 'sources' && (
                   <SourcesColumn
                     sources={sources}
@@ -222,7 +222,7 @@ export default function NotebookPage() {
 
           {/* Desktop: Collapsible columns layout */}
           <div className={cn(
-            'hidden lg:flex h-full min-h-0 gap-6 transition-all duration-150',
+            'hidden lg:flex h-full min-h-0 flex-1 gap-6 transition-all duration-150',
             'flex-row'
           )}>
             {/* Sources Column */}
@@ -261,7 +261,7 @@ export default function NotebookPage() {
             </div>
 
             {/* Chat Column - always expanded, takes remaining space */}
-            <div className="transition-all duration-150 flex-1 min-w-0 lg:pr-6 lg:-mr-6">
+            <div className="transition-all duration-150 min-w-0 flex-1">
               <ChatColumn
                 notebookId={notebookId}
                 contextSelections={contextSelections}

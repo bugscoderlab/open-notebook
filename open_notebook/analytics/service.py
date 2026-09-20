@@ -378,6 +378,47 @@ def _build_chart(template_id: str, rows: List[Dict[str, Any]]) -> Optional[Dict[
     return None
 
 
+# Bar charts are only useful up to this many rows; wider results stay
+# table-only (500 bars are unreadable — the table carries that answer).
+_CHART_MAX_ROWS = 90
+
+
+def _chart_from_table(rows: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """Synthesize a bars chart from a free-form result table (ADR-015 path).
+
+    Text-to-SQL answers have no fixed column shape, so the chart is derived:
+    the first date-like column (else the first non-numeric column) becomes
+    the label, the first numeric column the value — e.g. daily revenue rows
+    (transaction_date, total) chart as one bar per day. Returns None when
+    no sane label/value pairing exists or the result is too wide to chart.
+    """
+    if not rows or len(rows) > _CHART_MAX_ROWS:
+        return None
+    columns = list(rows[0].keys())
+    numeric = [
+        c
+        for c in columns
+        if all(
+            isinstance(r.get(c), (int, float)) and not isinstance(r.get(c), bool)
+            for r in rows
+        )
+    ]
+    labels = [c for c in columns if c not in numeric]
+    date_labels = [c for c in labels if "date" in c.lower() or "day" in c.lower()]
+    label_col = date_labels[0] if date_labels else (labels[0] if labels else None)
+    value_col = next((c for c in numeric if c != label_col), None)
+    if not label_col or not value_col:
+        return None
+    return {
+        "kind": "bars",
+        "title": f"{value_col.replace('_', ' ')} by {label_col.replace('_', ' ')}",
+        "items": [
+            {"label": str(r.get(label_col)), "value": _plain(r.get(value_col))}
+            for r in rows
+        ],
+    }
+
+
 async def ask_analytics_question(
     *,
     caller: AnalyticsCaller,
@@ -621,6 +662,7 @@ async def _answer_from_generated(
             "columns": columns,
             "rows": [[row.get(column) for column in columns] for row in json_rows],
         },
+        chart=_chart_from_table(json_rows),
         scope=scope,
         freshness_at=freshness_iso,
         query_template=attempt.sql,

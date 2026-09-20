@@ -4,7 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { useTranslation } from '@/lib/hooks/use-translation'
 import { AppShell } from '@/components/layout/AppShell'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { PageContainer } from '@/components/layout/page-container'
+import { Tabs, TabsContent } from '@/components/ui/tabs'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Button } from '@/components/ui/button'
@@ -168,25 +169,46 @@ export default function SearchPage() {
 
   return (
     <AppShell>
-      <div className="flex-1 overflow-y-auto p-4 md:p-6">
-        <h1 className="font-display text-xl md:text-2xl font-bold tracking-tight mb-4 md:mb-6">{t('searchPage.askAndSearch')}</h1>
-
-        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'ask' | 'search')} className="w-full space-y-6">
-          <div className="space-y-2">
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t('searchPage.chooseAMode')}</p>
-            <TabsList aria-label={t('common.accessibility.searchKB')} className="w-full max-w-xl">
-              <TabsTrigger value="ask">
-                <MessageCircleQuestion className="h-4 w-4" />
-                {t('searchPage.askBeta')}
-              </TabsTrigger>
-              <TabsTrigger value="search">
-                <Search className="h-4 w-4" />
-                {t('searchPage.search')}
-              </TabsTrigger>
-            </TabsList>
+      <div className="flex-1 overflow-y-auto">
+        <PageContainer className="space-y-6">
+          {/* Catalog (01-catalog.html) askHeader: centered title + subtitle */}
+          <div className="mx-auto max-w-3xl space-y-1.5 text-center">
+            <h1 className="font-display text-3xl font-bold tracking-tight">{t('searchPage.askAndSearch')}</h1>
+            <p className="text-sm text-muted-foreground">{t('searchPage.chooseAMode')}</p>
           </div>
 
-          <TabsContent value="ask" className="mt-6">
+        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'ask' | 'search')} className="w-full space-y-6">
+          {/* Catalog askToggle: segmented pill toggle instead of boxed tabs chrome */}
+          <div
+            className="mx-auto flex w-fit items-center gap-1 rounded-md border bg-muted p-1"
+            role="tablist"
+            aria-label={t('common.accessibility.searchKB')}
+          >
+            {(
+              [
+                { key: 'ask', label: t('searchPage.askBeta'), icon: <MessageCircleQuestion className="h-4 w-4" /> },
+                { key: 'search', label: t('searchPage.search'), icon: <Search className="h-4 w-4" /> },
+              ] as const
+            ).map(({ key, label, icon }) => (
+              <button
+                key={key}
+                type="button"
+                role="tab"
+                aria-selected={activeTab === key}
+                onClick={() => setActiveTab(key)}
+                className={`flex items-center gap-2 rounded-[4px] px-5 py-1.5 text-sm font-medium transition-colors ${
+                  activeTab === key
+                    ? 'bg-card text-foreground shadow-sm ring-1 ring-inset ring-border'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {icon}
+                {label}
+              </button>
+            ))}
+          </div>
+
+          <TabsContent value="ask" className="mx-auto mt-6 w-full max-w-3xl">
             {/* Prototype modebar: Knowledge | Analytics (T9) */}
             <div className="mb-4 inline-flex rounded-lg border" role="group" aria-label={t('searchPage.analyticsModeGroup')}>
               {(
@@ -352,7 +374,7 @@ export default function SearchPage() {
             )}
           </TabsContent>
 
-          <TabsContent value="search" className="mt-6">
+          <TabsContent value="search" className="mx-auto mt-6 w-full max-w-3xl">
             <Card>
               <CardHeader>
                 <CardTitle className="text-lg">{t('searchPage.search')}</CardTitle>
@@ -367,18 +389,22 @@ export default function SearchPage() {
                     {t('searchPage.search')}
                   </Label>
                   <div className="flex flex-col sm:flex-row gap-2">
-                    <Input
-                      id="search-query"
-                      name="search-query"
-                      placeholder={t('searchPage.enterSearchPlaceholder')}
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      onKeyPress={handleKeyPress}
-                      disabled={searchMutation.isPending}
-                      className="flex-1"
-                      aria-label={t('common.accessibility.enterSearch')}
-                      autoComplete="off"
-                    />
+                    {/* Catalog searchView: big field with an absolutely positioned search icon */}
+                    <div className="relative flex-1">
+                      <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                      <Input
+                        id="search-query"
+                        name="search-query"
+                        placeholder={t('searchPage.enterSearchPlaceholder')}
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        onKeyPress={handleKeyPress}
+                        disabled={searchMutation.isPending}
+                        className="flex-1 rounded-lg py-3 pl-10 text-[15px]"
+                        aria-label={t('common.accessibility.enterSearch')}
+                        autoComplete="off"
+                      />
+                    </div>
                     <Button
                       onClick={handleSearch}
                       disabled={searchMutation.isPending || !searchQuery.trim()}
@@ -482,10 +508,11 @@ export default function SearchPage() {
                 {/* Search Results */}
                 {searchMutation.data && (
                   <div className="mt-6 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <h3 className="text-sm font-medium">
+                    <div className="flex items-center justify-between gap-3">
+                      {/* Catalog ask-count: mono, quiet results count */}
+                      <p className="font-mono text-xs text-muted-foreground">
                         {t('searchPage.resultsFound', { count: searchMutation.data.total_count })}
-                      </h3>
+                      </p>
                       <Badge variant="outline">{searchMutation.data.search_type === 'text' ? t('searchPage.textSearch') : t('searchPage.vectorSearch')}</Badge>
                     </div>
 
@@ -544,6 +571,7 @@ export default function SearchPage() {
             </Card>
           </TabsContent>
         </Tabs>
+        </PageContainer>
       </div>
     </AppShell>
   )

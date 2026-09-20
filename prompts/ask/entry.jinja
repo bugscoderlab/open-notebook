@@ -39,6 +39,16 @@ Your answer could be something like:
 
 # USER QUESTION
 
+{% if chat_history %}
+# CONVERSATION SO FAR
+
+The user is following up on an earlier conversation. Use it to interpret
+references like "that", "it", or "tell me more" in their question — but run
+fresh searches for the current question, don't rely on memory alone.
+
+{{chat_history}}
+
+{% endif %}
 {{question}}
 
 # ANSWER

@@ -1,7 +1,7 @@
 'use client'
 
-import { useCallback, useState } from 'react'
-import { AlertCircle, Loader2, RefreshCcw } from 'lucide-react'
+import { useCallback } from 'react'
+import { AlertCircle, Loader2, Mic, RefreshCcw } from 'lucide-react'
 
 import { useDeletePodcastEpisode, usePodcastEpisodes, useRetryPodcastEpisode } from '@/lib/hooks/use-podcasts'
 import { EpisodeCard } from '@/components/podcasts/EpisodeCard'
@@ -9,7 +9,6 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
-import { GeneratePodcastDialog } from '@/components/podcasts/GeneratePodcastDialog'
 import { useTranslation } from '@/lib/hooks/use-translation'
 import type { TFunction } from 'i18next'
 
@@ -51,7 +50,6 @@ function SummaryBadge({ label, value }: { label: string; value: number }) {
 
 export function EpisodesTab() {
   const { t } = useTranslation()
-  const [showGenerateDialog, setShowGenerateDialog] = useState(false)
   const {
     episodes,
     statusGroups,
@@ -83,38 +81,26 @@ export function EpisodesTab() {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="space-y-1">
-          <h2 className="font-display text-xl font-semibold tracking-tight">{t('podcasts.overviewTitle')}</h2>
-          <p className="text-sm text-muted-foreground">
-            {t('podcasts.overviewDesc')}
-          </p>
+        <div className="flex flex-wrap gap-2">
+          <SummaryBadge label={t('podcasts.total')} value={statusCounts.total} />
+          <SummaryBadge label={t('podcasts.processingLabel')} value={statusCounts.running} />
+          <SummaryBadge label={t('podcasts.completedLabel')} value={statusCounts.completed} />
+          <SummaryBadge label={t('podcasts.failedLabel')} value={statusCounts.failed} />
+          <SummaryBadge label={t('podcasts.pendingLabel')} value={statusCounts.pending} />
         </div>
-        <div className="flex items-center gap-2">
-          <Button onClick={() => setShowGenerateDialog(true)}>
-            {t('podcasts.generateBtn')}
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleRefresh}
-            disabled={isFetching}
-          >
-            {isFetching ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <RefreshCcw className="mr-2 h-4 w-4" />
-            )}
-            {t('common.refresh')}
-          </Button>
-        </div>
-      </div>
-
-      <div className="flex flex-wrap gap-2">
-        <SummaryBadge label={t('podcasts.total')} value={statusCounts.total} />
-        <SummaryBadge label={t('podcasts.processingLabel')} value={statusCounts.running} />
-        <SummaryBadge label={t('podcasts.completedLabel')} value={statusCounts.completed} />
-        <SummaryBadge label={t('podcasts.failedLabel')} value={statusCounts.failed} />
-        <SummaryBadge label={t('podcasts.pendingLabel')} value={statusCounts.pending} />
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleRefresh}
+          disabled={isFetching}
+        >
+          {isFetching ? (
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          ) : (
+            <RefreshCcw className="mr-2 h-4 w-4" />
+          )}
+          {t('common.refresh')}
+        </Button>
       </div>
 
       {isError ? (
@@ -157,7 +143,7 @@ export function EpisodesTab() {
               ) : null}
             </div>
             <Separator />
-            <div className="space-y-4">
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
               {data.map((episode) => (
                 <EpisodeCard
                   key={episode.id}
@@ -173,10 +159,17 @@ export function EpisodesTab() {
         )
       })}
 
-      <GeneratePodcastDialog
-        open={showGenerateDialog}
-        onOpenChange={setShowGenerateDialog}
-      />
+      {episodes.length > 0 ? (
+        <div className="rounded-lg border border-dashed border-border px-6 py-10 text-center">
+          <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-lg border border-border bg-muted text-muted-foreground">
+            <Mic className="h-5 w-5" />
+          </div>
+          <h3 className="text-lg font-medium">{t('podcasts.templateExplainerTitle')}</h3>
+          <p className="mx-auto mt-1.5 max-w-[52ch] text-sm text-muted-foreground">
+            {t('podcasts.templateExplainerDesc')}
+          </p>
+        </div>
+      ) : null}
     </div>
   )
 }

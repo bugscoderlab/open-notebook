@@ -48,9 +48,10 @@ import {
   FolderCog,
 } from 'lucide-react'
 
-// Prototype shell (T2) — section groups mirror the team-access prototype:
-// KNOWLEDGE / CREATE / SYSTEM. Models stays at /settings/models as a nested
-// settings item.
+// Catalog shell (01-catalog.html): same sections and role rules as before,
+// but the chrome follows the "Quiet Green" catalog prototype — a recessed
+// light sidebar (bg-deep) with ink text, a fern active indicator, and
+// ring-inset hairlines instead of the old dark green nav palette.
 //
 // Role awareness (T4): `requiresAdmin` items (Users/Teams) render only for
 // admins; `hideFromNonAdmins` items (Advanced) render for admins and in open
@@ -69,7 +70,7 @@ const getNavigation = (t: TFunction): { title: string; items: NavItem[] }[] => [
   {
     title: t('navigation.knowledge'),
     items: [
-      { name: t('navigation.home'), href: '/', icon: Home, iconClass: undefined },
+      { name: t('navigation.home'), href: '/home', icon: Home, iconClass: undefined },
       { name: t('navigation.notebooks'), href: '/notebooks', icon: Book, iconClass: undefined },
       { name: t('navigation.sources'), href: '/sources', icon: FileText, iconClass: undefined },
       { name: t('navigation.askAndSearch'), href: '/search', icon: Search, iconClass: undefined },
@@ -167,7 +168,7 @@ export function AppSidebar() {
     <TooltipProvider delayDuration={0}>
       <div
         className={cn(
-          'app-sidebar flex h-full flex-col bg-shell-nav border-r border-white/10 transition-all duration-300',
+          'app-sidebar flex h-full flex-col border-r border-sidebar-border bg-sidebar transition-all duration-300',
           showCollapsed ? 'w-[76px]' : 'w-[244px]'
         )}
       >
@@ -184,7 +185,7 @@ export function AppSidebar() {
                 variant="ghost"
                 size="sm"
                 onClick={toggleCollapse}
-                className="absolute text-white hover:bg-shell-nav-hover hover:text-white opacity-0 group-hover:opacity-100 transition-opacity"
+                className="absolute text-muted-foreground opacity-0 transition-opacity hover:bg-sidebar-accent hover:text-foreground group-hover:opacity-100"
               >
                 <Menu className="h-4 w-4" />
               </Button>
@@ -193,7 +194,7 @@ export function AppSidebar() {
             <>
               <div className="flex items-center gap-2.5">
                 <LogoPebbles />
-                <span className="font-display text-[15px] font-bold tracking-tight text-white">
+                <span className="font-display text-[15px] font-bold tracking-tight text-sidebar-foreground">
                   {t('common.appName')}
                 </span>
               </div>
@@ -201,7 +202,7 @@ export function AppSidebar() {
                 variant="ghost"
                 size="sm"
                 onClick={toggleCollapse}
-                className="text-shell-nav-muted hover:bg-shell-nav-hover hover:text-white"
+                className="text-muted-foreground hover:bg-sidebar-accent hover:text-foreground"
                 data-testid="sidebar-toggle"
               >
                 <ChevronLeft className="h-4 w-4" />
@@ -296,11 +297,11 @@ export function AppSidebar() {
           {navigation.map((section, index) => (
             <div key={section.title}>
               {index > 0 && (
-                <div className="mx-3 my-3 h-px bg-white/10" />
+                <div className="mx-3 my-3 h-px bg-border" />
               )}
               <div className="space-y-1">
                 {!showCollapsed && (
-                  <h3 className="mb-1.5 px-3 text-[9px] font-extrabold uppercase tracking-[0.13em] text-shell-nav-dim">
+                  <h3 className="mb-1.5 px-3 text-[10.5px] font-bold uppercase tracking-[0.14em] text-muted-foreground/70">
                     {section.title}
                   </h3>
                 )}
@@ -311,14 +312,14 @@ export function AppSidebar() {
                     <Button
                       variant="ghost"
                       className={cn(
-                        'sidebar-menu-item relative w-full gap-2.5 rounded-[9px] text-[13px] font-medium text-shell-nav-muted',
-                        'hover:bg-shell-nav-hover hover:text-white',
+                        'sidebar-menu-item relative w-full gap-2.5 rounded-md text-[13px] font-medium text-muted-foreground',
+                        'hover:bg-sidebar-accent',
                         isActive &&
-                          'bg-shell-nav-hover font-semibold text-white ring-1 ring-inset ring-white/10 before:absolute before:-left-1.5 before:top-[7px] before:bottom-[7px] before:w-[3px] before:rounded-[2px] before:bg-white',
+                          'bg-sidebar-accent font-semibold text-sidebar-foreground ring-1 ring-inset ring-border before:absolute before:-left-1.5 before:top-[7px] before:bottom-[7px] before:w-[3px] before:rounded-[2px] before:bg-fern',
                         showCollapsed ? 'justify-center px-2' : 'justify-start'
                       )}
                     >
-                      <item.icon className="h-4 w-4 opacity-85" />
+                      <item.icon className={cn('h-4 w-4 opacity-85', isActive && 'text-teal')} />
                       {!showCollapsed && <span>{item.name}</span>}
                     </Button>
                   )
@@ -349,7 +350,7 @@ export function AppSidebar() {
 
         <div
           className={cn(
-            'border-t border-white/10 p-3 space-y-2',
+            'border-t border-sidebar-border p-3 space-y-2',
             showCollapsed && 'px-2'
           )}
         >
@@ -361,17 +362,17 @@ export function AppSidebar() {
 
           {/* Command Palette hint */}
           {!showCollapsed && (
-            <div className="px-3 py-1.5 text-xs text-shell-nav-muted">
+            <div className="px-3 py-1.5 text-xs text-muted-foreground">
               <div className="flex items-center justify-between">
                  <span className="flex items-center gap-1.5">
                   <Command className="h-3 w-3" />
                   {t('common.quickActions')}
                 </span>
-                <kbd className="pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border border-white/15 bg-white/5 px-1.5 font-mono text-[10px] font-medium text-shell-nav-muted">
+                <kbd className="pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border border-border bg-secondary px-1.5 font-mono text-[10px] font-medium text-muted-foreground">
                   {isMac ? <span className="text-xs">⌘</span> : <span>Ctrl+</span>}K
                 </kbd>
               </div>
-               <p className="mt-1 text-[10px] text-shell-nav-dim">
+               <p className="mt-1 text-[10px] text-muted-foreground/70">
                 {t('common.quickActionsDesc')}
               </p>
             </div>
@@ -415,7 +416,7 @@ export function AppSidebar() {
               <TooltipTrigger asChild>
                 <Button
                   variant="outline"
-                  className="w-full justify-center sidebar-menu-item"
+                  className="w-full justify-center sidebar-menu-item bg-card"
                   onClick={logout}
                   aria-label={t('common.signOut')}
                 >
@@ -427,7 +428,7 @@ export function AppSidebar() {
           ) : (
             <Button
               variant="outline"
-              className="w-full justify-start gap-2 sidebar-menu-item"
+              className="w-full justify-start gap-2 sidebar-menu-item bg-card text-muted-foreground hover:text-foreground"
               onClick={logout}
               aria-label={t('common.signOut')}
              >

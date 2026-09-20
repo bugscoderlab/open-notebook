@@ -1,3 +1,5 @@
+import type { AnalyticsAnswer } from './analytics'
+
 export interface NotebookResponse {
   id: string
   name: string
@@ -7,6 +9,9 @@ export interface NotebookResponse {
   updated: string
   source_count: number
   note_count: number
+  // T5 team scoping — used to pre-filter the add-existing-source dialog
+  team_id?: string | null
+  visibility?: string | null
 }
 
 export interface NoteResponse {
@@ -36,6 +41,9 @@ export interface SourceListResponse {
   command_id?: string
   status?: string
   processing_info?: Record<string, unknown>
+  // T5 team scoping — used to pre-filter the add-existing-source dialog
+  team_id?: string | null
+  visibility?: string | null
 }
 
 export interface SourceDetailResponse extends SourceListResponse {
@@ -193,6 +201,65 @@ export interface SourceChatStreamEvent {
   type: 'user_message' | 'ai_message' | 'context_indicators' | 'complete' | 'error'
   content?: string
   data?: unknown
+  message?: string
+  timestamp?: string
+}
+
+
+// Home Chat Types (unified knowledge + analytics ask chat)
+export type HomeChatSession = BaseChatSession
+
+export interface HomeChatTurn {
+  analytics_answer?: AnalyticsAnswer | null
+  suggestions?: string[]
+}
+
+export interface HomeChatSessionWithMessages extends HomeChatSession {
+  messages: SourceChatMessage[]
+  turns: HomeChatTurn[]
+}
+
+export interface CreateHomeChatSessionRequest {
+  title?: string
+  model_override?: string
+}
+
+export interface UpdateHomeChatSessionRequest {
+  title?: string
+  model_override?: string
+}
+
+export interface SendHomeMessageRequest {
+  message: string
+  notebook_ids?: string[]
+  include_refunds?: boolean
+  strategy_model?: string
+  answer_model?: string
+  final_answer_model?: string
+  model_override?: string
+}
+
+export type HomeChatRoute = 'knowledge' | 'analytics'
+
+export interface HomeChatStreamEvent {
+  type:
+    | 'user_message'
+    | 'route'
+    | 'strategy'
+    | 'answer'
+    | 'final_answer'
+    | 'analytics_answer'
+    | 'suggestions'
+    | 'complete'
+    | 'error'
+  content?: string
+  route?: HomeChatRoute
+  reasoning?: string
+  searches?: Array<{ term: string; instructions: string }>
+  data?: AnalyticsAnswer
+  suggestions?: string[]
+  final_answer?: string | null
+  analytics_answer?: AnalyticsAnswer | null
   message?: string
   timestamp?: string
 }

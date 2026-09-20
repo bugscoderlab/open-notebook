@@ -56,6 +56,10 @@ class ThreadState(TypedDict):
     # Optional notebook scope: when non-empty, every search the strategy fans
     # out runs only against sources/notes linked to these notebooks (#574, #87).
     notebook_ids: list
+    # Optional conversation history (rendered "User:/Assistant:" turns) so the
+    # home chat can answer follow-ups. Never set by the standalone ask
+    # endpoint — the prompts only render the section when it's non-empty.
+    chat_history: str
 
 
 async def call_model_with_messages(state: ThreadState, config: RunnableConfig) -> dict:

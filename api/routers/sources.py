@@ -308,7 +308,10 @@ async def get_sources(
             # T5: listing a notebook's sources requires read access to it.
             await check_notebook_read(user, notebook_id)
 
-            from_clause = "(select value in from reference where out=$notebook_id)"
+            # DISTINCT: a duplicate reference edge (same source linked twice)
+            # would otherwise list the source twice. SurrealDB 2.x removed
+            # `SELECT DISTINCT VALUE`; array::distinct is the 2.x equivalent.
+            from_clause = "(SELECT VALUE array::distinct((SELECT VALUE in FROM reference WHERE out=$notebook_id)) FROM ONLY true)"
             params["notebook_id"] = ensure_record_id(notebook_id)
         else:
             # T5: the global list is filtered inside the query by the
@@ -322,7 +325,7 @@ async def get_sources(
 
         # Query sources - include command field with FETCH
         query = f"""
-            SELECT id, asset, created, title, updated, topics, command,
+            SELECT id, asset, created, title, updated, topics, command, team, visibility,
             string::lowercase(title OR '') AS title_sort,
             ({SOURCE_TYPE_EXPRESSION}) AS type,
             (SELECT VALUE count() FROM source_insight WHERE source = $parent.id GROUP ALL)[0].count OR 0 AS insights_count,
@@ -387,6 +390,9 @@ async def get_sources(
                     command_id=command_id,
                     status=status,
                     processing_info=processing_info,
+                    # T5 team scoping for the add-existing-source dialog
+                    team_id=str(row["team"]) if row.get("team") else None,
+                    visibility=row.get("visibility"),
                 )
             )
 

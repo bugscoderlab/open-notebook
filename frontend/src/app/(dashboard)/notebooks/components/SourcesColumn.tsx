@@ -153,15 +153,16 @@ export function SourcesColumn({
       <CollapsibleColumn
         isCollapsed={sourcesCollapsed}
         onToggle={toggleSources}
-        collapsedIcon={FileText}
+        collapsedColor="bg-sage"
         collapsedLabel={t('navigation.sources')}
       >
-        <Card className="h-full flex flex-col flex-1 overflow-hidden">
-          <CardHeader className="pb-3 flex-shrink-0">
-            <div className="flex items-center justify-between gap-2">
-              <CardTitle className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.13em] text-muted-foreground">
-                <span aria-hidden className="h-3.5 w-[3px] rounded-full bg-sage" />
-                {t('navigation.sources')}
+        <Card className="h-full min-h-[280px] flex-1 overflow-hidden rounded-md py-0 gap-0">
+          <CardHeader className="shrink-0 p-0">
+            <div className="flex items-center justify-between gap-2 border-b px-4 py-3">
+              <CardTitle className="flex min-w-0 items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.13em] text-muted-foreground">
+                <span aria-hidden className="h-3.5 w-[3px] shrink-0 rounded-full bg-sage" />
+                <span className="truncate">{t('navigation.sources')}</span>
+                <span className="font-mono text-[10.5px] tabular-nums">{sources?.length ?? 0}</span>
               </CardTitle>
               <div className="flex items-center gap-2">
                 {onBulkContextModeChange && sources && sources.length > 0 && (
@@ -209,7 +210,7 @@ export function SourcesColumn({
             </div>
           </CardHeader>
 
-          <CardContent ref={scrollContainerRef} className="flex-1 overflow-y-auto min-h-0">
+          <CardContent ref={scrollContainerRef} className="flex-1 overflow-y-auto min-h-0 p-3">
             {isLoading ? (
               <div className="flex items-center justify-center py-8">
                 <LoadingSpinner />

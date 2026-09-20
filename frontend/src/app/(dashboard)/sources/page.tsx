@@ -7,6 +7,7 @@ import { SourceListResponse } from '@/lib/types/api'
 import { LoadingSpinner } from '@/components/common/LoadingSpinner'
 import { EmptyState } from '@/components/common/EmptyState'
 import { AppShell } from '@/components/layout/AppShell'
+import { PageContainer } from '@/components/layout/page-container'
 import { ConfirmDialog } from '@/components/common/ConfirmDialog'
 import { FileText, Trash2, ArrowDown, ArrowUp, ArrowUpDown, Plus } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
@@ -256,6 +257,30 @@ export default function SourcesPage() {
     return t('sources.type.text')
   }
 
+  // Status chip — mirrors the catalog STATUS style: fern when ready,
+  // pulsing gold while queued/running, danger on failure.
+  const renderStatusChip = (status: string | undefined) => {
+    if (!status) return null
+
+    const config: Record<string, { label: string; dot: string; text: string }> = {
+      new: { label: t('sources.statusPreparing'), dot: 'bg-gold animate-pulse', text: 'text-gold' },
+      queued: { label: t('sources.statusQueued'), dot: 'bg-gold animate-pulse', text: 'text-gold' },
+      running: { label: t('sources.statusProcessing'), dot: 'bg-gold animate-pulse', text: 'text-gold' },
+      completed: { label: t('sources.statusCompleted'), dot: 'bg-fern', text: 'text-fern' },
+      failed: { label: t('sources.statusFailed'), dot: 'bg-danger', text: 'text-danger' },
+    }
+    const chip = config[status]
+
+    if (!chip) return null
+
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-[4px] bg-muted px-1.5 py-0.5 text-[11px] font-medium ring-1 ring-inset ring-border">
+        <span aria-hidden className={cn('h-2 w-2 rounded-full', chip.dot)} />
+        <span className={chip.text}>{chip.label}</span>
+      </span>
+    )
+  }
+
   const handleRowClick = useCallback((index: number, sourceId: string) => {
     setSelectedIndex(index)
     router.push(`/sources/${sourceId}`)
@@ -316,12 +341,20 @@ export default function SourcesPage() {
     }
 
     return (<>
-      <div className="flex flex-col h-full w-full max-w-none px-6 py-6">
-        <div className="mb-6 flex-shrink-0">
-          <h1 className="font-display text-2xl font-bold tracking-tight">{t('sources.allSources')}</h1>
-          <p className="mt-2 text-muted-foreground">
-            {t('sources.allSourcesDesc')}
-          </p>
+      <PageContainer className="flex flex-col">
+        <div className="mb-6 flex flex-shrink-0 flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <h1 className="font-display text-3xl font-bold tracking-tight">{t('sources.allSources')}</h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {t('sources.allSourcesDesc')}
+            </p>
+          </div>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <Button onClick={() => setSourceDialogOpen(true)}>
+              <Plus className="mr-2 h-4 w-4" />
+              {t('sources.add')}
+            </Button>
+          </div>
         </div>
 
         <div ref={scrollContainerRef} className="flex-1 rounded-md border overflow-auto">
@@ -337,6 +370,7 @@ export default function SourcesPage() {
               <col className="w-[140px]" />
               <col className="w-[100px]" />
               <col className="w-[100px]" />
+              <col className="w-[110px]" />
               <col className="w-[100px]" />
             </colgroup>
             <thead className="sticky top-0 bg-background z-10">
@@ -358,6 +392,9 @@ export default function SourcesPage() {
                 </th>
                 <th className="h-12 px-4 text-center align-middle font-medium text-muted-foreground hidden lg:table-cell">
                   {renderSortableHeader('embedded', t('sources.embedded'), 'center')}
+                </th>
+                <th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground hidden lg:table-cell">
+                  {t('advanced.status')}
                 </th>
                 <th className="h-12 px-4 text-right align-middle font-medium text-muted-foreground">
                   {t('common.actions')}
@@ -427,6 +464,9 @@ export default function SourcesPage() {
                       {source.embedded ? t('sources.yes') : t('sources.no')}
                     </span>
                   </td>
+                  <td className="h-12 px-4 hidden lg:table-cell">
+                    {renderStatusChip(source.status)}
+                  </td>
                   <td className="h-12 px-4 text-right">
                     <Button
                       variant="ghost"
@@ -441,7 +481,7 @@ export default function SourcesPage() {
               ))}
               {loadingMore && (
                 <tr>
-                  <td colSpan={7} className="h-16 text-center">
+                  <td colSpan={8} className="h-16 text-center">
                     <div className="flex items-center justify-center">
                       <LoadingSpinner />
                       <span className="ml-2 text-muted-foreground">{t('sources.loadingMore')}</span>
@@ -452,7 +492,7 @@ export default function SourcesPage() {
             </tbody>
           </table>
         </div>
-      </div>
+      </PageContainer>
 
       <ConfirmDialog
         open={deleteDialog.open}
