@@ -50,13 +50,14 @@ What this makes easier, what it makes harder, what to watch. (bullets)
 | [ADR-006](ADR-006-migration-granularity.md) | Migration granularity follows merge granularity, not release granularity | Accepted |
 | [ADR-007](ADR-007-optin-runtimes.md) | Heavy extraction runtimes (Docling, Crawl4AI local) are opt-in, installed at startup | Accepted |
 | [ADR-008](ADR-008-notebook-scoped-search.md) | Notebook scope is an optional filter on the existing search functions | Accepted |
-| [ADR-009](ADR-009-analytics-postgres-stack.md) | Analytics runs on PostgreSQL via SQLAlchemy/Alembic, scoped to one module | Accepted |
+| [ADR-009](ADR-009-analytics-postgres-stack.md) | Analytics runs on PostgreSQL via SQLAlchemy/Alembic, scoped to one module | Accepted (superseded by ADR-017 — analytics subsystem removed) |
 | [ADR-010](ADR-010-cookie-session-auth.md) | Per-user cookie sessions replace the shared-password middleware | Accepted |
-| [ADR-011](ADR-011-analytics-intent-classification.md) | Analytics intent/explanation: LLM-assisted with deterministic fallback; bound IN-list expansion | Accepted (query-generation stance superseded by ADR-015; template fallback retained) |
+| [ADR-011](ADR-011-analytics-intent-classification.md) | Analytics intent/explanation: LLM-assisted with deterministic fallback; bound IN-list expansion | Accepted (query-generation stance superseded by ADR-015; template fallback retained; superseded in full by ADR-017 — analytics subsystem removed) |
 | [ADR-012](ADR-012-team-enforcement.md) | Team enforcement: the access seam, member write access, and empty-scope semantics | Accepted |
 | [ADR-013](ADR-013-classification.md) | Content classification: flags as teamlessness, company-shared ownership, and the login gate | Accepted |
-| [ADR-014](ADR-014-analytics-permissions.md) | Analytics permissions under real auth: injection refusal, query-log ownership, bypass removal | Accepted |
-| [ADR-015](ADR-015-agentic-text-to-sql.md) | Analytics answers free-form questions via agentic text-to-SQL — validation instead of forbidden | Accepted |
-| [ADR-016](ADR-016-home-unified-ask-chat.md) | Home as a unified ask chat: auto-routing, server-side checkpoint memory, LLM follow-up suggestions | Accepted |
+| [ADR-014](ADR-014-analytics-permissions.md) | Analytics permissions under real auth: injection refusal, query-log ownership, bypass removal | Accepted (superseded by ADR-017 — analytics subsystem removed) |
+| [ADR-015](ADR-015-agentic-text-to-sql.md) | Analytics answers free-form questions via agentic text-to-SQL — validation instead of forbidden | Accepted (superseded by ADR-017 — analytics subsystem removed) |
+| [ADR-016](ADR-016-home-unified-ask-chat.md) | Home as a unified ask chat: auto-routing, server-side checkpoint memory, LLM follow-up suggestions | Accepted (amended by ADR-017 — home chat reverts to knowledge-only) |
+| [ADR-017](ADR-017-analytics-removal.md) | Remove the analytics chat subsystem — home chat reverts to knowledge-only | Accepted |
 | [PDR-001](PDR-001-single-user-first.md) | Single-user first; don't preclude multi-user | Accepted |
 | [PDR-002](PDR-002-provider-agnostic-core.md) | Provider-agnostic core by default | Accepted |

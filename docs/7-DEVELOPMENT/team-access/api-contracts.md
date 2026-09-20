@@ -1,4 +1,4 @@
-# Team Access + Analytics — Frozen API Contracts (approved 2026-09-16)
+# Team Access — Frozen API Contracts (approved 2026-09-16)
 
 Frontend tracks mock against these shapes until the backend lands. Changes here require updating this file first.
 
@@ -38,28 +38,6 @@ Frontend tracks mock against these shapes until the backend lands. Changes here 
 ## Search & ask (scope)
 
 - Existing `scope_notebook_ids` semantics change: **empty = all permitted notebooks** (never the whole KB); non-empty = intersection with permitted set. Response shape unchanged.
-
-## Analytics
-
-All analytics endpoints require a live session (cookie auth, ADR-010). Ownership: a dataset is queryable by its owning team + CEO + admin (there are no company-shared datasets in the MVP — `dataset` has no visibility field). Denials and refusals return only `{status, answer_text}` — no names/values/rankings ever (AN-003/010).
-
-- `GET /api/analytics/datasets` → `[{id, name, team_id, team_name, source_type, freshness_at}]` (permitted only)
-- `POST /api/analytics/ask` — `{question, dataset_id?, include_refunds?: false}` → **AnalyticsAnswer**:
-  ```json
-  {
-    "query_id": "analytics_query_log:…",
-    "status": "ok | denied | no_data",
-    "answer_text": "Sarah Lim is the highest spender …",
-    "kpis": [{"label": "TOTAL SPEND", "value": "MYR 8,460", "note": "+18.4% vs last year"}],
-    "table": {"columns": ["customer", "total_spend", "transactions"], "rows": [["Sarah Lim", 8460, 24]]},
-    "chart": {"kind": "bars", "title": "Top customers by spend", "items": [{"label": "Sarah Lim", "value": 8460}]},
-    "scope": {"dataset": "Sales 2026", "period": "2026-01-01 → 2026-09-14", "refunds": "excluded"},
-    "freshness_at": "2026-09-14T00:00:00Z",
-    "query_template": "SELECT … WHERE … AND data_team IN (:authorized_team_ids) …"
-  }
-  ```
-  `denied`: only `{status: "denied", answer_text}` — no names/values/rankings, ever (AN-003/010). Two denial flavours: the caller may not query the dataset (or has no permitted dataset), and the AN-010 permission-injection refusal (the question is checked against bypass language before any template classification or dataset lookup; the attempt is logged with `status: "denied"` and no dataset/template/rows).
-- `GET /api/analytics/queries/{id}` — the stored answer + rendered parameterized query (AN-009). Same ownership as asking: a log whose dataset the caller may not query returns `404` (no existence oracle). Logs with no dataset (AN-010 refusals) are readable by their author, admins, and the CEO only.
 
 ## Migration (T6, admin-only)
 

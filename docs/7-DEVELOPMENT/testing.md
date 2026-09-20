@@ -63,7 +63,7 @@ The suite is split into three tiers by pytest markers (defined in
 | Tier | Marker | Infra | Runs |
 |---|---|---|---|
 | **Unit** (default) | — (unmarked) | none, fully mocked/hermetic | every `uv run pytest` / `make test` (xdist), CI backend shards (pytest-split) |
-| **Integration** | `integration` | live Postgres scratch DB + SurrealDB | `make test-integration`, CI testpack job |
+| **Integration** | `integration` | live SurrealDB | `make test-integration`, CI testpack job |
 | **Testpack** | `testpack` | synthetic pack (`_jobbrief/testdata/`), hermetic on in-memory SurrealDB | `make test-testpack`, CI testpack job |
 
 The default `addopts` exclude `integration` and `testpack`, so a plain run
@@ -71,13 +71,12 @@ is the fast unit gate. To run a heavier tier, select it explicitly (this
 also activates the per-worker infrastructure in `tests/conftest.py`):
 
 ```bash
-make test-integration   # -m integration, needs Postgres + SurrealDB
+make test-integration   # -m integration, needs SurrealDB
 make test-testpack      # -m "testpack or integration", the acceptance gate
 ```
 
-Integration isolation: each xdist worker gets its own Postgres database
-(`open_notebook_analytics_test_gwN`, created from `ANALYTICS_TEST_BASE_URL`)
-and its own SurrealDB namespace (`open_notebook_test_gwN`, migrations +
+Integration isolation: each xdist worker gets its own
+SurrealDB namespace (`open_notebook_test_gwN`, migrations +
 team seeds applied automatically). Set `OPEN_NOTEBOOK_TEST_TIER` to activate
 (`make test-integration`/`make test-testpack` do this for you).
 
@@ -120,7 +119,7 @@ async def test_create_notebook_with_sources():
     assert retrieved.sources[0].id == source.id
 ```
 
-**Location**: `tests/` — marked `integration` (e.g. `test_analytics_*.py`)
+**Location**: `tests/` — marked `integration` (live-DB suites)
 
 ### 3. API Tests
 
@@ -176,7 +175,7 @@ async def test_query_by_criteria():
     assert len(active) >= 1
 ```
 
-**Location**: flat in `tests/` (in-memory SurrealDB via `mem://` or scratch Postgres)
+**Location**: flat in `tests/` (in-memory SurrealDB via `mem://`)
 
 ## Running Tests
 
@@ -192,7 +191,7 @@ infrastructure — see [Test Tiers](#test-tiers) above.
 ### Run a Heavier Tier
 
 ```bash
-make test-integration   # analytics suites vs live Postgres + SurrealDB
+make test-integration   # integration suites vs live SurrealDB
 make test-testpack      # acceptance pack + integration (CI testpack job)
 ```
 

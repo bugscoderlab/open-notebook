@@ -1,6 +1,6 @@
 # ADR-015: Agentic text-to-SQL for analytics — validation instead of forbidden
 
-- **Status**: Accepted
+- **Status**: Accepted — superseded by [ADR-017](ADR-017-analytics-removal.md): the analytics subsystem is removed.
 - **Date**: 2026-09
 - **Related**: #20 (spec), #22–#28 (tickets), ADR-009 (analytics Postgres stack), ADR-011 (intent classification), ADR-014 (analytics permissions)
 

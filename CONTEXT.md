@@ -1,6 +1,6 @@
-# Open Notebook — Team Access & Analytics
+# Open Notebook — Team Access
 
-The multi-user evolution of Open Notebook: individual accounts organized into department teams with role-based, server-enforced content scope, plus an analytics mode that answers questions from structured business data. This glossary governs the vocabulary of that work.
+The multi-user evolution of Open Notebook: individual accounts organized into department teams with role-based, server-enforced content scope. This glossary governs the vocabulary of that work.
 
 ## Language
 
@@ -34,10 +34,6 @@ _Avoid_: Superuser, executive (as a role name)
 
 **Admin**:
 The only role that manages users, teams, models, credentials, and settings, on top of full content access.
-
-**Dataset**:
-A registered structured-data source (the MVP's sales transactions in Postgres) owned by a team, queryable by that team plus CEO and admin.
-_Avoid_: Data source (collides with the existing `source` table), database (too generic)
 
 **Canary**:
 A unique phrase embedded in a test document used to prove that forbidden content cannot leak through any retrieval path (search, citations, AI answers).

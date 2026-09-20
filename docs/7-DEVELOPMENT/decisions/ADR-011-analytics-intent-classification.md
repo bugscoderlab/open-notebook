@@ -1,6 +1,6 @@
 # ADR-011: Analytics intent classification and explanation — LLM-assisted with deterministic fallback
 
-- **Status**: Accepted — in part superseded by [ADR-015](ADR-015-agentic-text-to-sql.md): its "LLM never writes SQL" stance and template-only query vocabulary are replaced by validated agentic text-to-SQL, while the deterministic fallback (keyword classifier, templates, IN-list expansion, period parsing) is retained verbatim as the no-LLM path.
+- **Status**: Accepted — in part superseded by [ADR-015](ADR-015-agentic-text-to-sql.md): its "LLM never writes SQL" stance and template-only query vocabulary are replaced by validated agentic text-to-SQL, while the deterministic fallback (keyword classifier, templates, IN-list expansion, period parsing) is retained verbatim as the no-LLM path; superseded in full by [ADR-017](ADR-017-analytics-removal.md): the analytics subsystem is removed.
 - **Date**: 2026-09
 - **Related**: #9 (T8), #1, ADR-009 (analytics Postgres stack), `_jobbrief/tdd.md` §10.3
 

@@ -1,6 +1,6 @@
 # ADR-009: Analytics runs on PostgreSQL via SQLAlchemy/Alembic, scoped to one module
 
-- **Status**: Accepted
+- **Status**: Accepted — superseded by [ADR-017](ADR-017-analytics-removal.md): the analytics subsystem is removed; the Postgres stack is no longer part of the product.
 - **Date**: 2026-09
 - **Related**: #1, `_jobbrief/tdd.md` §10, PDR-002 (provider-agnostic core)
 

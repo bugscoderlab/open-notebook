@@ -1,4 +1,4 @@
-# Team Access + Analytics — Frozen ERD (approved 2026-09-16, applied as migrations 26/27)
+# Team Access — Frozen ERD (approved 2026-09-16, applied as migrations 26/27)
 
 > **Field naming convention (repo style):** SurrealDB record fields are named by their target table (`organization`, `team`, `manager`, `created_by`, `user`), not `<x>_id`. Domain models expose them as `organization_id` / `team_id` / `created_by`. Applied and verified against the live database on 2026-09-16.
 
@@ -11,10 +11,12 @@
 - **notebook** (modified): + `organization_id`, `team_id`, `visibility` (`team|company_shared`), `created_by`; index `(team_id, visibility)`
 - **source** (modified): + same four fields; index `(team_id, visibility)`
 
-## SurrealDB — new in migration 27
+## SurrealDB — new in migration 27 (analytics; removed — ADR-017)
 
-- **dataset**: id, `organization_id`, name, `team_id` (owning team), `source_type` (`postgres` only, now), `connection_ref` (env key, **never raw credentials**), schema_metadata, `freshness_at`, active
-- **analytics_query_log**: id, `user_id`, `dataset_id`, question, `template_id`, `duration_ms`, `row_count`, status, created
+The `dataset` registry and `analytics_query_log` entities below were removed from the product with the analytics subsystem (ADR-017, superseding ADR-009). The tables and their rows are left in place — migrations are append-only history, no cleanup migration is written.
+
+- ~~**dataset**: id, `organization_id`, name, `team_id` (owning team), `source_type` (`postgres` only, now), `connection_ref` (env key, **never raw credentials**), schema_metadata, `freshness_at`, active~~
+- ~~**analytics_query_log**: id, `user_id`, `dataset_id`, question, `template_id`, `duration_ms`, `row_count`, status, created~~
 
 ## SurrealDB — unchanged (scope derived through parent)
 
@@ -24,10 +26,6 @@
 - No `team_id` duplicated onto note/insight/chat/episode in MVP (duplicate later only if profiling shows slow relationship checks)
 - Peripheral tables untouched: episode, podcast_config, transformation, credential, model, command, profiles
 
-## PostgreSQL (`open_notebook_analytics`, Alembic) — new connection
+## PostgreSQL — removed (ADR-017)
 
-- **sales_transactions**: `transaction_id` PK (text, e.g. TX0001), `transaction_date` (date), `customer_id`, `customer_name`, `service`, `amount_myr` numeric(10,2), `status` (`completed|refunded|voided`), `data_team`
-- Indexes: `(data_team, status, transaction_date)`, `(customer_id)`
-- Single table mirroring `_jobbrief/testdata/sales_transactions_2026.csv` 1:1 (normalized customers/services split rejected — the approved template SQL targets one relation)
-- Schema: `uv run alembic -c open_notebook/analytics/alembic.ini upgrade head` (URL from `ANALYTICS_DATABASE_URL`); seed (idempotent, dev-only): `uv run python -m open_notebook.analytics.seed`
-- Every query assembled server-side with mandatory `AND data_team IN (:authorized_team_ids)`; the LLM never writes SQL
+~~`open_notebook_analytics` (Alembic) — new connection~~ Removed with the analytics subsystem (ADR-017, superseding ADR-009): the `sales_transactions` table, its indexes, and the Alembic/seed tooling are gone from the product. The database itself is **not dropped** — the application simply stops connecting to it.

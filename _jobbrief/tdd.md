@@ -754,7 +754,6 @@ Initial stable feature codes:
 
 ```text
 knowledge_chat
-analytics_chat
 podcast_generation
 custom_models
 api_access

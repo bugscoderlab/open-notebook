@@ -1,6 +1,6 @@
 # ADR-014: Analytics permissions under real auth — injection refusal, query-log ownership, bypass removal
 
-- **Status**: Accepted
+- **Status**: Accepted — superseded by [ADR-017](ADR-017-analytics-removal.md): the analytics subsystem is removed.
 - **Date**: 2026-09
 - **Related**: #1 (spec), #10 (T9), ADR-009 (analytics subsystem), ADR-011 (intent classification), ADR-012 (deferred the bypass removal to this ticket), `_jobbrief/testdata/analytical_chatbot_test_cases.csv` (AN-001…AN-010)
 
