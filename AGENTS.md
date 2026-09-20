@@ -6,7 +6,7 @@ This file holds the project-wide rules every coding session needs. Component rul
 
 ## Stack, ports, startup order
 
-Three tiers: Next.js frontend (3000) → FastAPI (5055) → SurrealDB (8000).
+Three tiers: Next.js frontend (3000) → FastAPI (5055) → SurrealDB (8000), plus an **optional fourth process**: the Node messenger gateway (Telegram/WhatsApp adapters, `gateway/`) — always-on in the Docker images, `make gateway` locally. It idles with no platform connections unless its env vars are set, and the API never depends on it.
 
 Start in this order — each tier depends on the one below:
 

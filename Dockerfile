@@ -27,6 +27,17 @@ RUN i=0; until npm ci; do \
 COPY frontend/ ./
 RUN npm run build
 
+# Stage 1b: Messenger gateway builder (compiles dist + prunes to prod deps)
+FROM node:22-slim AS gateway-builder
+WORKDIR /build/gateway
+COPY gateway/package.json gateway/package-lock.json ./
+ARG NPM_REGISTRY=https://registry.npmjs.org/
+RUN npm config set registry ${NPM_REGISTRY} \
+ && npm ci \
+ && npm cache clean --force
+COPY gateway/ ./
+RUN npm run build && npm prune --omit=dev
+
 # Stage 2: Backend builder
 FROM python:3.12-slim-trixie AS backend-builder
 
@@ -97,6 +108,12 @@ COPY --from=frontend-builder /app/frontend/.next/standalone /app/frontend/
 COPY --from=frontend-builder /app/frontend/.next/static /app/frontend/.next/static
 COPY --from=frontend-builder /app/frontend/public /app/frontend/public
 COPY --from=frontend-builder /app/frontend/start-server.js /app/frontend/start-server.js
+
+# Messenger gateway: compiled JS + production dependencies. Placed AFTER
+# `COPY . /app` so the builder output wins over whatever the build context
+# carried (dist/ and node_modules/ are gitignored and may be stale locally).
+COPY --from=gateway-builder /build/gateway/dist /app/gateway/dist
+COPY --from=gateway-builder /build/gateway/node_modules /app/gateway/node_modules
 
 # Ensure uv uses the existing venv without attempting network operations
 ENV UV_NO_SYNC=1

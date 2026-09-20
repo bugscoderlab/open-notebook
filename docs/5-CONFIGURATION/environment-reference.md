@@ -132,6 +132,22 @@ The `CCORE_FIRECRAWL_*` variables are passed straight through to the content-cor
 
 ---
 
+## Messenger Gateway (Chat Integrations)
+
+The gateway is an always-on process (supervisord program in the Docker images; `make gateway` / the Herdr dev script locally). Adapters self-gate: with none of the tokens below set, the gateway idles with **no platform connections** and the API is unaffected.
+
+| Variable | Required? | Default | Description |
+|----------|-----------|---------|-------------|
+| `OPEN_NOTEBOOK_TELEGRAM_BOT_TOKEN` | No | _(unset)_ | Telegram bot token from @BotFather. Unset = Telegram adapter inactive. |
+| `OPEN_NOTEBOOK_WHATSAPP_ENABLED` | No | `false` | Enable the WhatsApp adapter (Baileys, unofficial — read the [risk warning](../3-USER-GUIDE/chat-integrations.md#whatsapp-baileys-risk-warning) before enabling). |
+| `OPEN_NOTEBOOK_INTERNAL_TOKEN` | No | _(auto-generated)_ | Override the service-to-service token (valid only on `/api/integrations/*`). Default is generated into `data/internal-token` on first use. **Rotation:** delete the file or set a new value, restart API + gateway. |
+| `OPEN_NOTEBOOK_TOKEN_FILE` | No | `data/internal-token` | Override the token file path. |
+| `INTERNAL_API_URL` | No | `http://127.0.0.1:5055` | API base URL the gateway calls. Only change for split deployments. |
+
+Security notes: the internal token is stored **outside the database**, compared in constant time, and only its SHA-256 prefix is ever logged (ADR-018).
+
+---
+
 ## Network / Proxy
 
 | Variable | Required? | Default | Description |

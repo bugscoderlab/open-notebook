@@ -13,7 +13,7 @@ Learn the layout before diving in. Understand the three-panel design and where e
 
 ---
 
-## Eight Core Features
+## Core Features
 
 ### 1. [Adding Sources](adding-sources.md)
 How to bring content into your notebook. Supports PDFs, web links, audio, video, text, and more.
@@ -108,6 +108,17 @@ Configure AI provider API keys directly through the Settings UI.
 - Migrate from environment variables
 - Manage Azure and OpenAI-compatible providers
 - Understand key storage and encryption
+
+---
+
+### 9. [Chat Integrations](chat-integrations.md)
+Ask your notebooks questions from Telegram or WhatsApp — same scoped answers as the web chat, from your phone.
+
+**Quick links:**
+- Link a chat account with a 6-digit code
+- Commands: `/new`, `/search`, `/unlink`, `/help`
+- Conversational memory and suggested follow-ups
+- WhatsApp (Baileys) risk warning for admins
 
 ---
 
