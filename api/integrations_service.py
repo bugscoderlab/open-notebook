@@ -13,16 +13,28 @@ with two codes) have exactly one winner.
 
 import hashlib
 import secrets
+import time
 from datetime import datetime, timedelta, timezone
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
+from langchain_core.messages import HumanMessage
+from langchain_core.runnables import RunnableConfig
 from loguru import logger
 
-from api.access import CurrentUser
+from api.access import CurrentUser, effective_notebook_scope
+from open_notebook.ai.models import DefaultModels
 from open_notebook.database.repository import repo_query
+from open_notebook.domain.home_chat import HomeChatSession
 from open_notebook.domain.integration_link import IntegrationLink, Platform
+from open_notebook.domain.notebook import Notebook, text_search
 from open_notebook.domain.user import AppUser, get_user_by_id
-from open_notebook.exceptions import InvalidInputError, NotFoundError
+from open_notebook.exceptions import (
+    ForbiddenError,
+    InvalidInputError,
+    NotFoundError,
+)
+from open_notebook.graphs.home_chat import get_home_chat_graph
+from open_notebook.utils.error_classifier import classify_error
 
 CODE_TTL = timedelta(minutes=10)
 CODE_SPACE = 900_000  # 6-digit codes 100000–999999
@@ -237,3 +249,213 @@ async def get_owned_link(link_id: str, user: CurrentUser) -> IntegrationLink:
 
 def code_ttl_seconds() -> int:
     return int(CODE_TTL.total_seconds())
+
+
+# ---------------------------------------------------------------------------
+# Message spine (T2): one inbound message from a linked identity → one reply
+# ---------------------------------------------------------------------------
+
+MESSAGE_RATE_LIMIT_SECONDS = 3.0
+COMMAND_HELP = (
+    "I answer questions about your knowledge base. Special commands:\n"
+    "/new — start a fresh conversation\n"
+    "/search <query> — search without asking the AI\n"
+    "/unlink — disconnect this chat from your account\n"
+    "/help — show this message\n"
+    "Anything else is a question."
+)
+
+_rate_limit_state: Dict[Tuple[str, str], float] = {}
+
+
+def reset_rate_limit_state() -> None:
+    """Test hook."""
+    _rate_limit_state.clear()
+
+
+def check_rate_limit(platform: Platform, external_id: str) -> bool:
+    """One message per MESSAGE_RATE_LIMIT_SECONDS per identity. True = allowed."""
+    key = (platform, external_id)
+    now = time.monotonic()
+    last = _rate_limit_state.get(key, 0.0)
+    if now - last < MESSAGE_RATE_LIMIT_SECONDS:
+        return False
+    _rate_limit_state[key] = now
+    return True
+
+
+async def resolve_linked_user(
+    platform: Platform, external_id: str
+) -> Tuple[IntegrationLink, AppUser]:
+    """Resolve an active integration link to its user. Unlinked identities
+    404 (the gateway replies with how-to-link); a disabled user is 403 with
+    an authorization message — links are kept so re-enabling restores
+    service (ADR-018 failure modes)."""
+    rows = await repo_query(
+        "SELECT * FROM integration_link WHERE platform = $platform AND external_id = $external_id AND status = 'active'",
+        {"platform": platform, "external_id": external_id},
+    )
+    if not rows:
+        raise NotFoundError("No integration link found for this chat identity")
+    link = IntegrationLink(**rows[0])
+    user = await get_user_by_id(link.user_id or "")
+    if user is None:
+        raise NotFoundError("No integration link found for this chat identity")
+    if user.status != "active":
+        raise ForbiddenError("This account is no longer authorized")
+    return link, user
+
+
+def current_user_for(user: AppUser) -> CurrentUser:
+    """Map an AppUser onto the CurrentUser the access seam consumes (same
+    shape get_current_user builds for a cookie session)."""
+    from api.access import _ROLE_VALUES  # noqa: PLC2701  (shared role allowlist)
+
+    return CurrentUser(
+        id=user.id or "",
+        email=user.email,
+        display_name=user.display_name or "",
+        organization_id=user.organization_id or "",
+        team_id=user.team_id or "",
+        role=user.role if user.role in _ROLE_VALUES else "member",  # type: ignore[arg-type]
+    )
+
+
+async def _resolve_default_model() -> Optional[str]:
+    defaults = await DefaultModels.get_instance()
+    return defaults.default_chat_model
+
+
+async def _new_conversation(link: IntegrationLink) -> str:
+    session = HomeChatSession(
+        title=f"{link.platform} chat", user_id=link.user_id or ""
+    )
+    await session.save()
+    link.home_chat_session_id = session.id
+    await link.save()
+    return session.id or ""
+
+
+async def reset_conversation(link: IntegrationLink) -> str:
+    """/new: point the link at a fresh home chat session."""
+    await _new_conversation(link)
+    return "New conversation started."
+
+
+async def _ensure_session(link: IntegrationLink) -> str:
+    if link.home_chat_session_id:
+        return link.home_chat_session_id
+    return await _new_conversation(link)
+
+
+async def run_home_chat_ask(
+    link: IntegrationLink, user: CurrentUser, question: str
+) -> Tuple[str, List[str]]:
+    """Conversational ask on the link's home chat session (memory server-side,
+    same graph as the web UI). Returns (final_answer, suggestions).
+
+    Mid-pipeline errors degrade to a typed, chat-friendly message — the reply
+    is honest, the conversation checkpoint is left alone (per #41: a failed
+    turn must not poison the session).
+    """
+    strategy_model = await _resolve_default_model()
+    answer_model = await _resolve_default_model()
+    final_answer_model = await _resolve_default_model()
+    if not strategy_model or not answer_model or not final_answer_model:
+        raise InvalidInputError(
+            "This Open Notebook instance has no default chat model yet — "
+            "ask an admin to set one in Models settings."
+        )
+
+    notebook_ids = await effective_notebook_scope(user, [])
+    session_id = await _ensure_session(link)
+
+    try:
+        graph = await get_home_chat_graph()
+        current_state = await graph.aget_state(
+            config=RunnableConfig(configurable={"thread_id": session_id})
+        )
+        messages = list(
+            (current_state.values if current_state else {}).get("messages", [])
+        )
+        messages.append(HumanMessage(content=question))
+
+        final_answer: Optional[str] = None
+        suggestions: List[str] = []
+        input_state = {
+            "messages": messages,
+            "question": question,
+            "notebook_ids": notebook_ids,
+            "final_answer": None,
+            "suggestions": None,
+        }
+        async for chunk in graph.astream(  # type: ignore[call-overload]
+            input=input_state,
+            config=RunnableConfig(
+                configurable={
+                    "thread_id": session_id,
+                    "strategy_model": strategy_model,
+                    "answer_model": answer_model,
+                    "final_answer_model": final_answer_model,
+                }
+            ),
+            stream_mode="updates",
+        ):
+            if "knowledge_final" in chunk:
+                final_answer = chunk["knowledge_final"].get("final_answer")
+            elif "suggest" in chunk:
+                suggestions = chunk["suggest"].get("suggestions") or []
+
+        if not final_answer:
+            return (
+                "I couldn't come up with an answer for that one — try rephrasing.",
+                [],
+            )
+        return final_answer, suggestions[:3]
+    except (InvalidInputError, NotFoundError, ForbiddenError):
+        raise
+    except Exception as e:  # noqa: BLE001 - classified for the chat surface
+        _, message = classify_error(e)
+        logger.error(f"Home chat ask via integrations failed: {e}")
+        return message, []
+
+
+async def run_search(user: CurrentUser, query: str) -> str:
+    """/search: plain text search over the user's permitted scope only.
+    Empty scope answers honestly — the search functions treat an empty list
+    as unscoped, so it must never reach them (access.py contract)."""
+    notebook_ids = await effective_notebook_scope(user, [])
+    if not notebook_ids:
+        return (
+            "I don't have access to any notebooks that could answer this "
+            "question."
+        )
+    results = await text_search(
+        keyword=query,
+        results=5,
+        source=True,
+        note=True,
+        notebook_ids=notebook_ids,
+    )
+    if not results:
+        return f'No results for "{query}".'
+
+    notebook_names: Dict[str, str] = {}
+    lines = []
+    for index, row in enumerate(results[:5], start=1):
+        record_id = str(row.get("id", ""))
+        kind = "note" if record_id.startswith("note:") else "source"
+        parent_id = str(row.get("parent_id", ""))
+        if parent_id and parent_id not in notebook_names:
+            try:
+                notebook = await Notebook.get(parent_id)
+                notebook_names[parent_id] = (
+                    notebook.name if notebook else "notebook"
+                )
+            except Exception:  # noqa: BLE001 - display fallback only
+                notebook_names[parent_id] = "notebook"
+        title = row.get("title") or "(untitled)"
+        lines.append(
+            f"{index}. {title} — {notebook_names.get(parent_id, 'notebook')} ({kind})"
+        )
+    return "\n".join(lines)

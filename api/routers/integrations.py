@@ -25,6 +25,7 @@ from api.access import CurrentUser, get_current_user, require_csrf
 from api.internal_auth import get_internal_caller
 from api.routers._chat_shared import SuccessResponse
 from open_notebook.domain.integration_link import Platform
+from open_notebook.exceptions import RateLimitError
 
 router = APIRouter()
 
@@ -63,6 +64,18 @@ class ClaimResponse(BaseModel):
 class StatusResponse(BaseModel):
     ok: bool
     service: str
+
+
+class MessageRequest(BaseModel):
+    platform: Platform
+    external_id: str = Field(..., min_length=1, max_length=128)
+    text: str = Field(..., min_length=1, max_length=4096)
+
+
+class MessageResponse(BaseModel):
+    reply: str
+    suggestions: List[str] = Field(default_factory=list)
+    conversation_reset: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -176,3 +189,78 @@ async def integrations_status(_: None = Depends(get_internal_caller)):
     """Token-verification ping for gateway startup (fail-closed by design:
     a bad token never reaches this handler)."""
     return StatusResponse(ok=True, service="open-notebook-integrations")
+
+
+@router.post("/integrations/message", response_model=MessageResponse)
+async def route_inbound_message(
+    request: MessageRequest,
+    _: None = Depends(get_internal_caller),
+):
+    """Route one inbound chat message for a linked identity.
+
+    Commands (/new, /search, /unlink, /help) are handled directly; anything
+    else is a conversational ask on the link's home chat session. Error
+    details are chat-friendly — the gateway renders them as message text.
+    """
+    started = datetime.now(timezone.utc)
+    outcome = "ok"
+    resolved_user_id: Optional[str] = None
+    try:
+        if not service.check_rate_limit(request.platform, request.external_id):
+            outcome = "rate-limited"
+            raise RateLimitError(
+                "You're sending messages too quickly — wait a few seconds."
+            )
+
+        link, user = await service.resolve_linked_user(
+            request.platform, request.external_id
+        )
+        resolved_user_id = user.id
+        current_user = service.current_user_for(user)
+        text = request.text.strip()
+
+        suggestions: List[str] = []
+        conversation_reset = False
+
+        if text.startswith("/"):
+            command, _sep, argument = text[1:].partition(" ")
+            command = command.lower()
+            if command == "new":
+                reply = await service.reset_conversation(link)
+                conversation_reset = True
+            elif command == "search":
+                query = argument.strip()
+                if not query:
+                    reply = "Usage: /search <query>"
+                else:
+                    reply = await service.run_search(current_user, query)
+            elif command == "unlink":
+                await link.delete()
+                reply = (
+                    "Unlinked. Reconnect anytime from Settings → Chat "
+                    "integrations."
+                )
+                conversation_reset = True
+            elif command == "help":
+                reply = service.COMMAND_HELP
+            else:
+                reply = service.COMMAND_HELP
+        else:
+            reply, suggestions = await service.run_home_chat_ask(
+                link, current_user, text
+            )
+
+        return MessageResponse(
+            reply=reply,
+            suggestions=suggestions,
+            conversation_reset=conversation_reset,
+        )
+    finally:
+        service.audit(
+            platform=request.platform,
+            external_id=request.external_id,
+            user_id=resolved_user_id,
+            endpoint="message",
+            outcome=outcome,
+            latency_ms=(datetime.now(timezone.utc) - started).total_seconds() * 1000,
+        )

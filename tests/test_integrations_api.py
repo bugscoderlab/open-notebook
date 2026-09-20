@@ -367,7 +367,15 @@ class _RepoStub:
 
 
 def _user(**overrides):
-    defaults = dict(id="app_user:test", email="test@example.com")
+    defaults = dict(
+        id="app_user:test",
+        email="test@example.com",
+        display_name="Test User",
+        organization_id="organization:default",
+        team_id="team:hr",
+        role="member",
+        status="active",
+    )
     defaults.update(overrides)
     return type("User", (), defaults)()
 
@@ -521,3 +529,272 @@ class TestInternalToken:
 
         assert internal_auth.resolve_internal_token() == "env-token"
         assert not (tmp_path / "internal-token").exists()
+
+
+# ---------------------------------------------------------------------------
+# Message spine (T2): POST /integrations/message
+# ---------------------------------------------------------------------------
+
+
+class TestMessageRouting:
+    def _message(self, client, text, **body_overrides):
+        body = {"platform": "telegram", "external_id": "4242", "text": text}
+        body.update(body_overrides)
+        return client.post(
+            "/api/integrations/message", json=body, headers=_internal_headers()
+        )
+
+    @pytest.fixture(autouse=True)
+    def _reset_rate_limit(self):
+        from api import integrations_service
+
+        integrations_service.reset_rate_limit_state()
+        yield
+        integrations_service.reset_rate_limit_state()
+
+    def _linked(self, monkeypatch):
+        """Standard resolve_linked_user stub: active link + active user."""
+        from api import integrations_service
+
+        link = _StubLink(
+            id="integration_link:t1",
+            platform="telegram",
+            external_id="4242",
+            user_id="app_user:test",
+            home_chat_session_id="home_chat_session:x",
+        )
+        user = _user()
+        resolve = AsyncMock(return_value=(link, user))
+        monkeypatch.setattr(integrations_service, "resolve_linked_user", resolve)
+        return link
+
+    def test_bad_token_is_401(self, client):
+        response = client.post(
+            "/api/integrations/message",
+            json={"platform": "telegram", "external_id": "4242", "text": "hi"},
+            headers={"Authorization": "Internal wrong"},
+        )
+        assert response.status_code == 401
+
+    def test_unlinked_identity_is_404(self, client, monkeypatch):
+        from api import integrations_service
+        from open_notebook.exceptions import NotFoundError
+
+        monkeypatch.setattr(
+            integrations_service,
+            "resolve_linked_user",
+            AsyncMock(side_effect=NotFoundError("No integration link found")),
+        )
+        response = self._message(client, "hello")
+        assert response.status_code == 404
+
+    def test_disabled_user_is_403(self, client, monkeypatch):
+        from api import integrations_service
+        from open_notebook.exceptions import ForbiddenError
+
+        monkeypatch.setattr(
+            integrations_service,
+            "resolve_linked_user",
+            AsyncMock(side_effect=ForbiddenError("This account is no longer authorized")),
+        )
+        response = self._message(client, "hello")
+        assert response.status_code == 403
+
+    def test_rate_limit_blocks_second_message(self, client, monkeypatch):
+        from api import integrations_service
+
+        self._linked(monkeypatch)
+        monkeypatch.setattr(
+            integrations_service,
+            "run_home_chat_ask",
+            AsyncMock(return_value=("answer", [])),
+        )
+
+        first = self._message(client, "question one")
+        second = self._message(client, "question two")
+
+        assert first.status_code == 200
+        assert second.status_code == 429
+        assert "too quickly" in second.json()["detail"]
+
+    def test_conversational_ask_returns_answer_and_suggestions(
+        self, client, monkeypatch
+    ):
+        from api import integrations_service
+
+        self._linked(monkeypatch)
+        ask = AsyncMock(return_value=("The answer is 42.", ["Follow-up one?", "Follow-up two?"]))
+        monkeypatch.setattr(integrations_service, "run_home_chat_ask", ask)
+
+        response = self._message(client, "what is the meaning of life?")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["reply"] == "The answer is 42."
+        assert body["suggestions"] == ["Follow-up one?", "Follow-up two?"]
+        assert body["conversation_reset"] is False
+        # The ask ran scoped to the linked user's permitted notebooks.
+        call_user = ask.await_args.args[1]
+        assert call_user.id == "app_user:test"
+
+    def test_new_command_resets_conversation(self, client, monkeypatch):
+        from api import integrations_service
+
+        link = self._linked(monkeypatch)
+        reset = AsyncMock(return_value="New conversation started.")
+        monkeypatch.setattr(integrations_service, "reset_conversation", reset)
+
+        response = self._message(client, "/new")
+
+        assert response.status_code == 200
+        assert response.json()["conversation_reset"] is True
+        assert "New conversation" in response.json()["reply"]
+        reset.assert_awaited_once_with(link)
+
+    def test_search_command_formats_results(self, client, monkeypatch):
+        from api import integrations_service
+
+        self._linked(monkeypatch)
+        search = AsyncMock(return_value="1. Report — HR (source)")
+        monkeypatch.setattr(integrations_service, "run_search", search)
+
+        response = self._message(client, "/search quarterly report")
+
+        assert response.status_code == 200
+        assert response.json()["reply"] == "1. Report — HR (source)"
+        assert search.await_args.args[1] == "quarterly report"
+
+    def test_search_command_without_query_shows_usage(self, client, monkeypatch):
+        from api import integrations_service
+
+        self._linked(monkeypatch)
+        search = AsyncMock()
+        monkeypatch.setattr(integrations_service, "run_search", search)
+
+        response = self._message(client, "/search")
+
+        assert response.status_code == 200
+        assert "Usage" in response.json()["reply"]
+        search.assert_not_awaited()
+
+    def test_unlink_command_deletes_link(self, client, monkeypatch):
+
+        link = self._linked(monkeypatch)
+
+        response = self._message(client, "/unlink")
+
+        assert response.status_code == 200
+        assert response.json()["conversation_reset"] is True
+        assert link.deleted is True
+
+    def test_help_and_unknown_command_reply_with_help(self, client, monkeypatch):
+        from api import integrations_service
+
+        self._linked(monkeypatch)
+        for text in ("/help", "/frobnicate"):
+            response = self._message(client, text)
+            assert response.status_code == 200
+            assert "/new" in response.json()["reply"]
+            assert "/search" in response.json()["reply"]
+            integrations_service.reset_rate_limit_state()
+
+
+class TestRunSearchService:
+    """Canary: /search must query with exactly the caller's permitted scope —
+    never the whole knowledge base (access.py contract)."""
+
+    @pytest.fixture(autouse=True)
+    def _stubs(self, monkeypatch):
+        from api import integrations_service
+
+        self.scope = AsyncMock(return_value=["notebook:hr"])
+        monkeypatch.setattr(integrations_service, "effective_notebook_scope", self.scope)
+        self.text_search = AsyncMock(return_value=[])
+        monkeypatch.setattr(integrations_service, "text_search", self.text_search)
+        self.user = type(
+            "U", (), {"id": "app_user:test", "email": "t@e.c", "display_name": "T",
+                       "organization_id": "organization:default", "team_id": "team:hr", "role": "member"}
+        )()
+
+    @pytest.mark.asyncio
+    async def test_search_uses_permitted_scope_only(self):
+        from api import integrations_service
+
+        await integrations_service.run_search(self.user, "salaries")
+
+        assert self.text_search.await_count == 1
+        kwargs = self.text_search.await_args.kwargs
+        assert kwargs["notebook_ids"] == ["notebook:hr"]
+
+    @pytest.mark.asyncio
+    async def test_empty_scope_never_reaches_search(self):
+        from api import integrations_service
+
+        self.scope.return_value = []
+        reply = await integrations_service.run_search(self.user, "salaries")
+
+        assert "don't have access" in reply
+        self.text_search.assert_not_awaited()
+
+
+class TestRunHomeChatAskService:
+    @pytest.mark.asyncio
+    async def test_missing_default_model_fails_closed(self, monkeypatch):
+        from api import integrations_service
+        from open_notebook.exceptions import InvalidInputError
+
+        monkeypatch.setattr(
+            integrations_service, "_resolve_default_model", AsyncMock(return_value=None)
+        )
+        link = _StubLink(id="integration_link:t1", user_id="app_user:test")
+        user = type("U", (), {"id": "app_user:test"})()
+
+        with pytest.raises(InvalidInputError, match="default chat model"):
+            await integrations_service.run_home_chat_ask(link, user, "hi")
+
+    @pytest.mark.asyncio
+    async def test_pipeline_error_degrades_to_friendly_reply(self, monkeypatch):
+        from api import integrations_service
+
+        monkeypatch.setattr(
+            integrations_service,
+            "_resolve_default_model",
+            AsyncMock(return_value="model:1"),
+        )
+        monkeypatch.setattr(
+            integrations_service,
+            "effective_notebook_scope",
+            AsyncMock(return_value=["notebook:hr"]),
+        )
+        monkeypatch.setattr(
+            integrations_service,
+            "_ensure_session",
+            AsyncMock(return_value="home_chat_session:x"),
+        )
+
+        class _Boom:
+            async def aget_state(self, config):
+                return None
+
+            def astream(self, *args, **kwargs):
+                async def _gen():
+                    raise RuntimeError("provider exploded")
+                    yield  # pragma: no cover
+
+                return _gen()
+
+        monkeypatch.setattr(
+            integrations_service,
+            "get_home_chat_graph",
+            AsyncMock(return_value=_Boom()),
+        )
+
+        link = _StubLink(id="integration_link:t1", user_id="app_user:test")
+        user = type("U", (), {"id": "app_user:test"})()
+
+        reply, suggestions = await integrations_service.run_home_chat_ask(
+            link, user, "hi"
+        )
+
+        assert reply  # non-empty friendly message
+        assert suggestions == []
