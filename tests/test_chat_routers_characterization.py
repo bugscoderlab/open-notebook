@@ -434,3 +434,20 @@ async def test_send_home_message_legacy_refunds_flag_is_harmless(
 
     assert resp.status_code == 200
     assert mock_stream.called
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "method,path",
+    [
+        ("get", "/api/analytics/datasets"),
+        ("post", "/api/analytics/ask"),
+        ("get", "/api/analytics/queries/analytics_query_log:1"),
+    ],
+)
+async def test_analytics_endpoints_are_gone(method, path, client):
+    """ADR-017: the analytics router is removed — every former endpoint
+    must be a plain 404, not a 500 from a dangling registration."""
+    resp = client.request(method, path, json={"question": "who?"} if method == "post" else None)
+
+    assert resp.status_code == 404

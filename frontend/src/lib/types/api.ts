@@ -235,12 +235,9 @@ export interface SendHomeMessageRequest {
   model_override?: string
 }
 
-export type HomeChatRoute = 'knowledge'
-
 export interface HomeChatStreamEvent {
   type:
     | 'user_message'
-    | 'route'
     | 'strategy'
     | 'answer'
     | 'final_answer'
@@ -248,7 +245,6 @@ export interface HomeChatStreamEvent {
     | 'complete'
     | 'error'
   content?: string
-  route?: HomeChatRoute
   reasoning?: string
   searches?: Array<{ term: string; instructions: string }>
   suggestions?: string[]

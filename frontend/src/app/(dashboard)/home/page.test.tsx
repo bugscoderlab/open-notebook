@@ -56,7 +56,6 @@ function mockChat(overrides: Record<string, unknown> = {}) {
     messages: [],
     turns: [],
     suggestions: [],
-    route: null,
     isStreaming: false,
     loadingSessions: false,
     createSession: vi.fn(),

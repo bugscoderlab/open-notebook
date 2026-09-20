@@ -10,7 +10,6 @@ import {
   HomeChatSession,
   SourceChatMessage,
   HomeChatTurn,
-  HomeChatRoute,
   HomeChatStreamEvent,
   CreateHomeChatSessionRequest,
   UpdateHomeChatSessionRequest
@@ -33,7 +32,6 @@ export function useHomeChat() {
   // Aligned with AI messages in order (suggestions per turn).
   const [turns, setTurns] = useState<HomeChatTurn[]>([])
   const [suggestions, setSuggestions] = useState<string[]>([])
-  const [route, setRoute] = useState<HomeChatRoute | null>(null)
   const [isStreaming, setIsStreaming] = useState(false)
   const abortControllerRef = useRef<AbortController | null>(null)
 
@@ -140,7 +138,6 @@ export function useHomeChat() {
     }
     setMessages((prev) => [...prev, userMessage])
     setIsStreaming(true)
-    setRoute(null)
     setSuggestions([])
 
     // Reserve the turn slot for the AI answer we're about to stream.
@@ -189,9 +186,6 @@ export function useHomeChat() {
           }
 
           switch (event.type) {
-            case 'route':
-              setRoute(event.route ?? null)
-              break
             case 'final_answer': {
               const content = event.content ?? ''
               if (!aiMessageId) {
@@ -234,7 +228,6 @@ export function useHomeChat() {
       setTurns((prev) => prev.slice(0, -1))
     } finally {
       setIsStreaming(false)
-      setRoute(null)
       // The checkpoint is authoritative — refetch to get persisted messages.
       refetchCurrentSession()
     }
@@ -250,7 +243,6 @@ export function useHomeChat() {
   const switchSession = useCallback((sessionId: string) => {
     setCurrentSessionId(sessionId)
     setSuggestions([])
-    setRoute(null)
   }, [])
 
   const newSession = useCallback(() => {
@@ -267,7 +259,6 @@ export function useHomeChat() {
     messages,
     turns,
     suggestions,
-    route,
     isStreaming,
     loadingSessions,
     createSession: createSessionMutation.mutate,
