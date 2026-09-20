@@ -30,7 +30,7 @@ export function useHomeChat() {
   const queryClient = useQueryClient()
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null)
   const [messages, setMessages] = useState<SourceChatMessage[]>([])
-  // Aligned with AI messages in order (analytics payload + suggestions per turn).
+  // Aligned with AI messages in order (suggestions per turn).
   const [turns, setTurns] = useState<HomeChatTurn[]>([])
   const [suggestions, setSuggestions] = useState<string[]>([])
   const [route, setRoute] = useState<HomeChatRoute | null>(null)
@@ -192,12 +192,8 @@ export function useHomeChat() {
             case 'route':
               setRoute(event.route ?? null)
               break
-            case 'final_answer':
-            case 'analytics_answer': {
-              const content =
-                event.type === 'final_answer'
-                  ? (event.content ?? '')
-                  : (event.data?.answer_text ?? '')
+            case 'final_answer': {
+              const content = event.content ?? ''
               if (!aiMessageId) {
                 aiMessageId = `ai-${Date.now()}`
                 setMessages((prev) => [
@@ -208,13 +204,6 @@ export function useHomeChat() {
                 setMessages((prev) =>
                   prev.map((msg) => (msg.id === aiMessageId ? { ...msg, content } : msg))
                 )
-              }
-              if (event.type === 'analytics_answer' && event.data) {
-                setTurns((prev) => {
-                  const next = [...prev]
-                  next[next.length - 1] = { ...next[next.length - 1], analytics_answer: event.data! }
-                  return next
-                })
               }
               break
             }
@@ -229,8 +218,10 @@ export function useHomeChat() {
             case 'error':
               throw new Error(event.message || 'Stream error')
             default:
-              // user_message (already optimistic), strategy/answer stages and
-              // complete — the final answer / session refetch cover these.
+              // user_message (already optimistic), strategy/answer stages,
+              // complete and any legacy/unknown event types from an older
+              // backend (e.g. analytics_answer) — the final answer / session
+              // refetch cover these; unknown types are ignored gracefully.
               break
           }
         }

@@ -6,9 +6,8 @@ import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
-import { Bot, User, Send, Loader2, Clock, Sparkles, BookOpen, BarChart3 } from 'lucide-react'
+import { Bot, User, Send, Loader2, Clock, Sparkles, BookOpen } from 'lucide-react'
 import { MarkdownRenderer } from '@/components/ui/markdown-renderer'
-import { AnalyticsAnswerSurface } from '@/components/search/AnalyticsAnswerSurface'
 import { NotebookScopeSelector } from '@/components/search/NotebookScopeSelector'
 import { SessionManager } from '@/components/sources/SessionManager'
 import { MessageActions } from '@/components/sources/MessageActions'
@@ -17,7 +16,7 @@ import { useHomeChat } from '@/lib/hooks/use-home-chat'
 import { useModelDefaults } from '@/lib/hooks/use-models'
 import { useModalManager } from '@/lib/hooks/use-modal-manager'
 import { useTranslation } from '@/lib/hooks/use-translation'
-import { SourceChatMessage, HomeChatTurn } from '@/lib/types/api'
+import { SourceChatMessage } from '@/lib/types/api'
 import { toast } from 'sonner'
 
 interface StarterSuggestion {
@@ -26,8 +25,7 @@ interface StarterSuggestion {
 }
 
 // Clickable starter questions for the empty state. Questions are sent
-// verbatim (like searchPage's analytics suggestions); only the labels are
-// localized.
+// verbatim; only the labels are localized.
 const STARTER_SUGGESTIONS: StarterSuggestion[] = [
   {
     labelKey: 'home.starterHighestSpender',
@@ -70,10 +68,6 @@ export default function HomePage() {
       : undefined
     chat.sendMessage(message, { notebookIds: scopeNotebookIds, models })
   }, [chat, scopeNotebookIds, modelDefaults?.default_chat_model])
-
-  // AI turns aligned with AI messages in order.
-  const aiTurns = chat.turns
-  let aiIndex = -1
 
   return (
     <AppShell>
@@ -133,16 +127,12 @@ export default function HomePage() {
                 </div>
               </div>
             ) : (
-              chat.messages.map((message) => {
-                const turn = message.type === 'ai' ? (aiTurns[++aiIndex] ?? {}) : undefined
-                return (
-                  <HomeChatMessageBubble
-                    key={message.id}
-                    message={message}
-                    turn={turn}
-                  />
-                )
-              })
+              chat.messages.map((message) => (
+                <HomeChatMessageBubble
+                  key={message.id}
+                  message={message}
+                />
+              ))
             )}
             {chat.isStreaming && (
               <div className="flex gap-3 justify-start">
@@ -152,7 +142,7 @@ export default function HomePage() {
                 <div className="rounded-lg px-4 py-2 bg-card border">
                   <Loader2 className="h-4 w-4 animate-spin" />
                   <span className="sr-only">
-                    {chat.route === 'analytics' ? t('home.analysing') : t('home.searching')}
+                    {t('home.searching')}
                   </span>
                 </div>
               </div>
@@ -197,12 +187,10 @@ export default function HomePage() {
 
 interface HomeChatMessageBubbleProps {
   message: SourceChatMessage
-  turn?: HomeChatTurn
 }
 
 const HomeChatMessageBubble = memo(function HomeChatMessageBubble({
-  message,
-  turn
+  message
 }: HomeChatMessageBubbleProps) {
   const { t } = useTranslation()
   const { openModal } = useModalManager()
@@ -231,29 +219,14 @@ const HomeChatMessageBubble = memo(function HomeChatMessageBubble({
         }`}>
           {message.type === 'ai' ? (
             <>
-              {turn?.analytics_answer ? (
-                <>
-                  <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-muted-foreground mb-1">
-                    <BarChart3 className="h-3 w-3" />
-                    {turn.analytics_answer.status === 'denied'
-                      ? t('home.answerSourceAnalytics')
-                      : (turn.analytics_answer.scope?.dataset ?? t('home.answerSourceAnalytics'))}
-                  </div>
-                  <p className="text-sm">{message.content}</p>
-                  <AnalyticsAnswerSurface answer={turn.analytics_answer} />
-                </>
-              ) : (
-                <>
-                  <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-muted-foreground mb-1">
-                    <BookOpen className="h-3 w-3" />
-                    {t('home.answerSourceKnowledge')}
-                  </div>
-                  <KnowledgeAnswerContent
-                    content={message.content}
-                    onReferenceClick={handleReferenceClick}
-                  />
-                </>
-              )}
+              <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-muted-foreground mb-1">
+                <BookOpen className="h-3 w-3" />
+                {t('home.answerSourceKnowledge')}
+              </div>
+              <KnowledgeAnswerContent
+                content={message.content}
+                onReferenceClick={handleReferenceClick}
+              />
             </>
           ) : (
             <p className="text-sm break-words whitespace-pre-wrap">{message.content}</p>

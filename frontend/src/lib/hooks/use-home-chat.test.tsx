@@ -91,32 +91,26 @@ describe('useHomeChat', () => {
     expect(result.current.suggestions).toEqual(['Tell me more?'])
     expect(result.current.turns).toHaveLength(1)
     expect(result.current.turns[0].suggestions).toEqual(['Tell me more?'])
-    expect(result.current.turns[0].analytics_answer).toBeUndefined()
   })
 
-  it('attaches the analytics payload on an analytics turn', async () => {
+  it('ignores legacy analytics stream events from an older backend', async () => {
+    // The analytics subsystem is gone, but a pre-removal backend may still
+    // emit analytics events: they must be skipped gracefully (no crash, no
+    // message synthesized from the analytics payload).
     vi.mocked(homeChatApi.createSession).mockResolvedValue({
       id: 'home_chat_session:1',
       title: 'top spender?',
       created: '',
       updated: '',
     } as any)
-    const analyticsAnswer = {
-      query_id: 'q:1',
-      status: 'ok',
-      answer_text: 'Sarah spent MYR 100.',
-      kpis: [],
-      table: null,
-      chart: null,
-      scope: null,
-      freshness_at: null,
-      query_template: null,
-    }
     vi.mocked(homeChatApi.sendMessage).mockResolvedValue(
       sseStream([
         { type: 'route', route: 'analytics' },
-        { type: 'analytics_answer', data: analyticsAnswer },
-        { type: 'suggestions', suggestions: [] },
+        {
+          type: 'analytics_answer',
+          data: { query_id: 'q:1', status: 'ok', answer_text: 'Sarah spent MYR 100.' },
+        },
+        { type: 'suggestions', suggestions: ['Tell me more?'] },
         { type: 'complete' },
       ]) as any
     )
@@ -127,9 +121,10 @@ describe('useHomeChat', () => {
       await result.current.sendMessage('top spender?', { models: MODELS })
     })
 
-    const ai = result.current.messages.find((m) => m.type === 'ai')
-    expect(ai?.content).toBe('Sarah spent MYR 100.')
-    expect(result.current.turns[0].analytics_answer).toMatchObject({ status: 'ok' })
+    // No AI message is synthesized from the ignored analytics event.
+    expect(result.current.messages.map((m) => m.content)).toEqual(['top spender?'])
+    expect(result.current.turns[0].suggestions).toEqual(['Tell me more?'])
+    expect(result.current.isStreaming).toBe(false)
   })
 
   it('sends notebook scope only when non-empty', async () => {

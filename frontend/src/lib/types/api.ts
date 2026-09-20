@@ -1,5 +1,3 @@
-import type { AnalyticsAnswer } from './analytics'
-
 export interface NotebookResponse {
   id: string
   name: string
@@ -206,11 +204,10 @@ export interface SourceChatStreamEvent {
 }
 
 
-// Home Chat Types (unified knowledge + analytics ask chat)
+// Home Chat Types (knowledge-only ask chat)
 export type HomeChatSession = BaseChatSession
 
 export interface HomeChatTurn {
-  analytics_answer?: AnalyticsAnswer | null
   suggestions?: string[]
 }
 
@@ -232,14 +229,13 @@ export interface UpdateHomeChatSessionRequest {
 export interface SendHomeMessageRequest {
   message: string
   notebook_ids?: string[]
-  include_refunds?: boolean
   strategy_model?: string
   answer_model?: string
   final_answer_model?: string
   model_override?: string
 }
 
-export type HomeChatRoute = 'knowledge' | 'analytics'
+export type HomeChatRoute = 'knowledge'
 
 export interface HomeChatStreamEvent {
   type:
@@ -248,7 +244,6 @@ export interface HomeChatStreamEvent {
     | 'strategy'
     | 'answer'
     | 'final_answer'
-    | 'analytics_answer'
     | 'suggestions'
     | 'complete'
     | 'error'
@@ -256,10 +251,8 @@ export interface HomeChatStreamEvent {
   route?: HomeChatRoute
   reasoning?: string
   searches?: Array<{ term: string; instructions: string }>
-  data?: AnalyticsAnswer
   suggestions?: string[]
   final_answer?: string | null
-  analytics_answer?: AnalyticsAnswer | null
   message?: string
   timestamp?: string
 }

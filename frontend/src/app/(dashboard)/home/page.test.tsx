@@ -16,10 +16,6 @@ vi.mock('@/components/search/NotebookScopeSelector', () => ({
   NotebookScopeSelector: () => null,
 }))
 
-vi.mock('@/components/search/AnalyticsAnswerSurface', () => ({
-  AnalyticsAnswerSurface: () => <div data-testid="analytics-surface" />,
-}))
-
 vi.mock('@/components/sources/SessionManager', () => ({
   SessionManager: () => null,
 }))
@@ -111,7 +107,7 @@ describe('HomePage', () => {
     )
   })
 
-  it('renders knowledge and analytics answers with their sources', () => {
+  it('renders knowledge answers with sources and follow-up suggestions', () => {
     mockChat({
       messages: [
         { id: '1', type: 'human', content: 'top spender?' },
@@ -120,6 +116,8 @@ describe('HomePage', () => {
         { id: '4', type: 'ai', content: 'retrieval augmented generation' },
       ],
       turns: [
+        // Legacy turn from before the analytics removal: a stale analytics
+        // payload must not be rendered anymore.
         {
           analytics_answer: {
             query_id: null,
@@ -141,8 +139,10 @@ describe('HomePage', () => {
     render(<HomePage />)
 
     expect(screen.getByText('Sarah spent MYR 100.')).toBeInTheDocument()
-    expect(screen.getByTestId('analytics-surface')).toBeInTheDocument()
     expect(screen.getByText('retrieval augmented generation')).toBeInTheDocument()
+    // The analytics answer surface is gone — legacy analytics payloads on
+    // old turns are not rendered.
+    expect(screen.queryByTestId('analytics-surface')).not.toBeInTheDocument()
 
     // Follow-up suggestion pill is clickable and sends the suggestion
     const pill = screen.getByText('Tell me more?')
