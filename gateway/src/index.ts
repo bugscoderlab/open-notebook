@@ -42,7 +42,7 @@ async function main(): Promise<void> {
     adapters.push(createWhatsAppAdapter({ client, log }))
     log('whatsapp adapter starting (Baileys — replies only, see the user guide risk warning)')
   } else {
-    log('whatsapp adapter not configured (set OPEN_NOTEBOOK_WHATSAPP_ENABLED=true to enable)')
+    log('whatsapp adapter disabled (OPEN_NOTEBOOK_WHATSAPP_ENABLED=false)')
   }
 
   if (adapters.length === 0) {

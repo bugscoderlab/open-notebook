@@ -172,10 +172,10 @@ Step-by-step guides for common types of changes in the Open Notebook codebase. E
 | Step | File(s) | What to Do |
 |------|---------|------------|
 | 1 | `frontend/src/lib/locales/en-US/index.ts` | Add English strings first. Group by feature. |
-| 2 | All other locale files | Add the same keys to: `pt-BR`, `zh-CN`, `zh-TW`, `ja-JP`, `ru-RU`, `bn-IN`. Use English as placeholder if translation unavailable. |
+| 2 | All other locale files | Add the same keys to: `zh-CN`, `zh-TW`. Use English as placeholder if translation unavailable. |
 | 3 | Component | Use `const { t } = useTranslation()` and access via `t('section.key')`. |
 
-**7 locales total.** Don't forget any.
+**3 locales total (en-US, zh-CN, zh-TW).** Don't forget any.
 
 ### Adding a whole new language
 

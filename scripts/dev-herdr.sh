@@ -81,7 +81,8 @@ up() {
     P_DB="$ROOT_PANE"
     echo "dev-herdr: created tab '$TAB_LABEL' ($TAB) with 5 panes"
   else
-    mapfile -t PANES < <(tab_panes "$TAB")
+    PANES=()
+    while IFS= read -r p; do PANES+=("$p"); done < <(tab_panes "$TAB")
     case "${#PANES[@]}" in
       5)
         P_DB="${PANES[0]}"; P_API="${PANES[1]}"; P_WORKER="${PANES[2]}"; P_FRONTEND="${PANES[3]}"; P_GATEWAY="${PANES[4]}"
@@ -121,11 +122,14 @@ up() {
     echo "dev-herdr: worker already running, skipping"
   else
     herdr pane run "$P_WORKER" "make worker-start"
-    if ! herdr pane wait-output "$P_WORKER" --match "LIVE query listener" --timeout 90000 >/dev/null; then
-      echo "dev-herdr: worker did not report healthy (no 'LIVE query listener')" >&2
+    # Note: in narrow panes the worker's log lines are wrapped and interleaved
+    # with loguru source locations, so no multi-word phrase survives intact.
+    # "Waiting for" stays contiguous on the spinner line even when wrapped.
+    if ! herdr pane wait-output "$P_WORKER" --match "Waiting for" --source recent-unwrapped --timeout 90000 >/dev/null; then
+      echo "dev-herdr: worker did not report healthy (no 'Waiting for commands' spinner)" >&2
       exit 1
     fi
-    echo "dev-herdr: worker healthy (LIVE query listener up)"
+    echo "dev-herdr: worker healthy (Waiting for commands)"
   fi
 
   # 4. Frontend

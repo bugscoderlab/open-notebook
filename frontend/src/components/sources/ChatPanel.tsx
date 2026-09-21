@@ -7,7 +7,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
-import { Bot, User, Send, Loader2, FileText, Lightbulb, StickyNote, Clock, Sparkles } from 'lucide-react'
+import { Bot, User, Send, Loader2, FileText, Lightbulb, StickyNote, Clock, Sparkles, ChevronRight } from 'lucide-react'
 import { MarkdownRenderer } from '@/components/ui/markdown-renderer'
 import {
   SourceChatMessage,
@@ -49,6 +49,8 @@ interface ChatPanelProps {
   // Generic props for reusability
   title?: string
   contextType?: 'source' | 'notebook'
+  /** Collapse the whole panel into a slim rail (catalog source-detail page). */
+  onCollapse?: () => void
   // Notebook context stats (for notebook chat)
   notebookContextStats?: NotebookContextStats
   // Notebook ID for saving notes
@@ -71,6 +73,7 @@ export function ChatPanel({
   loadingSessions = false,
   title,
   contextType = 'source',
+  onCollapse,
   notebookContextStats,
   notebookId
 }: ChatPanelProps) {
@@ -110,7 +113,20 @@ export function ChatPanel({
             <span aria-hidden className="h-3.5 w-[3px] rounded-full bg-teal" />
             {title || (contextType === 'source' ? t('chat.chatWith', { name: t('navigation.sources') }) : t('chat.chatWith', { name: t('common.notebook') }))}
           </CardTitle>
-          {onSelectSession && onCreateSession && onDeleteSession && (
+          <div className="flex items-center gap-1">
+            {onCollapse && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 text-muted-foreground"
+                onClick={onCollapse}
+                aria-label={t('chat.collapseChat')}
+                title={t('chat.collapseChat')}
+              >
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            )}
+            {onSelectSession && onCreateSession && onDeleteSession && (
             <Dialog open={sessionManagerOpen} onOpenChange={setSessionManagerOpen}>
               <Button
                 variant="ghost"
@@ -136,9 +152,10 @@ export function ChatPanel({
                   onDeleteSession={(sessionId) => onDeleteSession?.(sessionId)}
                   loadingSessions={loadingSessions}
                 />
-              </DialogContent>
-            </Dialog>
-          )}
+                </DialogContent>
+              </Dialog>
+            )}
+          </div>
         </div>
       </CardHeader>
 

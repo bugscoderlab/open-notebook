@@ -283,6 +283,234 @@ class TestInternalAuth:
 
 
 # ---------------------------------------------------------------------------
+# WhatsApp pairing status (gateway push → web UI read)
+# ---------------------------------------------------------------------------
+
+
+class TestWhatsappPairing:
+    @pytest.fixture(autouse=True)
+    def _reset_pairing_state(self):
+        from api import integrations_service as svc
+
+        reset = {"status": "disconnected", "qr": None, "identity": None, "updated_at": None}
+        svc._whatsapp_pairing.update(reset)
+        yield
+        svc._whatsapp_pairing.update(reset)
+
+    def test_unauthenticated_get_is_401(self, client):
+        response = client.get("/api/integrations/whatsapp/pairing")
+        assert response.status_code == 401
+
+    def test_fresh_state_is_disconnected(self, client, auth_session):
+        auth_session()
+        response = client.get(
+            "/api/integrations/whatsapp/pairing", cookies=_auth_cookies()
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["status"] == "disconnected"
+        assert body["qr"] is None
+        assert body["updated_at"] is None
+
+    def test_push_rejects_bad_auth(self, client):
+        response = client.put(
+            "/api/integrations/whatsapp/pairing",
+            json={"status": "pairing", "qr": "qr-1"},
+        )
+        assert response.status_code == 401
+
+    def test_push_then_read_roundtrip(self, client, auth_session):
+        auth_session()
+        pushed = client.put(
+            "/api/integrations/whatsapp/pairing",
+            json={"status": "pairing", "qr": "qr-1"},
+            headers=_internal_headers(),
+        )
+        assert pushed.status_code == 200
+
+        read = client.get(
+            "/api/integrations/whatsapp/pairing", cookies=_auth_cookies()
+        )
+        assert read.status_code == 200
+        body = read.json()
+        assert body["status"] == "pairing"
+        assert body["qr"] == "qr-1"
+        assert body["updated_at"] is not None
+
+    def test_non_pairing_status_clears_qr(self, client):
+        client.put(
+            "/api/integrations/whatsapp/pairing",
+            json={"status": "pairing", "qr": "qr-1"},
+            headers=_internal_headers(),
+        )
+        client.put(
+            "/api/integrations/whatsapp/pairing",
+            json={"status": "connected"},
+            headers=_internal_headers(),
+        )
+        response = client.put(
+            "/api/integrations/whatsapp/pairing",
+            json={"status": "connected"},
+            headers=_internal_headers(),
+        )
+        assert response.json()["qr"] is None
+
+    def test_unknown_status_is_422(self, client):
+        response = client.put(
+            "/api/integrations/whatsapp/pairing",
+            json={"status": "bogus"},
+            headers=_internal_headers(),
+        )
+        assert response.status_code == 422
+
+    def test_connected_push_reports_identity_and_disconnect_clears_it(
+        self, client, auth_session
+    ):
+        auth_session()
+        client.put(
+            "/api/integrations/whatsapp/pairing",
+            json={"status": "connected", "identity": "6012@s.whatsapp.net"},
+            headers=_internal_headers(),
+        )
+        connected = client.get(
+            "/api/integrations/whatsapp/pairing", cookies=_auth_cookies()
+        )
+        assert connected.json()["identity"] == "6012@s.whatsapp.net"
+
+        client.put(
+            "/api/integrations/whatsapp/pairing",
+            json={"status": "disconnected"},
+            headers=_internal_headers(),
+        )
+        disconnected = client.get(
+            "/api/integrations/whatsapp/pairing", cookies=_auth_cookies()
+        )
+        assert disconnected.json()["identity"] is None
+
+
+class TestWhatsappClaimSelf:
+    @pytest.fixture(autouse=True)
+    def _reset_pairing_state(self):
+        from api import integrations_service as svc
+
+        reset = {"status": "disconnected", "qr": None, "identity": None, "updated_at": None}
+        svc._whatsapp_pairing.update(reset)
+        yield
+        svc._whatsapp_pairing.update(reset)
+
+    def _push_connected(self, client, identity="6012@s.whatsapp.net"):
+        return client.put(
+            "/api/integrations/whatsapp/pairing",
+            json={"status": "connected", "identity": identity},
+            headers=_internal_headers(),
+        )
+
+    def test_unauthenticated_is_401(self, client):
+        response = client.post(
+            "/api/integrations/whatsapp/claim-self",
+            json={"code": "123456"},
+            cookies={"open_notebook_csrf": CSRF_COOKIE},
+            headers=CSRF_HEADERS,
+        )
+        assert response.status_code == 401
+
+    def test_without_csrf_is_403(self, client, auth_session):
+        auth_session()
+        response = client.post(
+            "/api/integrations/whatsapp/claim-self",
+            json={"code": "123456"},
+            cookies={SESSION_COOKIE: "opaque"},
+        )
+        assert response.status_code == 403
+
+    def test_not_connected_is_422(self, client, auth_session):
+        auth_session()
+        response = client.post(
+            "/api/integrations/whatsapp/claim-self",
+            json={"code": "123456"},
+            cookies=_auth_cookies(),
+            headers=CSRF_HEADERS,
+        )
+        assert response.status_code == 422
+        assert "not connected" in response.json()["detail"]
+
+    def test_claims_the_connected_identity(self, client, auth_session, monkeypatch):
+        auth_session()
+        self._push_connected(client)
+        from types import SimpleNamespace
+
+        claim_link = AsyncMock(
+            return_value=(SimpleNamespace(id="app_user:t", email="a@b.c"), "linked")
+        )
+        monkeypatch.setattr("api.integrations_service.claim_link", claim_link)
+
+        response = client.post(
+            "/api/integrations/whatsapp/claim-self",
+            json={"code": "123456"},
+            cookies=_auth_cookies(),
+            headers=CSRF_HEADERS,
+        )
+
+        assert response.status_code == 200
+        assert response.json()["email"] == "a@b.c"
+        claim_link.assert_awaited_once_with("whatsapp", "6012@s.whatsapp.net", "123456")
+
+
+class TestWhatsappRePair:
+    @pytest.fixture(autouse=True)
+    def _reset_nonce(self):
+        from api import integrations_service as svc
+
+        svc._whatsapp_reset_nonce = None
+        yield
+        svc._whatsapp_reset_nonce = None
+
+    def test_reset_requires_admin(self, client, auth_session):
+        auth_session(role="member")
+        response = client.post(
+            "/api/integrations/whatsapp/reset",
+            cookies=_auth_cookies(),
+            headers=CSRF_HEADERS,
+        )
+        assert response.status_code == 403
+
+    def test_reset_ok_for_admin_and_gateway_polls_it(self, client, auth_session):
+        auth_session(role="admin")
+        response = client.post(
+            "/api/integrations/whatsapp/reset",
+            cookies=_auth_cookies(),
+            headers=CSRF_HEADERS,
+        )
+        assert response.status_code == 200
+        nonce = response.json()["nonce"]
+        assert nonce
+
+        polled = client.get(
+            "/api/integrations/whatsapp/reset", headers=_internal_headers()
+        )
+        assert polled.status_code == 200
+        assert polled.json()["nonce"] == nonce
+
+    def test_reset_nonce_stable_until_next_request(self, client, auth_session):
+        auth_session(role="admin")
+        first = client.post(
+            "/api/integrations/whatsapp/reset",
+            cookies=_auth_cookies(),
+            headers=CSRF_HEADERS,
+        ).json()["nonce"]
+        second = client.post(
+            "/api/integrations/whatsapp/reset",
+            cookies=_auth_cookies(),
+            headers=CSRF_HEADERS,
+        ).json()["nonce"]
+        assert first != second
+
+    def test_reset_rejects_bad_internal_token(self, client):
+        response = client.get("/api/integrations/whatsapp/reset")
+        assert response.status_code == 401
+
+
+# ---------------------------------------------------------------------------
 # Gateway: claim lifecycle
 # ---------------------------------------------------------------------------
 

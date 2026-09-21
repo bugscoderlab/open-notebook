@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { Check, Copy, Loader2, MessageCircle, Plus, RefreshCw, Send, Trash2 } from 'lucide-react'
+import { QRCodeSVG } from 'qrcode.react'
 
 import { SectionCard } from '@/components/shell/section-card'
 import { Badge } from '@/components/ui/badge'
@@ -20,9 +21,12 @@ import { useTranslation } from '@/lib/hooks/use-translation'
 import {
   IntegrationLink,
   IntegrationPlatform,
+  useClaimSelfWhatsApp,
   useCreateIntegrationLink,
   useDeleteIntegrationLink,
   useIntegrationLinks,
+  useRequestWhatsappRePair,
+  useWhatsAppPairing,
 } from '@/lib/hooks/use-integrations'
 
 const CODE_TTL_SECONDS = 10 * 60
@@ -67,12 +71,18 @@ export function ChatIntegrationsSection() {
   const linksQuery = useIntegrationLinks()
   const createLink = useCreateIntegrationLink()
   const deleteLink = useDeleteIntegrationLink()
+  const claimSelfWhatsApp = useClaimSelfWhatsApp()
+  const requestRePair = useRequestWhatsappRePair()
 
   const [connecting, setConnecting] = useState<ConnectState | null>(null)
   const [now, setNow] = useState(() => Date.now())
   const [managePlatform, setManagePlatform] = useState<IntegrationPlatform | null>(null)
 
   const links = useMemo(() => linksQuery.data ?? [], [linksQuery.data])
+
+  // WhatsApp pairing QR: gateway-pushed, rotates until scanned — poll while
+  // the connect dialog for WhatsApp is open.
+  const whatsappPairing = useWhatsAppPairing(connecting?.platform === 'whatsapp')
 
   const secondsLeft = connecting
     ? Math.max(0, Math.floor((connecting.expiresAt - now) / 1000))
@@ -235,6 +245,9 @@ export function ChatIntegrationsSection() {
           {connecting && (
             <div className="space-y-5 py-2">
               <ol className="space-y-2 text-sm text-muted-foreground">
+                {connecting.platform === 'whatsapp' && (
+                  <li>{t('chatIntegrations.whatsappStepScan')}</li>
+                )}
                 <li>
                   {t('chatIntegrations.stepSend', {
                     bot: t(PLATFORM_META[connecting.platform].botRefKey),
@@ -242,6 +255,71 @@ export function ChatIntegrationsSection() {
                 </li>
                 <li>{t('chatIntegrations.stepWait')}</li>
               </ol>
+
+              {connecting.platform === 'whatsapp' && (
+                <div className="flex flex-col items-center gap-2 rounded-lg border bg-muted/30 px-4 py-5">
+                  {whatsappPairing.data?.qr ? (
+                    <>
+                      <QRCodeSVG value={whatsappPairing.data.qr} size={200} />
+                      <p className="text-center text-xs text-muted-foreground">
+                        {t('chatIntegrations.whatsappQrRefreshNote')}
+                      </p>
+                    </>
+                  ) : whatsappPairing.data?.status === 'connected' ? (
+                    <div className="flex flex-col items-center gap-3">
+                      <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <Check className="h-4 w-4 text-green-600" />{' '}
+                        {t('chatIntegrations.whatsappQrConnected')}
+                      </p>
+                      {/* Sole-number setups: WhatsApp doesn't relay self-chat
+                          messages to linked devices, so /start may never
+                          arrive — link the connected identity in one click.
+                          Close on success immediately: extra clicks would hit
+                          the already-consumed code and toast a scary 400. */}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={claimSelfWhatsApp.isPending}
+                        onClick={() => {
+                          claimSelfWhatsApp.mutate(connecting.code, {
+                            onSuccess: () => {
+                              setConnecting(null)
+                              toast({
+                                title: t('common.success'),
+                                description: t('chatIntegrations.linkedSuccess'),
+                              })
+                            },
+                          })
+                        }}
+                      >
+                        {claimSelfWhatsApp.isPending && (
+                          <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                        )}{' '}
+                        {t('chatIntegrations.whatsappLinkSelf')}
+                      </Button>
+                      {/* Admin: force a fresh pairing QR (e.g. to move the bot
+                          to a different number). Gateway wipes its session on
+                          the next poll; the QR appears here shortly after. */}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={requestRePair.isPending}
+                        onClick={() => requestRePair.mutate()}
+                      >
+                        {requestRePair.isPending && (
+                          <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                        )}{' '}
+                        {t('chatIntegrations.whatsappRePair')}
+                      </Button>
+                    </div>
+                  ) : (
+                    <p className="flex items-center gap-2 text-center text-sm text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin" />{' '}
+                      {t('chatIntegrations.whatsappQrWaiting')}
+                    </p>
+                  )}
+                </div>
+              )}
 
               <div className="rounded-lg border bg-muted/30 py-5">
                 {expired ? (

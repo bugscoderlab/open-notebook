@@ -39,6 +39,56 @@ from open_notebook.utils.error_classifier import classify_error
 CODE_TTL = timedelta(minutes=10)
 CODE_SPACE = 900_000  # 6-digit codes 100000–999999
 
+# WhatsApp pairing status as last reported by the gateway (internal push).
+# Ephemeral by nature: Baileys rotates the QR every ~20–60s while pairing and
+# the gateway re-pushes on every connection change, so an API restart
+# self-heals on the next event. In-memory — the API runs as a single process.
+WHATSAPP_PAIRING_STATUSES = ("pairing", "connected", "disconnected", "logged_out")
+_whatsapp_pairing: Dict[str, Optional[object]] = {
+    "status": "disconnected",
+    "qr": None,
+    "identity": None,
+    "updated_at": None,
+}
+
+
+def set_whatsapp_pairing(
+    status: str, qr: Optional[str] = None, identity: Optional[str] = None
+) -> None:
+    """Record the gateway's latest WhatsApp pairing report.
+
+    The QR is only meaningful while pairing; the identity only while
+    connected. Any other state clears both.
+    """
+    if status not in WHATSAPP_PAIRING_STATUSES:
+        raise InvalidInputError(f"Unknown WhatsApp pairing status: {status}")
+    _whatsapp_pairing["status"] = status
+    _whatsapp_pairing["qr"] = qr if status == "pairing" else None
+    _whatsapp_pairing["identity"] = identity if status == "connected" else None
+    _whatsapp_pairing["updated_at"] = datetime.now(timezone.utc)
+
+
+def get_whatsapp_pairing() -> Dict[str, Optional[object]]:
+    """Latest WhatsApp pairing report for the web UI (read-only copy)."""
+    return dict(_whatsapp_pairing)
+
+
+# One-click re-pair: the web UI sets a nonce; the gateway polls for it and,
+# on change, wipes its session and reconnects (fresh QR). The nonce persists
+# in the API until the next request, so gateway restarts don't re-trigger.
+_whatsapp_reset_nonce: Optional[str] = None
+
+
+def request_whatsapp_repair() -> str:
+    """Admin action: bump the re-pair nonce. Returns the new nonce."""
+    global _whatsapp_reset_nonce
+    _whatsapp_reset_nonce = secrets.token_hex(8)
+    return _whatsapp_reset_nonce
+
+
+def get_whatsapp_reset_nonce() -> Optional[str]:
+    return _whatsapp_reset_nonce
+
 # Activation is atomic: the status transition, the expiry check, and the
 # one-account-per-identity rule all live in this one statement, so concurrent
 # claims resolve to a single winner at the database.

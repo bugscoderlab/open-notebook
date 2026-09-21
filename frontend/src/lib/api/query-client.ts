@@ -27,6 +27,7 @@ export const QUERY_KEYS = {
   source: (id: string) => ['sources', id] as const,
   settings: ['settings'] as const,
   integrationLinks: ['integrations', 'links'] as const,
+  whatsappPairing: ['integrations', 'whatsapp-pairing'] as const,
   sourceChatSessions: (sourceId: string) => ['source-chat', sourceId, 'sessions'] as const,
   sourceChatSession: (sourceId: string, sessionId: string) => ['source-chat', sourceId, 'sessions', sessionId] as const,
   notebookChatSessions: (notebookId: string) => ['notebook-chat', notebookId, 'sessions'] as const,

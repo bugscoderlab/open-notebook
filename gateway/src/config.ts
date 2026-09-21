@@ -11,7 +11,7 @@ export interface GatewayConfig {
   apiUrl: string
   /** Telegram bot token; null = adapter inactive. */
   telegramToken: string | null
-  /** WhatsApp adapter toggle; T5 implements the adapter itself. */
+  /** WhatsApp adapter toggle; on by default — set OPEN_NOTEBOOK_WHATSAPP_ENABLED=false to disable. */
   whatsappEnabled: boolean
 }
 
@@ -47,6 +47,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): GatewayConfig 
     internalToken: resolveInternalToken(env),
     apiUrl: (env.INTERNAL_API_URL || 'http://127.0.0.1:5055').replace(/\/$/, ''),
     telegramToken: env.OPEN_NOTEBOOK_TELEGRAM_BOT_TOKEN?.trim() || null,
-    whatsappEnabled: env.OPEN_NOTEBOOK_WHATSAPP_ENABLED === 'true',
+    whatsappEnabled: env.OPEN_NOTEBOOK_WHATSAPP_ENABLED !== 'false',
   }
 }

@@ -40,7 +40,7 @@ describe('i18next interpolation', () => {
 
   it('interpolates in a non-English locale', () => {
     expect(
-      i18n.t('sources.selectedCount', { count: 4, lng: 'pt-BR' }),
+      i18n.t('sources.selectedCount', { count: 4, lng: 'zh-CN' }),
     ).toContain('4')
   })
 })

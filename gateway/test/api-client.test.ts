@@ -56,4 +56,29 @@ describe('ApiClient', () => {
     const result = await client.claim('telegram', '42', '123456')
     expect(result.email).toBe('a@b.c')
   })
+
+  it('pushWhatsappPairing PUTs the status for the web UI', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { status: 'pairing', qr: 'qr-1', updated_at: null }))
+    const client = new ApiClient('http://api:5055', 'tok', fetchMock as unknown as typeof fetch)
+
+    await client.pushWhatsappPairing('pairing', 'qr-1')
+
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    expect(url).toBe('http://api:5055/api/integrations/whatsapp/pairing')
+    expect(init.method).toBe('PUT')
+    expect(JSON.parse(init.body as string)).toEqual({ status: 'pairing', qr: 'qr-1' })
+  })
+
+  it('pushWhatsappPairing includes the identity on connect', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { status: 'connected' }))
+    const client = new ApiClient('http://api:5055', 'tok', fetchMock as unknown as typeof fetch)
+
+    await client.pushWhatsappPairing('connected', undefined, '6012@s.whatsapp.net')
+
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    expect(JSON.parse(init.body as string)).toEqual({
+      status: 'connected',
+      identity: '6012@s.whatsapp.net',
+    })
+  })
 })

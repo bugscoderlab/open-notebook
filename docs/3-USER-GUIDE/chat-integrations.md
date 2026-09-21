@@ -36,19 +36,19 @@ The bot is conversational: it remembers your previous questions in the same chat
 
 ## WhatsApp (Baileys) risk warning
 
-The WhatsApp adapter uses [Baileys](https://github.com/WhiskeySockets/Baileys), an **unofficial** WhatsApp Web library. Before enabling it (`OPEN_NOTEBOOK_WHATSAPP_ENABLED=true`), understand:
+The WhatsApp adapter uses [Baileys](https://github.com/WhiskeySockets/Baileys), an **unofficial** WhatsApp Web library. It is **enabled by default** (`OPEN_NOTEBOOK_WHATSAPP_ENABLED=false` to disable). Before using it, understand:
 
 - **It violates WhatsApp's Terms of Service.** Meta can restrict or ban the number at its discretion. Telegram is the always-safe adapter.
 - **Replies only.** The number must only answer people who message it first. Cold outreach is the documented ban trigger.
 - **Never a verified business account.** Linking a blue-checkmark number is documented to cause instant, irreversible restriction.
 - **Use a sacrificial number** — not anyone's primary — a real SIM, aged, on a residential IP, low volume.
-- **Re-pairing happens.** If the phone's app reinstalls or the device is removed from *Linked devices*, the instance logs a loud re-pair alert; scan the fresh QR printed in the logs to re-pair.
+- **Re-pairing happens.** If the phone's app reinstalls or the device is removed from *Linked devices*, the instance logs a loud re-pair alert; pair again with the fresh QR in the web UI (Settings → Chat integrations → Connect WhatsApp). An admin can also force it: **"Re-pair with a different number"** in the Connect dialog tells the gateway to wipe its session and mint a fresh QR — no server access needed.
 
 ---
 
 ## For admins
 
-- The gateway runs as an always-on process (supervisord in Docker, `make gateway` locally) and idles with no platform connections until a token/env var is set. See the [environment reference](../5-CONFIGURATION/environment-reference.md#messenger-gateway-chat-integrations).
+- The gateway runs as an always-on process (supervisord in Docker, `make gateway` locally). Telegram connects only when a bot token is set; WhatsApp is on by default (`OPEN_NOTEBOOK_WHATSAPP_ENABLED=false` to disable). See the [environment reference](../5-CONFIGURATION/environment-reference.md#messenger-gateway-chat-integrations).
 - Telegram: create a bot with [@BotFather](https://t.me/BotFather) and set `OPEN_NOTEBOOK_TELEGRAM_BOT_TOKEN`.
 - Team access scoping is server-enforced for chat exactly as in the web UI; chat access ends the moment an account is disabled.
 
@@ -61,3 +61,15 @@ The WhatsApp adapter uses [Baileys](https://github.com/WhiskeySockets/Baileys), 
 5. Send `/search <something>` — expect a numbered top-5 list. Send `/new`, `/help`, `/unlink` — each behaves per the table above.
 
 If step 3 says the code expired, generate a fresh one in the UI (codes live 10 minutes).
+
+### Manual smoke test (WhatsApp, against a dev instance)
+
+1. Start the stack — the gateway logs `internal token accepted` and begins WhatsApp pairing.
+2. In the web UI: Settings → Chat integrations → Connect WhatsApp — a **pairing QR** appears (the gateway pushes it to the API; it rotates automatically), alongside your 6-digit linking code.
+3. On the phone: WhatsApp → Settings → Linked devices → Link a device → scan the QR. Once the gateway logs `whatsapp adapter connected`, the dialog switches to "WhatsApp is connected".
+4. Link the account, either way:
+   - **One-click** (sole-number setups, where the bot runs on your own number): click **"This is my number — link it to my account"** in the dialog. No chat message needed — WhatsApp doesn't reliably relay self-chat messages to linked devices.
+   - **Chat flow**: from *your own* WhatsApp, send the bot number `/start <code>` — it replies `Linked as <your email>`.
+5. Send any question — expect a scoped answer quoting your message, then suggested follow-ups.
+
+The QR also still renders in the gateway terminal (developer convenience) — the web UI is the operator path.

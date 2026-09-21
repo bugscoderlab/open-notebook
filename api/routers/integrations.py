@@ -15,17 +15,18 @@ message spine (T2).
 """
 
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from fastapi import APIRouter, Depends, Path
 from pydantic import BaseModel, Field
 
 from api import integrations_service as service
-from api.access import CurrentUser, get_current_user, require_csrf
+from api.access import CurrentUser, get_current_user, require_admin, require_csrf
 from api.internal_auth import get_internal_caller
 from api.routers._chat_shared import SuccessResponse
 from open_notebook.domain.integration_link import Platform
 from open_notebook.exceptions import (
+    ConfigurationError,
     ForbiddenError,
     NotFoundError,
     RateLimitError,
@@ -80,6 +81,29 @@ class MessageResponse(BaseModel):
     reply: str
     suggestions: List[str] = Field(default_factory=list)
     conversation_reset: bool = False
+
+
+class WhatsappPairingRequest(BaseModel):
+    status: Literal["pairing", "connected", "disconnected", "logged_out"]
+    qr: Optional[str] = Field(default=None, max_length=2048)
+    identity: Optional[str] = Field(
+        default=None, max_length=128, description="Own JID, reported on connect"
+    )
+
+
+class WhatsappPairingResponse(BaseModel):
+    status: str
+    qr: Optional[str] = None
+    identity: Optional[str] = None
+    updated_at: Optional[datetime] = None
+
+
+class ClaimSelfRequest(BaseModel):
+    code: str = Field(..., min_length=6, max_length=6)
+
+
+class WhatsappResetResponse(BaseModel):
+    nonce: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -193,6 +217,117 @@ async def integrations_status(_: None = Depends(get_internal_caller)):
     """Token-verification ping for gateway startup (fail-closed by design:
     a bad token never reaches this handler)."""
     return StatusResponse(ok=True, service="open-notebook-integrations")
+
+
+@router.get("/integrations/whatsapp/pairing", response_model=WhatsappPairingResponse)
+async def get_whatsapp_pairing_status(user: CurrentUser = Depends(get_current_user)):
+    """Latest WhatsApp pairing state for the web UI (QR + connection status).
+
+    The gateway (Baileys) is the source of truth; it pushes every change via
+    the internal endpoint below. State is in-memory and ephemeral — a fresh
+    API reports ``disconnected`` until the gateway's next push.
+    """
+    return WhatsappPairingResponse(**service.get_whatsapp_pairing())
+
+
+@router.put("/integrations/whatsapp/pairing", response_model=WhatsappPairingResponse)
+async def push_whatsapp_pairing(
+    request: WhatsappPairingRequest,
+    _: None = Depends(get_internal_caller),
+):
+    """Gateway-internal: report a WhatsApp pairing change (QR rotation,
+    connect, disconnect, logout) so the web UI can drive pairing."""
+    started = datetime.now(timezone.utc)
+    service.set_whatsapp_pairing(request.status, request.qr, request.identity)
+    service.audit(
+        platform="whatsapp",
+        external_id=request.identity,
+        user_id=None,
+        endpoint="whatsapp.pairing",
+        outcome=request.status,
+        latency_ms=(datetime.now(timezone.utc) - started).total_seconds() * 1000,
+    )
+    return WhatsappPairingResponse(**service.get_whatsapp_pairing())
+
+
+@router.post("/integrations/whatsapp/claim-self", response_model=ClaimResponse)
+async def claim_own_whatsapp(
+    request: ClaimSelfRequest,
+    _: None = Depends(require_csrf),
+    user: CurrentUser = Depends(get_current_user),
+):
+    """Link the WhatsApp identity the gateway is connected as to the caller.
+
+    One-click alternative to the ``/start <code>`` chat flow for setups where
+    the operator's own number runs the bot (WhatsApp does not relay
+    self-chat messages to linked devices reliably): the caller proves
+    possession with a fresh linking code from their own session, the gateway
+    proves the connected identity — no chat round-trip needed. Reuses the
+    same atomic claim path as the gateway's claim endpoint.
+    """
+    started = datetime.now(timezone.utc)
+    outcome = "invalid"
+    resolved_user_id: Optional[str] = None
+    identity: Optional[str] = None
+    try:
+        state = service.get_whatsapp_pairing()
+        identity = str(state["identity"]) if state.get("identity") else None
+        if state.get("status") != "connected" or not identity:
+            raise ConfigurationError(
+                "WhatsApp is not connected on the gateway — pair it first "
+                "(Settings → Chat integrations → Connect WhatsApp)."
+            )
+        linked_user, result = await service.claim_link("whatsapp", identity, request.code)
+        outcome = result
+        resolved_user_id = linked_user.id
+        return ClaimResponse(
+            success=True,
+            message="Already linked" if result == "already-linked" else "Linked",
+            email=linked_user.email,
+        )
+    finally:
+        service.audit(
+            platform="whatsapp",
+            external_id=identity,
+            user_id=resolved_user_id or user.id,
+            endpoint="link.claim-self",
+            outcome=outcome,
+            latency_ms=(datetime.now(timezone.utc) - started).total_seconds() * 1000,
+        )
+
+
+# ---------------------------------------------------------------------------
+# WhatsApp one-click re-pair (admin → gateway poll → fresh QR)
+# ---------------------------------------------------------------------------
+
+
+@router.post("/integrations/whatsapp/reset", response_model=WhatsappResetResponse)
+async def request_whatsapp_repair(
+    _: None = Depends(require_csrf),
+    user: CurrentUser = Depends(require_admin),
+):
+    """Bump the re-pair nonce. The gateway polls for it and, on change, wipes
+    its session and reconnects — the web UI then shows a fresh pairing QR.
+
+    Admin-gated: re-pairing logs the shared bot out for every user.
+    """
+    started = datetime.now(timezone.utc)
+    nonce = service.request_whatsapp_repair()
+    service.audit(
+        platform="whatsapp",
+        external_id=None,
+        user_id=user.id,
+        endpoint="whatsapp.reset",
+        outcome="requested",
+        latency_ms=(datetime.now(timezone.utc) - started).total_seconds() * 1000,
+    )
+    return WhatsappResetResponse(nonce=nonce)
+
+
+@router.get("/integrations/whatsapp/reset", response_model=WhatsappResetResponse)
+async def get_whatsapp_repair_nonce(_: None = Depends(get_internal_caller)):
+    """Gateway-internal: poll for the admin's re-pair request."""
+    return WhatsappResetResponse(nonce=service.get_whatsapp_reset_nonce())
 
 
 @router.post("/integrations/message", response_model=MessageResponse)

@@ -139,7 +139,7 @@ The gateway is an always-on process (supervisord program in the Docker images; `
 | Variable | Required? | Default | Description |
 |----------|-----------|---------|-------------|
 | `OPEN_NOTEBOOK_TELEGRAM_BOT_TOKEN` | No | _(unset)_ | Telegram bot token from @BotFather. Unset = Telegram adapter inactive. |
-| `OPEN_NOTEBOOK_WHATSAPP_ENABLED` | No | `false` | Enable the WhatsApp adapter (Baileys, unofficial — read the [risk warning](../3-USER-GUIDE/chat-integrations.md#whatsapp-baileys-risk-warning) before enabling). |
+| `OPEN_NOTEBOOK_WHATSAPP_ENABLED` | No | `true` | WhatsApp adapter (Baileys, unofficial — read the [risk warning](../3-USER-GUIDE/chat-integrations.md#whatsapp-baileys-risk-warning)). Enabled by default; set to `false` to disable. |
 | `OPEN_NOTEBOOK_INTERNAL_TOKEN` | No | _(auto-generated)_ | Override the service-to-service token (valid only on `/api/integrations/*`). Default is generated into `data/internal-token` on first use. **Rotation:** delete the file or set a new value, restart API + gateway. |
 | `OPEN_NOTEBOOK_TOKEN_FILE` | No | `data/internal-token` | Override the token file path. |
 | `INTERNAL_API_URL` | No | `http://127.0.0.1:5055` | API base URL the gateway calls. Only change for split deployments. |

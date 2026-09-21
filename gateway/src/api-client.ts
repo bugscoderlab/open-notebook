@@ -4,6 +4,12 @@ export interface MessageResult {
   conversation_reset: boolean
 }
 
+export type WhatsappPairingStatus =
+  | 'pairing'
+  | 'connected'
+  | 'disconnected'
+  | 'logged_out'
+
 export class ApiClientError extends Error {
   constructor(
     public readonly status: number,
@@ -90,6 +96,44 @@ export class ApiClient {
       )
     }
     return body as { email: string }
+  }
+
+  /** Report WhatsApp pairing state (QR rotation, connect, disconnect). */
+  async pushWhatsappPairing(
+    status: WhatsappPairingStatus,
+    qr?: string,
+    identity?: string,
+  ): Promise<void> {
+    const body: Record<string, string> = { status }
+    if (qr !== undefined) body.qr = qr
+    if (identity !== undefined) body.identity = identity
+    const response = await this.call('/integrations/whatsapp/pairing', {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    })
+    if (!response.ok) {
+      throw new ApiClientError(
+        response.status,
+        await ApiClient.detailOf(response),
+      )
+    }
+  }
+
+  /** Poll for the admin's one-click re-pair request (null = none). */
+  async getWhatsappResetNonce(): Promise<string | null> {
+    const response = await this.call('/integrations/whatsapp/reset', {
+      method: 'GET',
+    })
+    if (!response.ok) {
+      throw new ApiClientError(
+        response.status,
+        await ApiClient.detailOf(response),
+      )
+    }
+    const body = (await response.json().catch(() => ({}))) as {
+      nonce?: string | null
+    }
+    return body.nonce ?? null
   }
 
   /** Route one inbound message; returns the reply to send back. */
