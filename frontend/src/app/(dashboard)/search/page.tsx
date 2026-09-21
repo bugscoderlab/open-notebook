@@ -279,7 +279,11 @@ export default function SearchPage() {
                       </div>
                     </div>
 
-                    <div className="flex flex-col sm:flex-row gap-2">
+                    {/* Grid, not flex-row: Button's base class carries shrink-0,
+                        so two w-full buttons in a flex row never shrink and the
+                        Save button is pushed off-screen (page scroll-x). Grid
+                        columns split the width without flex-shrink. */}
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                       <Button
                         onClick={handleAsk}
                         disabled={ask.isStreaming || !askQuestion.trim()}
