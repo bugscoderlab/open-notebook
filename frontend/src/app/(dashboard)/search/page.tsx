@@ -244,20 +244,6 @@ export default function SearchPage() {
                   disabled={ask.isStreaming}
                 />
 
-                {/* Clarification gate (#52): opt-in, default off */}
-                <div className="flex items-center space-x-2">
-                  <Checkbox
-                    id="ask-clarify"
-                    name="ask-clarify"
-                    checked={askClarify}
-                    onCheckedChange={(checked) => setAskClarify(checked as boolean)}
-                    disabled={ask.isStreaming}
-                  />
-                  <Label htmlFor="ask-clarify" className="font-normal cursor-pointer">
-                    {t('searchPage.clarifyQuestions')}
-                  </Label>
-                </div>
-
                 {/* Models Display */}
                 {!hasEmbeddingModel ? (
                   <div className="flex items-center gap-2 p-3 text-sm text-warn bg-warn-tint rounded-md">
@@ -293,6 +279,20 @@ export default function SearchPage() {
                           {t('searchPage.final')}: {resolveModelName(customModels?.finalAnswer || modelDefaults?.default_chat_model)}
                         </Badge>
                       </div>
+                    </div>
+
+                    {/* Clarification gate (#52): opt-in, default off, alongside the model pickers */}
+                    <div className="flex items-center space-x-2">
+                      <Checkbox
+                        id="ask-clarify"
+                        name="ask-clarify"
+                        checked={askClarify}
+                        onCheckedChange={(checked) => setAskClarify(checked as boolean)}
+                        disabled={ask.isStreaming}
+                      />
+                      <Label htmlFor="ask-clarify" className="font-normal cursor-pointer">
+                        {t('searchPage.clarifyQuestions')}
+                      </Label>
                     </div>
 
                     <div className="flex flex-col sm:flex-row gap-2">

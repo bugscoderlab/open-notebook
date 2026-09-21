@@ -112,9 +112,7 @@ async def call_model_with_messages(state: ThreadState, config: RunnableConfig) -
         # opted into (home chat reuses this node), strip any clarifications
         # so its behavior is provably unchanged.
         strategy.clarifications = [
-            question.strip()
-            for question in strategy.clarifications
-            if question.strip()
+            question.strip() for question in strategy.clarifications if question.strip()
         ][:MAX_CLARIFICATIONS]
         if state.get("clarify"):
             if strategy.clarifications:
@@ -185,8 +183,7 @@ async def clarify(state: SubGraphState, config: RunnableConfig) -> dict:
         for index, question in enumerate(state["clarifications"], start=1)
     )
     final_answer = (
-        "Before I can answer this well, I need a bit more information:\n\n"
-        f"{questions}"
+        f"Before I can answer this well, I need a bit more information:\n\n{questions}"
     )
     return {"final_answer": final_answer}
 
@@ -263,7 +260,9 @@ agent_state.add_node("provide_answer", provide_answer)
 agent_state.add_node("clarify", clarify)
 agent_state.add_node("write_final_answer", write_final_answer)
 agent_state.add_edge(START, "agent")
-agent_state.add_conditional_edges("agent", trigger_queries, ["provide_answer", "clarify"])
+agent_state.add_conditional_edges(
+    "agent", trigger_queries, ["provide_answer", "clarify"]
+)
 agent_state.add_edge("provide_answer", "write_final_answer")
 agent_state.add_edge("clarify", END)
 agent_state.add_edge("write_final_answer", END)
