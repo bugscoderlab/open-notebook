@@ -600,6 +600,7 @@ export const zhTW = {
     question: "問題",
     enterQuestionPlaceholder: "輸入您的問題...",
     pressToSubmit: "按 Cmd/Ctrl+Enter 提交",
+    clarifyQuestions: "當我的問題缺少關鍵資訊時，先向我提出澄清問題",
     noEmbeddingModel: "您無法使用此功能，因為尚未選擇嵌入模型集。請在模型頁面設定一個。",
     usingCustomModels: "正在使用自訂模型",
     usingDefaultModels: "正在使用預設模型",

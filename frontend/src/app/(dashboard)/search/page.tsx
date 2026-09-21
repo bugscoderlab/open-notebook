@@ -50,6 +50,8 @@ export default function SearchPage() {
 
   // Ask state
   const [askQuestion, setAskQuestion] = useState(urlMode === 'ask' ? urlQuery : '')
+  // Clarification gate (#52): opt-in per request, default off
+  const [askClarify, setAskClarify] = useState(false)
 
   // Advanced models dialog
   const [showAdvancedModels, setShowAdvancedModels] = useState(false)
@@ -116,8 +118,8 @@ export default function SearchPage() {
       finalAnswer: modelDefaults.default_chat_model
     }
 
-    ask.sendAsk(askQuestion, models, { notebookIds: scopeNotebookIds })
-  }, [askQuestion, modelDefaults, customModels, scopeNotebookIds, ask])
+    ask.sendAsk(askQuestion, models, { notebookIds: scopeNotebookIds, clarify: askClarify })
+  }, [askQuestion, modelDefaults, customModels, scopeNotebookIds, askClarify, ask])
 
   // Auto-trigger search/ask when arriving with URL params
   useEffect(() => {
@@ -277,6 +279,20 @@ export default function SearchPage() {
                           {t('searchPage.final')}: {resolveModelName(customModels?.finalAnswer || modelDefaults?.default_chat_model)}
                         </Badge>
                       </div>
+                    </div>
+
+                    {/* Clarification gate (#52): opt-in, default off, alongside the model pickers */}
+                    <div className="flex items-center space-x-2">
+                      <Checkbox
+                        id="ask-clarify"
+                        name="ask-clarify"
+                        checked={askClarify}
+                        onCheckedChange={(checked) => setAskClarify(checked as boolean)}
+                        disabled={ask.isStreaming}
+                      />
+                      <Label htmlFor="ask-clarify" className="font-normal cursor-pointer">
+                        {t('searchPage.clarifyQuestions')}
+                      </Label>
                     </div>
 
                     {/* Grid, not flex-row: Button's base class carries shrink-0,

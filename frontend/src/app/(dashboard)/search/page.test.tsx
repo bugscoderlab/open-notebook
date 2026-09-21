@@ -34,9 +34,11 @@ vi.mock('@/lib/hooks/use-search', () => ({
   useSearch: vi.fn(),
 }))
 
+const { sendAskMock } = vi.hoisted(() => ({ sendAskMock: vi.fn() }))
+
 vi.mock('@/lib/hooks/use-ask', () => ({
   useAsk: () => ({
-    sendAsk: vi.fn(),
+    sendAsk: sendAskMock,
     isStreaming: false,
     strategy: null,
     answers: [],
@@ -45,7 +47,10 @@ vi.mock('@/lib/hooks/use-ask', () => ({
 }))
 
 vi.mock('@/lib/hooks/use-models', () => ({
-  useModelDefaults: () => ({ data: null, isLoading: false }),
+  useModelDefaults: () => ({
+    data: { default_chat_model: 'model:chat', default_embedding_model: 'model:embedding' },
+    isLoading: false,
+  }),
   useModels: () => ({ data: [], isLoading: false }),
 }))
 
@@ -85,5 +90,35 @@ describe('SearchPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Matched insight' }))
 
     expect(openModal).toHaveBeenCalledWith('insight', 'matched-insight')
+  })
+
+  it('renders the clarification gate toggle unchecked by default', () => {
+    render(<SearchPage />)
+    fireEvent.click(screen.getByRole('tab', { name: 'searchPage.askBeta' }))
+
+    expect(screen.getByRole('checkbox', { name: 'searchPage.clarifyQuestions' })).not.toBeChecked()
+  })
+
+  it('asks with the gate off by default, and on after checking the toggle', () => {
+    render(<SearchPage />)
+    fireEvent.click(screen.getByRole('tab', { name: 'searchPage.askBeta' }))
+
+    fireEvent.change(screen.getByPlaceholderText('searchPage.enterQuestionPlaceholder'), {
+      target: { value: 'my ceiling is 2.5m, what ladder is suitable?' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'searchPage.ask' }))
+    expect(sendAskMock).toHaveBeenLastCalledWith(
+      'my ceiling is 2.5m, what ladder is suitable?',
+      { strategy: 'model:chat', answer: 'model:chat', finalAnswer: 'model:chat' },
+      { notebookIds: [], clarify: false }
+    )
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'searchPage.clarifyQuestions' }))
+    fireEvent.click(screen.getByRole('button', { name: 'searchPage.ask' }))
+    expect(sendAskMock).toHaveBeenLastCalledWith(
+      'my ceiling is 2.5m, what ladder is suitable?',
+      { strategy: 'model:chat', answer: 'model:chat', finalAnswer: 'model:chat' },
+      { notebookIds: [], clarify: true }
+    )
   })
 })

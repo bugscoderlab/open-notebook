@@ -88,12 +88,36 @@ async def search_knowledge_base(
         raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
 
 
+def _ask_graph_input(question: str, notebook_ids: List[str], clarify: bool) -> dict:
+    """Build the ask graph input.
+
+    clarify opts the request into the clarification gate (#52): an
+    underspecified question stops at clarifying questions instead of
+    searching. Default off = legacy behavior.
+    """
+    return dict(question=question, notebook_ids=notebook_ids, clarify=clarify)
+
+
+def _final_answer_from_chunk(chunk: dict) -> str | None:
+    """Pull the final answer out of whichever terminal node emitted it.
+
+    The clarify node and the synthesis node both terminate the graph with a
+    final_answer — SSE consumers don't care which.
+    """
+    if "clarify" in chunk:
+        return chunk["clarify"]["final_answer"]
+    if "write_final_answer" in chunk:
+        return chunk["write_final_answer"]["final_answer"]
+    return None
+
+
 async def stream_ask_response(
     question: str,
     strategy_model: Model,
     answer_model: Model,
     final_answer_model: Model,
     notebook_ids: List[str],
+    clarify: bool = False,
 ) -> AsyncGenerator[str, None]:
     """Stream the ask response as Server-Sent Events."""
     try:
@@ -102,7 +126,7 @@ async def stream_ask_response(
         # LangGraph accepts a partial state dict at runtime, but its typed
         # overloads require the full state type (langgraph typing limitation).
         async for chunk in ask_graph.astream(  # type: ignore[call-overload]
-            input=dict(question=question, notebook_ids=notebook_ids),
+            input=_ask_graph_input(question, notebook_ids, clarify),
             config=dict(
                 configurable=dict(
                     strategy_model=strategy_model.id,
@@ -128,10 +152,12 @@ async def stream_ask_response(
                     answer_data = {"type": "answer", "content": answer}
                     yield f"data: {json.dumps(answer_data)}\n\n"
 
-            elif "write_final_answer" in chunk:
-                final_answer = chunk["write_final_answer"]["final_answer"]
-                final_data = {"type": "final_answer", "content": final_answer}
-                yield f"data: {json.dumps(final_data)}\n\n"
+            else:
+                answer = _final_answer_from_chunk(chunk)
+                if answer is not None:
+                    final_answer = answer
+                    final_data = {"type": "final_answer", "content": answer}
+                    yield f"data: {json.dumps(final_data)}\n\n"
 
         # Send completion signal
         completion_data = {"type": "complete", "final_answer": final_answer}
@@ -222,6 +248,7 @@ async def ask_knowledge_base(
                 answer_model,
                 final_answer_model,
                 notebook_ids,
+                ask_request.clarify,
             ),
             media_type="text/event-stream",
             headers={
@@ -295,7 +322,9 @@ async def ask_knowledge_base_simple(
         # LangGraph accepts a partial state dict at runtime, but its typed
         # overloads require the full state type (langgraph typing limitation).
         async for chunk in ask_graph.astream(  # type: ignore[call-overload]
-            input=dict(question=ask_request.question, notebook_ids=notebook_ids),
+            input=_ask_graph_input(
+                ask_request.question, notebook_ids, ask_request.clarify
+            ),
             config=dict(
                 configurable=dict(
                     strategy_model=strategy_model.id,
@@ -305,8 +334,9 @@ async def ask_knowledge_base_simple(
             ),
             stream_mode="updates",
         ):
-            if "write_final_answer" in chunk:
-                final_answer = chunk["write_final_answer"]["final_answer"]
+            answer = _final_answer_from_chunk(chunk)
+            if answer is not None:
+                final_answer = answer
 
         if not final_answer:
             raise HTTPException(status_code=500, detail="No answer generated")

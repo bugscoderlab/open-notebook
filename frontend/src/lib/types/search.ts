@@ -39,6 +39,8 @@ export interface AskRequest {
   final_answer_model: string
   /** Restrict every search of the strategy to these notebooks; omit or empty for all (#574, #87). */
   notebook_ids?: string[]
+  /** Opt-in clarification gate (#52): stop and ask up to 3 clarifying questions when the question is underspecified, instead of searching. Omit = off. */
+  clarify?: boolean
 }
 
 export interface AskResponse {

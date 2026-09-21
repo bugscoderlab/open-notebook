@@ -600,6 +600,7 @@ export const zhCN = {
     question: "问题",
     enterQuestionPlaceholder: "输入您的问题...",
     pressToSubmit: "按 Cmd/Ctrl+Enter 提交",
+    clarifyQuestions: "当我的问题缺少关键信息时，先向我提出澄清问题",
     noEmbeddingModel: "您无法使用此功能，因为尚未选择嵌入模型。请在模型页面设置一个。",
     usingCustomModels: "正在使用自定义模型",
     usingDefaultModels: "正在使用默认模型",

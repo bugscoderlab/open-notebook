@@ -124,6 +124,10 @@ def _ask_state_view(state: HomeChatState) -> ThreadState:
             "question": question,
             "chat_history": _format_chat_history(state),
             "notebook_ids": state.get("notebook_ids") or [],
+            # Home chat never opts into the clarification gate — explicit
+            # False (rather than absent) so the shared strategy prompt's
+            # `{% if clarify %}` section stays off for this caller.
+            "clarify": False,
             "strategy": state.get("strategy"),
             "answers": turn_answers,
         },

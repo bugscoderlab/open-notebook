@@ -117,3 +117,37 @@ describe('useAsk notebook scope (#574, #87)', () => {
     expect(vi.mocked(searchApi.askKnowledgeBase).mock.calls[0][0]).not.toHaveProperty('notebook_ids')
   })
 })
+
+describe('useAsk clarification gate (#52)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('sends clarify when the gate is opted in', async () => {
+    vi.mocked(searchApi.askKnowledgeBase).mockResolvedValue(
+      sseStream([{ type: 'complete', final_answer: 'a' }]) as any
+    )
+    const { result } = renderHook(() => useAsk())
+
+    await act(async () => {
+      await result.current.sendAsk('why?', MODELS, { clarify: true })
+    })
+
+    expect(vi.mocked(searchApi.askKnowledgeBase).mock.calls[0][0]).toMatchObject({
+      clarify: true,
+    })
+  })
+
+  it('omits clarify by default (gate off, pre-gate payload shape)', async () => {
+    vi.mocked(searchApi.askKnowledgeBase).mockResolvedValue(
+      sseStream([{ type: 'complete', final_answer: 'a' }]) as any
+    )
+    const { result } = renderHook(() => useAsk())
+
+    await act(async () => {
+      await result.current.sendAsk('why?', MODELS)
+    })
+
+    expect(vi.mocked(searchApi.askKnowledgeBase).mock.calls[0][0]).not.toHaveProperty('clarify')
+  })
+})
