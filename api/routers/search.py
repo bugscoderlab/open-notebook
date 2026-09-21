@@ -102,7 +102,12 @@ async def stream_ask_response(
         # LangGraph accepts a partial state dict at runtime, but its typed
         # overloads require the full state type (langgraph typing limitation).
         async for chunk in ask_graph.astream(  # type: ignore[call-overload]
-            input=dict(question=question, notebook_ids=notebook_ids),
+            # clarify=True opts the standalone Ask tab into the clarification
+            # gate: an underspecified question stops at clarifying questions
+            # instead of searching (home chat invokes the graph without it).
+            input=dict(
+                question=question, notebook_ids=notebook_ids, clarify=True
+            ),
             config=dict(
                 configurable=dict(
                     strategy_model=strategy_model.id,
@@ -127,6 +132,11 @@ async def stream_ask_response(
                 for answer in chunk["provide_answer"]["answers"]:
                     answer_data = {"type": "answer", "content": answer}
                     yield f"data: {json.dumps(answer_data)}\n\n"
+
+            elif "clarify" in chunk:
+                final_answer = chunk["clarify"]["final_answer"]
+                clarify_data = {"type": "final_answer", "content": final_answer}
+                yield f"data: {json.dumps(clarify_data)}\n\n"
 
             elif "write_final_answer" in chunk:
                 final_answer = chunk["write_final_answer"]["final_answer"]
@@ -295,7 +305,14 @@ async def ask_knowledge_base_simple(
         # LangGraph accepts a partial state dict at runtime, but its typed
         # overloads require the full state type (langgraph typing limitation).
         async for chunk in ask_graph.astream(  # type: ignore[call-overload]
-            input=dict(question=ask_request.question, notebook_ids=notebook_ids),
+            # clarify=True opts the standalone Ask tab into the clarification
+            # gate: an underspecified question stops at clarifying questions
+            # instead of searching (home chat invokes the graph without it).
+            input=dict(
+                question=ask_request.question,
+                notebook_ids=notebook_ids,
+                clarify=True,
+            ),
             config=dict(
                 configurable=dict(
                     strategy_model=strategy_model.id,
@@ -305,7 +322,9 @@ async def ask_knowledge_base_simple(
             ),
             stream_mode="updates",
         ):
-            if "write_final_answer" in chunk:
+            if "clarify" in chunk:
+                final_answer = chunk["clarify"]["final_answer"]
+            elif "write_final_answer" in chunk:
                 final_answer = chunk["write_final_answer"]["final_answer"]
 
         if not final_answer:

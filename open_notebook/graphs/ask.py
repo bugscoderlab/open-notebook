@@ -22,6 +22,10 @@ from open_notebook.utils.text_utils import extract_text_content
 # models with no budget for the visible answer after their thinking (#1221).
 ASK_MAX_TOKENS = 8192
 
+# Clarifying-question cap for the Ask-tab clarification gate. Blocking: when
+# the strategy returns clarifications, searches are deliberately skipped.
+MAX_CLARIFICATIONS = 3
+
 
 class SubGraphState(TypedDict):
     question: str
@@ -31,6 +35,7 @@ class SubGraphState(TypedDict):
     answer: str
     ids: list  # Added for provide_answer function
     notebook_ids: list  # Notebook scope forwarded from ThreadState (#574, #87)
+    clarifications: list  # Clarifying questions for the clarify branch
 
 
 class Search(BaseModel):
@@ -46,6 +51,14 @@ class Strategy(BaseModel):
         default_factory=list,
         description="You can add up to five searches to this strategy",
     )
+    clarifications: List[str] = Field(
+        default_factory=list,
+        description=(
+            "1-3 clarifying questions to ask the user when the question is "
+            "missing decision-critical context. Mutually exclusive with "
+            "searches: when clarifications are present, searches must be empty."
+        ),
+    )
 
 
 class ThreadState(TypedDict):
@@ -60,6 +73,11 @@ class ThreadState(TypedDict):
     # home chat can answer follow-ups. Never set by the standalone ask
     # endpoint — the prompts only render the section when it's non-empty.
     chat_history: str
+    # Opt-in clarification gate. Only the standalone Ask endpoint sets this;
+    # the home chat reuses this graph without it, so its behavior is
+    # unchanged. When true, a strategy carrying clarifications short-circuits
+    # to the clarify node instead of running any searches (blocking).
+    clarify: bool
 
 
 async def call_model_with_messages(state: ThreadState, config: RunnableConfig) -> dict:
@@ -88,14 +106,31 @@ async def call_model_with_messages(state: ThreadState, config: RunnableConfig) -
         # Parse the cleaned JSON content
         strategy = parser.parse(cleaned_content)
 
+        # Normalise the clarification gate: drop blank questions and cap the
+        # list. When the gate is opted into (standalone Ask), clarifications
+        # are blocking — clear the searches so none run. When it is not
+        # opted into (home chat reuses this node), strip any clarifications
+        # so its behavior is provably unchanged.
+        strategy.clarifications = [
+            question.strip()
+            for question in strategy.clarifications
+            if question.strip()
+        ][:MAX_CLARIFICATIONS]
+        if state.get("clarify"):
+            if strategy.clarifications:
+                strategy.searches = []
+        else:
+            strategy.clarifications = []
+
         # A reasoning model that spends its whole budget thinking returns a
         # syntactically valid strategy with blank search terms. Drop those and
         # fail loudly when nothing usable remains, instead of running empty
         # vector searches and answering "no documents found".
         strategy.searches = [s for s in strategy.searches if s.term.strip()]
-        if not strategy.searches:
+        if not strategy.searches and not strategy.clarifications:
             raise ExternalServiceError(
-                "The strategy model returned no search terms for this question. "
+                "The strategy model returned no search terms or clarifying "
+                "questions for this question. "
                 "This usually means the model spent its output budget on reasoning "
                 "or returned an empty response. Pick a different strategy model in "
                 "the Ask page's advanced model options, or rephrase the question."
@@ -110,6 +145,19 @@ async def call_model_with_messages(state: ThreadState, config: RunnableConfig) -
 
 
 async def trigger_queries(state: ThreadState, config: RunnableConfig):
+    # Clarification gate (blocking): when the strategy asks clarifying
+    # questions, searches were deliberately cleared — route straight to the
+    # clarify node and never fan out search work.
+    if state["strategy"].clarifications:
+        return [
+            Send(
+                "clarify",
+                {
+                    "question": state["question"],
+                    "clarifications": state["strategy"].clarifications,
+                },
+            )
+        ]
     return [
         Send(
             "provide_answer",
@@ -123,6 +171,24 @@ async def trigger_queries(state: ThreadState, config: RunnableConfig):
         )
         for s in state["strategy"].searches
     ]
+
+
+async def clarify(state: SubGraphState, config: RunnableConfig) -> dict:
+    """Render the strategy's clarifying questions as the final answer.
+
+    Deliberately deterministic — no model call. Blocking by design: this
+    branch is only reachable when the strategy carried clarifications, which
+    means the searches were already cleared in the strategy node.
+    """
+    questions = "\n".join(
+        f"{index}. {question}"
+        for index, question in enumerate(state["clarifications"], start=1)
+    )
+    final_answer = (
+        "Before I can answer this well, I need a bit more information:\n\n"
+        f"{questions}"
+    )
+    return {"final_answer": final_answer}
 
 
 async def provide_answer(state: SubGraphState, config: RunnableConfig) -> dict:
@@ -194,10 +260,12 @@ async def write_final_answer(state: ThreadState, config: RunnableConfig) -> dict
 agent_state = StateGraph(ThreadState)
 agent_state.add_node("agent", call_model_with_messages)
 agent_state.add_node("provide_answer", provide_answer)
+agent_state.add_node("clarify", clarify)
 agent_state.add_node("write_final_answer", write_final_answer)
 agent_state.add_edge(START, "agent")
-agent_state.add_conditional_edges("agent", trigger_queries, ["provide_answer"])
+agent_state.add_conditional_edges("agent", trigger_queries, ["provide_answer", "clarify"])
 agent_state.add_edge("provide_answer", "write_final_answer")
+agent_state.add_edge("clarify", END)
 agent_state.add_edge("write_final_answer", END)
 
 graph = agent_state.compile()

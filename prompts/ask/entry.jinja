@@ -37,6 +37,18 @@ Your answer could be something like:
 - Do not include any text other than the JSON object
 - Do not include ```json``` in the response
 
+{% if clarify %}
+# CLARIFY BEFORE SEARCHING
+
+Before designing a search strategy, list what a correct answer to this question depends on. Classify each factor as one of:
+
+- **stated**: the user said it, in the question or the conversation history
+- **inferable**: reasonable to conclude from the conversation history
+- **missing**: not stated and not safely inferable
+
+If any factor that a correct answer critically depends on is **missing**, do NOT formulate searches. Instead, put 1-3 short clarifying questions in "clarifications" and leave "searches" empty. Never silently assume missing critical context, and never ask about context that is already stated or inferable.
+
+{% endif %}
 # USER QUESTION
 
 {% if chat_history %}
