@@ -17,6 +17,10 @@ interface AskModels {
 interface AskOptions {
   /** Notebook ids to scope the search to; empty = whole knowledge base. */
   notebookIds?: string[]
+  /** Opt-in clarification gate (#52): stop and ask up to 3 clarifying
+   * questions when the question is underspecified, instead of searching.
+   * Omit/false = legacy behavior. */
+  clarify?: boolean
 }
 
 interface StrategyData {
@@ -142,6 +146,9 @@ export function useAsk() {
         strategy_model: models.strategy,
         answer_model: models.answer,
         final_answer_model: models.finalAnswer,
+        // Clarification gate (#52): only sent when opted in; omitting keeps
+        // the payload identical to pre-gate requests.
+        ...(options.clarify ? { clarify: true } : {}),
         ...(options.notebookIds && options.notebookIds.length > 0
           ? { notebook_ids: options.notebookIds }
           : {})

@@ -606,6 +606,7 @@ export const enUS = {
     question: "Question",
     enterQuestionPlaceholder: "Enter your question...",
     pressToSubmit: "Press Cmd/Ctrl+Enter to submit",
+    clarifyQuestions: "Ask clarifying questions first when my question is missing details",
     noEmbeddingModel: "You can't use this feature because you have no embedding model selected. Please set one up in the Models page.",
     usingCustomModels: "Using Custom Models",
     usingDefaultModels: "Using Default Models",

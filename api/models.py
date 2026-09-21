@@ -92,6 +92,13 @@ class AskRequest(NotebookScopeMixin):
     strategy_model: str = Field(..., description="Model ID for query strategy")
     answer_model: str = Field(..., description="Model ID for individual answers")
     final_answer_model: str = Field(..., description="Model ID for final answer")
+    # Opt-in clarification gate (#52): when on, an underspecified question
+    # stops at up to 3 clarifying questions instead of searching (blocking).
+    # Default off — requests without the field behave exactly as before.
+    clarify: bool = Field(
+        default=False,
+        description="Ask clarifying questions when the question is missing decision-critical context, instead of searching",
+    )
 
 
 class AskResponse(BaseModel):

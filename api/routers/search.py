@@ -94,6 +94,7 @@ async def stream_ask_response(
     answer_model: Model,
     final_answer_model: Model,
     notebook_ids: List[str],
+    clarify: bool = False,
 ) -> AsyncGenerator[str, None]:
     """Stream the ask response as Server-Sent Events."""
     try:
@@ -102,11 +103,11 @@ async def stream_ask_response(
         # LangGraph accepts a partial state dict at runtime, but its typed
         # overloads require the full state type (langgraph typing limitation).
         async for chunk in ask_graph.astream(  # type: ignore[call-overload]
-            # clarify=True opts the standalone Ask tab into the clarification
-            # gate: an underspecified question stops at clarifying questions
-            # instead of searching (home chat invokes the graph without it).
+            # clarify opts the request into the clarification gate (#52): an
+            # underspecified question stops at clarifying questions instead of
+            # searching. Default off = legacy behavior.
             input=dict(
-                question=question, notebook_ids=notebook_ids, clarify=True
+                question=question, notebook_ids=notebook_ids, clarify=clarify
             ),
             config=dict(
                 configurable=dict(
@@ -232,6 +233,7 @@ async def ask_knowledge_base(
                 answer_model,
                 final_answer_model,
                 notebook_ids,
+                ask_request.clarify,
             ),
             media_type="text/event-stream",
             headers={
@@ -305,13 +307,13 @@ async def ask_knowledge_base_simple(
         # LangGraph accepts a partial state dict at runtime, but its typed
         # overloads require the full state type (langgraph typing limitation).
         async for chunk in ask_graph.astream(  # type: ignore[call-overload]
-            # clarify=True opts the standalone Ask tab into the clarification
-            # gate: an underspecified question stops at clarifying questions
-            # instead of searching (home chat invokes the graph without it).
+            # clarify opts the request into the clarification gate (#52): an
+            # underspecified question stops at clarifying questions instead of
+            # searching. Default off = legacy behavior.
             input=dict(
                 question=ask_request.question,
                 notebook_ids=notebook_ids,
-                clarify=True,
+                clarify=ask_request.clarify,
             ),
             config=dict(
                 configurable=dict(
