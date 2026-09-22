@@ -52,6 +52,7 @@ export default function HomePage() {
   const [scopeNotebookIds, setScopeNotebookIds] = useState<string[]>([])
   const [sessionManagerOpen, setSessionManagerOpen] = useState(false)
   const scrollAreaRef = useRef<HTMLDivElement>(null)
+  const pinnedAiIdRef = useRef<string | null>(null)
 
   // Auto-scroll to the latest message — scoped to the chat viewport only.
   // scrollIntoView() scrolls EVERY scrollable ancestor, which shifted the
@@ -73,6 +74,39 @@ export default function HomePage() {
       viewport.scrollTop = viewport.scrollHeight
     }
   }, [chat.messages])
+
+  // When an answer starts streaming, pin the question it answers to the TOP
+  // of the viewport — the answer then reads directly below it instead of
+  // the view jumping to the stream tail. Fires once per answer, only while
+  // streaming (never when reopening an old session).
+  useEffect(() => {
+    if (!chat.isStreaming) return
+    const lastAiIndex = chat.messages.map((m) => m.type).lastIndexOf('ai')
+    if (lastAiIndex < 0) return
+    const lastAi = chat.messages[lastAiIndex]
+    if (lastAi.id === pinnedAiIdRef.current) return
+    const question = [...chat.messages.slice(0, lastAiIndex)]
+      .reverse()
+      .find((m) => m.type === 'human')
+    if (!question) return
+    pinnedAiIdRef.current = lastAi.id
+    const viewport = scrollAreaRef.current?.querySelector<HTMLElement>(
+      '[data-slot="scroll-area-viewport"]',
+    )
+    const el = viewport?.querySelector<HTMLElement>(
+      `[data-message-id="${CSS.escape(question.id)}"]`,
+    )
+    if (!viewport || !el) return
+    const top =
+      el.getBoundingClientRect().top -
+      viewport.getBoundingClientRect().top +
+      viewport.scrollTop
+    if (typeof viewport.scrollTo === 'function') {
+      viewport.scrollTo({ top, behavior: 'smooth' })
+    } else {
+      viewport.scrollTop = top
+    }
+  }, [chat.messages, chat.isStreaming])
 
   const handleSend = useCallback((message: string) => {
     const models = modelDefaults?.default_chat_model
@@ -220,7 +254,10 @@ const HomeChatMessageBubble = memo(function HomeChatMessageBubble({
   }, [openModal, t])
 
   return (
-    <div className={`flex gap-3 ${message.type === 'human' ? 'justify-end' : 'justify-start'}`}>
+    <div
+      data-message-id={message.id}
+      className={`flex gap-3 ${message.type === 'human' ? 'justify-end' : 'justify-start'}`}
+    >
       {message.type === 'ai' && (
         <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-fern-tint text-fern">
           <Sparkles className="h-4 w-4" />
