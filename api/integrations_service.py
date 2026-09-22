@@ -15,10 +15,8 @@ import hashlib
 import secrets
 import time
 from datetime import datetime, timedelta, timezone
-from typing import Dict, List, Optional, Tuple
+from typing import AsyncGenerator, Dict, List, Optional, Tuple
 
-from langchain_core.messages import HumanMessage
-from langchain_core.runnables import RunnableConfig
 from loguru import logger
 
 from api.access import CurrentUser, effective_notebook_scope
@@ -33,7 +31,7 @@ from open_notebook.exceptions import (
     InvalidInputError,
     NotFoundError,
 )
-from open_notebook.graphs.home_chat import get_home_chat_graph
+from open_notebook.graphs.home_chat import HomeTurnEvent, stream_home_turn
 from open_notebook.utils.error_classifier import classify_error
 
 CODE_TTL = timedelta(minutes=10)
@@ -407,9 +405,45 @@ async def run_home_chat_ask(
     """Conversational ask on the link's home chat session (memory server-side,
     same graph as the web UI). Returns (final_answer, suggestions).
 
-    Mid-pipeline errors degrade to a typed, chat-friendly message — the reply
-    is honest, the conversation checkpoint is left alone (per #41: a failed
-    turn must not poison the session).
+    Collects the shared turn generator; mid-pipeline errors degrade to a
+    typed, chat-friendly message — the reply is honest, the conversation
+    checkpoint is left alone (per #41: a failed turn must not poison the
+    session).
+    """
+    final_answer: Optional[str] = None
+    suggestions: List[str] = []
+    try:
+        async for event in stream_home_chat_ask(link, user, question):
+            kind = event["type"]
+            if kind == "final_answer":
+                final_answer = event["content"]
+            elif kind == "suggestions":
+                suggestions = event["suggestions"]
+            elif kind == "error":
+                return event["message"], []
+    except (InvalidInputError, NotFoundError, ForbiddenError):
+        raise
+    except Exception as e:  # noqa: BLE001 - classified for the chat surface
+        _, message = classify_error(e)
+        logger.error(f"Home chat ask via integrations failed: {e}")
+        return message, []
+
+    if not final_answer:
+        return (
+            "I couldn't come up with an answer for that one — try rephrasing.",
+            [],
+        )
+    return final_answer, suggestions[:3]
+
+
+async def stream_home_chat_ask(
+    link: IntegrationLink, user: CurrentUser, question: str
+) -> AsyncGenerator[HomeTurnEvent, None]:
+    """Streaming conversational ask: resolves the default chat model (the
+    per-stage knobs collapse to it on this path), the caller's notebook
+    scope, and the link's home session, then forwards the shared turn
+    generator's typed events. A failure before the first event raises; a
+    failure mid-turn arrives as a typed error event (never bare EOF).
     """
     strategy_model = answer_model = final_answer_model = await _resolve_default_model()
     if not strategy_model:
@@ -420,55 +454,15 @@ async def run_home_chat_ask(
 
     notebook_ids = await effective_notebook_scope(user, [])
     session_id = await _ensure_session(link)
-
-    try:
-        graph = await get_home_chat_graph()
-        current_state = await graph.aget_state(
-            config=RunnableConfig(configurable={"thread_id": session_id})
-        )
-        messages = list(
-            (current_state.values if current_state else {}).get("messages", [])
-        )
-        messages.append(HumanMessage(content=question))
-
-        final_answer: Optional[str] = None
-        suggestions: List[str] = []
-        input_state = {
-            "messages": messages,
-            "question": question,
-            "notebook_ids": notebook_ids,
-            "final_answer": None,
-            "suggestions": None,
-        }
-        async for chunk in graph.astream(  # type: ignore[call-overload]
-            input=input_state,
-            config=RunnableConfig(
-                configurable={
-                    "thread_id": session_id,
-                    "strategy_model": strategy_model,
-                    "answer_model": answer_model,
-                    "final_answer_model": final_answer_model,
-                }
-            ),
-            stream_mode="updates",
-        ):
-            if "knowledge_final" in chunk:
-                final_answer = chunk["knowledge_final"].get("final_answer")
-            elif "suggest" in chunk:
-                suggestions = chunk["suggest"].get("suggestions") or []
-
-        if not final_answer:
-            return (
-                "I couldn't come up with an answer for that one — try rephrasing.",
-                [],
-            )
-        return final_answer, suggestions[:3]
-    except (InvalidInputError, NotFoundError, ForbiddenError):
-        raise
-    except Exception as e:  # noqa: BLE001 - classified for the chat surface
-        _, message = classify_error(e)
-        logger.error(f"Home chat ask via integrations failed: {e}")
-        return message, []
+    async for event in stream_home_turn(
+        session_id=session_id,
+        question=question,
+        notebook_ids=notebook_ids,
+        strategy_model=strategy_model,
+        answer_model=answer_model,
+        final_answer_model=final_answer_model,
+    ):
+        yield event
 
 
 async def run_search(user: CurrentUser, query: str) -> str:

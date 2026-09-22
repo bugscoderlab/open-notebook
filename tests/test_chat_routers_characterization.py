@@ -14,6 +14,7 @@ DB access and LangGraph state are mocked following the style of
 tests/test_crud_404.py.
 """
 
+import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -404,6 +405,57 @@ async def test_get_home_chat_session_legacy_checkpoint_restores_without_analytic
     assert body["message_count"] == 2
     # No analytics attachment on restored turns — only the suggestions list.
     assert body["turns"] == [{"suggestions": ["Follow up?"]}]
+
+
+@pytest.mark.asyncio
+async def test_send_home_message_streams_answer_deltas_end_to_end(
+    client, auth_session, monkeypatch
+):
+    """#66: the SSE endpoint forwards the shared generator's delta events —
+    the web client renders progressive text from them."""
+    from api.routers import home_chat as home_chat_router
+
+    session = _home_session()
+    monkeypatch.setattr(home_chat_router.HomeChatSession, "get", AsyncMock(return_value=session))
+    monkeypatch.setattr(
+        home_chat_router, "effective_notebook_scope", AsyncMock(return_value=["notebook:1"])
+    )
+    defaults = MagicMock()
+    defaults.default_chat_model = "model:1"
+    monkeypatch.setattr(
+        home_chat_router.DefaultModels, "get_instance", AsyncMock(return_value=defaults)
+    )
+
+    async def _fake_turn(**kwargs):
+        yield {"type": "answer_delta", "content": "Hello "}
+        yield {"type": "answer_delta", "content": "world"}
+        yield {"type": "final_answer", "content": "Hello world"}
+        yield {"type": "suggestions", "suggestions": ["Next?"]}
+        yield {"type": "complete", "final_answer": "Hello world", "suggestions": ["Next?"]}
+
+    monkeypatch.setattr(home_chat_router, "stream_home_turn", _fake_turn)
+
+    resp = client.post(
+        "/api/home-chat/sessions/abc/messages",
+        json={"message": "hi"},
+    )
+
+    assert resp.status_code == 200
+    events = [
+        line.removeprefix("data: ")
+        for line in resp.text.splitlines()
+        if line.startswith("data: ")
+    ]
+    parsed = [json.loads(e) for e in events]
+    assert [e["type"] for e in parsed] == [
+        "user_message",
+        "answer_delta",
+        "answer_delta",
+        "final_answer",
+        "suggestions",
+        "complete",
+    ]
+    assert parsed[1]["content"] == "Hello "
 
 
 @pytest.mark.asyncio

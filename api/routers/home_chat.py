@@ -14,7 +14,6 @@ from typing import Any, AsyncGenerator, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Path
 from fastapi.responses import StreamingResponse
-from langchain_core.messages import HumanMessage
 from langchain_core.runnables import RunnableConfig
 from loguru import logger
 from pydantic import BaseModel, Field
@@ -30,7 +29,7 @@ from open_notebook.ai.models import DefaultModels
 from open_notebook.database.repository import repo_query
 from open_notebook.domain.home_chat import HomeChatSession
 from open_notebook.exceptions import NotFoundError, OpenNotebookError
-from open_notebook.graphs.home_chat import get_home_chat_graph
+from open_notebook.graphs.home_chat import get_home_chat_graph, stream_home_turn
 from open_notebook.utils.error_classifier import classify_error
 
 router = APIRouter()
@@ -304,72 +303,50 @@ async def stream_home_chat_response(
     answer_model: str,
     final_answer_model: str,
 ) -> AsyncGenerator[str, None]:
-    """Stream one assistant turn as Server-Sent Events."""
-    try:
-        # Conversation memory: load checkpointed state, append the new human
-        # message. add_messages dedupes by id, so replaying the checkpointed
-        # list is safe. turn_metadata/suggestions are NOT replayed — their
-        # operator.add reducer would duplicate entries.
-        graph = await get_home_chat_graph()
-        current_state = await graph.aget_state(
-            config=RunnableConfig(configurable={"thread_id": session_id})
-        )
-        messages = list(
-            (current_state.values if current_state else {}).get("messages", [])
-        )
-        messages.append(HumanMessage(content=question))
+    """Stream one assistant turn as Server-Sent Events (legacy vocabulary).
 
+    Consumes the shared turn generator. Transitional shape: token deltas are
+    joined and emitted as a single ``final_answer`` event (the web client
+    upgrade to incremental deltas is ticket #66); the old staged
+    strategy/search events no longer exist.
+    """
+    try:
         yield f"data: {json.dumps({'type': 'user_message', 'content': question, 'timestamp': None})}\n\n"
 
         final_answer: Optional[str] = None
         suggestions: List[str] = []
-
-        input_state: Dict[str, Any] = {
-            "messages": messages,
-            "question": question,
-            "notebook_ids": notebook_ids,
-            # Per-turn output channels are plain (no reducer) — reset them
-            # so a value checkpointed by a PREVIOUS turn can't leak into
-            # this turn's events and metadata.
-            "final_answer": None,
-            "suggestions": None,
-        }
-
-        async for chunk in graph.astream(  # type: ignore[call-overload]
-            input=input_state,
-            config=RunnableConfig(
-                configurable={
-                    "thread_id": session_id,
-                    "strategy_model": strategy_model,
-                    "answer_model": answer_model,
-                    "final_answer_model": final_answer_model,
-                }
-            ),
-            stream_mode="updates",
+        error_message: Optional[str] = None
+        async for event in stream_home_turn(
+            session_id=session_id,
+            question=question,
+            notebook_ids=notebook_ids,
+            strategy_model=strategy_model,
+            answer_model=answer_model,
+            final_answer_model=final_answer_model,
         ):
-            if "knowledge_strategy" in chunk:
-                strategy = chunk["knowledge_strategy"]["strategy"]
-                yield f"data: {json.dumps({'type': 'strategy', 'reasoning': strategy.reasoning, 'searches': [{'term': s.term, 'instructions': s.instructions} for s in strategy.searches]})}\n\n"
-            elif "knowledge_search" in chunk:
-                for answer in chunk["knowledge_search"]["answers"]:
-                    content = (
-                        answer.get("content", "") if isinstance(answer, dict) else answer
-                    )
-                    yield f"data: {json.dumps({'type': 'answer', 'content': content})}\n\n"
-            elif "knowledge_final" in chunk:
-                final_answer = chunk["knowledge_final"].get("final_answer")
-                yield f"data: {json.dumps({'type': 'final_answer', 'content': final_answer})}\n\n"
-            elif "suggest" in chunk:
-                suggestions = chunk["suggest"].get("suggestions") or []
-                yield f"data: {json.dumps({'type': 'suggestions', 'suggestions': suggestions})}\n\n"
+            kind = event["type"]
+            if kind == "answer_delta":
+                yield f"data: {json.dumps({'type': 'answer_delta', 'content': event['content']})}\n\n"
+            elif kind == "final_answer":
+                final_answer = event["content"]
+            elif kind == "suggestions":
+                suggestions = event["suggestions"]
+            elif kind == "error":
+                error_message = event["message"]
+                break
 
+        if error_message is not None:
+            yield f"data: {json.dumps({'type': 'error', 'message': error_message})}\n\n"
+        else:
+            yield f"data: {json.dumps({'type': 'final_answer', 'content': final_answer})}\n\n"
+            if suggestions:
+                yield f"data: {json.dumps({'type': 'suggestions', 'suggestions': suggestions})}\n\n"
         completion = {
             "type": "complete",
             "final_answer": final_answer,
             "suggestions": suggestions,
         }
         yield f"data: {json.dumps(completion)}\n\n"
-
     except Exception as e:
         _, error_message = classify_error(e)
         logger.error(f"Error in home chat streaming: {str(e)}")

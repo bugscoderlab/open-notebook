@@ -240,6 +240,7 @@ export interface HomeChatStreamEvent {
     | 'user_message'
     | 'strategy'
     | 'answer'
+    | 'answer_delta'
     | 'final_answer'
     | 'suggestions'
     | 'complete'

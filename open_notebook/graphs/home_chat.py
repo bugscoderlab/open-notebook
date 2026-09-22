@@ -1,26 +1,54 @@
 """Knowledge-only Home ask chat graph.
 
-Every question flows through the knowledge pipeline (the Ask strategy →
-search → synthesis stages, reused from ``open_notebook.graphs.ask``),
-followed by follow-up question suggestions. There is no routing hop:
-business-data phrasing is answered from documents like any other question.
+Every question flows through the Ask pipeline (``open_notebook.graphs.ask``)
+**wholesale** — the compiled Ask graph runs as a subgraph inside this memory
+wrapper:
 
-Historical note: this graph used to auto-route each message to either the
-knowledge pipeline or a dedicated analytics pipeline (LLM router with a
-deterministic keyword fallback). That routing — together with the analytics
-node, the caller-role adapter, and the route/refunds/analytics-payload state
-fields — was removed per ADR-017.
+    START → prepare_ask ──(non-empty notebook_ids)──▶ ask (subgraph)
+              │                                          │  = ask.graph,
+              └──(empty notebook_ids)──▶ no_scope ────────┘   compiled wholesale
+                                         (bypass, T5)          (no node re-wiring)
+                                            │                  ▼
+                                            └─────── remember ───┘  (final_answer → AIMessage)
+                                                          │
+                                                        suggest ──▶ END
 
-Memory: compiled with the shared SqliteSaver checkpointer keyed by
+Historical notes:
+
+- This graph used to re-wire the ask node functions into its own pipeline
+  with a hand-rolled state projection (``_ask_state_view``, per-turn answer
+  tagging). That layer was replaced by wholesale subgraph delegation
+  (wayfinder map #56, spike #58) — the projection only projected DATA, and
+  every turn-isolation problem it solved is solved free by keeping the ask
+  channels subgraph-private (see below).
+- An earlier analytics routing hop was removed per ADR-017: business-data
+  phrasing is answered from documents like any other question.
+
+State-channel mapping across the subgraph boundary (mapping is BY NAME):
+
+- Shared (declared in both schemas, plain overwrite reducers): ``question``,
+  ``notebook_ids``, ``chat_history``, ``clarify``, ``final_answer``.
+  ``prepare_ask`` projects the outer ``messages`` channel into the
+  ``chat_history`` string the ask prompts render — the only projection left.
+- Deliberately NOT shared (turn isolation): ``strategy`` and ``answers``
+  stay private to the subgraph's per-invocation checkpoint namespace, so
+  every turn starts with empty values. Declaring ``answers`` in this schema
+  would make ``operator.add`` accumulate across turns and leak turn N-1's
+  partial answers into turn N's synthesis.
+- Never shared: ``messages``/``turn_metadata``/``suggestions`` (outer only);
+  ``term``/``instructions``/``results``/``ids`` (subgraph private).
+
+Memory: compiled with the shared AsyncSqliteSaver checkpointer keyed by
 ``thread_id = session_id`` — the ``messages`` channel (``add_messages``)
 accumulates Human/AI messages across turns, and ``turn_metadata``
 accumulates one entry per AI turn (the suggestions list) so the GET
 endpoint can re-attach them to the persisted messages.
 """
 
+import asyncio
 import operator
 import re
-from typing import Annotated, Any, List, Optional, cast
+from typing import Annotated, Any, AsyncGenerator, List, Optional, TypedDict
 
 import aiosqlite
 from ai_prompter import Prompter
@@ -29,14 +57,12 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
-from langgraph.types import Send
-from typing_extensions import TypedDict
 
 from open_notebook.ai.provision import provision_langchain_model
 from open_notebook.config import LANGGRAPH_CHECKPOINT_FILE
 from open_notebook.graphs import ask as ask_graph
-from open_notebook.graphs.ask import ThreadState
 from open_notebook.utils import clean_thinking_content
+from open_notebook.utils.error_classifier import classify_error
 from open_notebook.utils.text_utils import extract_text_content
 
 NO_SCOPE_ANSWER = (
@@ -47,23 +73,22 @@ HISTORY_TURNS = 3
 
 
 class HomeChatState(TypedDict, total=False):
+    # Memory wrapper (outer-only channels).
     messages: Annotated[list, add_messages]
-    # Current-turn inputs (set by the router on every invoke).
+    turn_metadata: Annotated[list, operator.add]
+    suggestions: List[str]
+    # Channels shared BY NAME with ask.ThreadState — values cross the
+    # subgraph boundary in both directions. All have overwrite reducers on
+    # both sides, so cross-turn behaviour is "current turn wins".
     question: str
     notebook_ids: List[str]
-    # Current-turn outputs, streamed to the client as SSE events.
-    strategy: Any
-    answers: Annotated[list, operator.add]
+    chat_history: str
+    clarify: bool
     final_answer: str
-    suggestions: List[str]
-    # One entry per AI turn, persisted for the GET endpoint (aligned with AI
-    # messages in order). operator.add appends — the router must NOT replay
-    # the checkpointed list back into the input.
-    turn_metadata: Annotated[list, operator.add]
 
 
 def _last_human_question(state: HomeChatState) -> str:
-    """The current question — the router stores it explicitly, but fall back
+    """The current question — callers store it explicitly, but fall back
     to the last human message when the graph is invoked directly (tests)."""
     question = state.get("question")
     if question:
@@ -78,8 +103,8 @@ def _last_human_question(state: HomeChatState) -> str:
 def _format_chat_history(state: HomeChatState) -> str:
     """Render prior turns as 'User:/Assistant:' lines for the ask prompts.
 
-    Excludes the current question (the router sets state["question"] and
-    appends the HumanMessage separately).
+    Excludes the current question (``prepare_ask`` sets state["question"] and
+    the HumanMessage is appended separately by the caller).
     """
     turns: List[str] = []
     for msg in state.get("messages", []):
@@ -100,79 +125,45 @@ def _format_chat_history(state: HomeChatState) -> str:
     return "\n\n".join(turns[-HISTORY_TURNS * 2 :])
 
 
-def _ask_state_view(state: HomeChatState) -> ThreadState:
-    """Project the home state into the shape the ask graph nodes expect.
+async def prepare_ask(state: HomeChatState, config: RunnableConfig) -> dict:
+    """Project the outer memory into the shared ask channels.
 
-    Must carry ``strategy`` and ``answers`` — the ask final-answer prompt
-    renders both, and without them the synthesis stage sees an empty
-    RESULTS section and (honestly) claims it has no retrieved text.
-
-    ``answers`` accumulates across turns via the operator.add reducer, so
-    only the entries tagged with the CURRENT question are forwarded —
-    otherwise turn 2's synthesis would also see turn 1's search results
-    and merge the previous answer into the new one.
+    This replaces the old ``_ask_state_view``: it copies DATA (question,
+    rendered chat history, clarify flag) instead of re-wiring ask's node
+    functions. The ask graph is invoked wholesale immediately after.
     """
-    question = _last_human_question(state)
-    turn_answers = [
-        entry.get("content", "")
-        for entry in state.get("answers") or []
-        if isinstance(entry, dict) and entry.get("question") == question
-    ]
-    return cast(
-        ThreadState,
-        {
-            "question": question,
-            "chat_history": _format_chat_history(state),
-            "notebook_ids": state.get("notebook_ids") or [],
-            # Home chat never opts into the clarification gate — explicit
-            # False (rather than absent) so the shared strategy prompt's
-            # `{% if clarify %}` section stays off for this caller.
-            "clarify": False,
-            "strategy": state.get("strategy"),
-            "answers": turn_answers,
-        },
-    )
+    return {
+        "question": _last_human_question(state),
+        "chat_history": _format_chat_history(state),
+        # Chat always opts into the clarification gate (wayfinder map #56,
+        # Q3). Explicit bool so a missing channel defaults to False.
+        "clarify": bool(state.get("clarify")),
+    }
 
 
-async def knowledge_strategy(state: HomeChatState, config: RunnableConfig) -> dict:
-    return await ask_graph.call_model_with_messages(_ask_state_view(state), config)
+async def no_scope_answer(state: HomeChatState, config: RunnableConfig) -> dict:
+    """T5: an explicitly-empty notebook scope answers honestly, no model call.
 
-
-async def knowledge_search_trigger(state: HomeChatState, config: RunnableConfig) -> list:
-    """Fan out one search per strategy term (mirrors ask.trigger_queries)."""
-    view = _ask_state_view(state)
-    strategy = state.get("strategy")
-    if not strategy:
-        return []
-    return [
-        Send(
-            "knowledge_search",
-            {
-                "question": view["question"],
-                "instructions": s.instructions,
-                "term": s.term,
-                "notebook_ids": view["notebook_ids"],
-            },
-        )
-        for s in strategy.searches
-    ]
-
-
-async def knowledge_final(state: HomeChatState, config: RunnableConfig) -> dict:
-    """Synthesize the final knowledge answer, with conversation context.
-
-    T5: an explicitly-empty notebook scope means "this caller may read
-    nothing" — answer honestly without calling a model (mirrors the ask
-    endpoint's empty-scope short-circuit).
+    With the wholesale subgraph this lives OUTSIDE the ask graph: the ask
+    pipeline's empty-scope behaviour is per-search (provide_answer returns
+    []), but write_final_answer would still call a model. The composition
+    intercepts one conditional edge earlier.
     """
+    return {
+        "final_answer": NO_SCOPE_ANSWER,
+        "messages": [AIMessage(content=NO_SCOPE_ANSWER)],
+    }
+
+
+def _route_after_prepare(state: HomeChatState) -> str:
     if "notebook_ids" in state and not state["notebook_ids"]:
-        return {
-            "final_answer": NO_SCOPE_ANSWER,
-            "messages": [AIMessage(content=NO_SCOPE_ANSWER)],
-        }
-    result = await ask_graph.write_final_answer(_ask_state_view(state), config)
-    # The ask stage is single-shot; memory lives in our messages channel.
-    return {**result, "messages": [AIMessage(content=result.get("final_answer", ""))]}
+        return "no_scope"
+    return "ask"
+
+
+async def remember(state: HomeChatState, config: RunnableConfig) -> dict:
+    """Persist the ask synthesis into the memory wrapper's messages channel."""
+    return {"messages": [AIMessage(content=state.get("final_answer", ""))]}
 
 
 # Leading list markers / enumerators on model-produced suggestion lines.
@@ -209,33 +200,25 @@ async def suggest_followups(state: HomeChatState, config: RunnableConfig) -> dic
     return {"suggestions": suggestions, "turn_metadata": [metadata]}
 
 
-# Reuse the ask per-search node, wrapped: each partial answer is tagged
-# with its question so a later turn's synthesis can tell its own results
-# apart from the ones the operator.add channel accumulated before (the
-# reducer never resets, and untagged answers would leak across turns).
-async def knowledge_search(state: "ask_graph.SubGraphState", config: RunnableConfig) -> dict:
-    result = await ask_graph.provide_answer(state, config)
-    return {
-        "answers": [
-            {"question": state.get("question"), "content": content}
-            for content in result.get("answers", [])
-        ]
-    }
+def _build_graph(checkpointer: Optional[Any] = None) -> Any:
+    """Compile the composed home-chat graph.
 
-
-
-_home_state = StateGraph(HomeChatState)
-_home_state.add_node("knowledge_strategy", knowledge_strategy)
-_home_state.add_node("knowledge_search", knowledge_search)
-_home_state.add_node("knowledge_final", knowledge_final)
-_home_state.add_node("suggest", suggest_followups)
-_home_state.add_edge(START, "knowledge_strategy")
-_home_state.add_conditional_edges(
-    "knowledge_strategy", knowledge_search_trigger, ["knowledge_search"]
-)
-_home_state.add_edge("knowledge_search", "knowledge_final")
-_home_state.add_edge("knowledge_final", "suggest")
-_home_state.add_edge("suggest", END)
+    ``ask_graph.graph`` — the module-level compiled Ask graph — is added as a
+    node wholesale; no ask node functions are re-wired.
+    """
+    builder = StateGraph(HomeChatState)
+    builder.add_node("prepare_ask", prepare_ask)
+    builder.add_node("ask", ask_graph.graph)
+    builder.add_node("no_scope", no_scope_answer)
+    builder.add_node("remember", remember)
+    builder.add_node("suggest", suggest_followups)
+    builder.add_edge(START, "prepare_ask")
+    builder.add_conditional_edges("prepare_ask", _route_after_prepare)
+    builder.add_edge("ask", "remember")
+    builder.add_edge("no_scope", "suggest")
+    builder.add_edge("remember", "suggest")
+    builder.add_edge("suggest", END)
+    return builder.compile(checkpointer=checkpointer)
 
 
 # Async SQLite checkpointer — the home chat graph streams with `astream`,
@@ -254,5 +237,123 @@ async def get_home_chat_graph():
     global _home_chat_graph
     if _home_chat_graph is None:
         memory = AsyncSqliteSaver(aiosqlite.connect(LANGGRAPH_CHECKPOINT_FILE))
-        _home_chat_graph = _home_state.compile(checkpointer=memory)
+        _home_chat_graph = _build_graph(checkpointer=memory)
     return _home_chat_graph
+
+
+# ---------------------------------------------------------------------------
+# Shared turn generator (one brain, two mouths: the web SSE endpoint and the
+# messenger gateway's internal streaming endpoint both consume this).
+# ---------------------------------------------------------------------------
+
+
+class HomeTurnEvent(TypedDict, total=False):
+    """Typed events emitted by ``stream_home_turn``.
+
+    Sequence for a normal turn: answer_delta* → final_answer → suggestions
+    (only when present) → complete. Failure at any point: a single error
+    event (never a bare stream end — the #57 silent-abort lesson).
+    """
+
+    type: str  # "answer_delta" | "final_answer" | "suggestions" | "complete" | "error"
+    content: str
+    suggestions: List[str]
+    final_answer: str
+    message: str
+
+
+async def stream_home_turn(
+    *,
+    session_id: str,
+    question: str,
+    notebook_ids: List[str],
+    strategy_model: Optional[str],
+    answer_model: Optional[str],
+    final_answer_model: Optional[str],
+) -> AsyncGenerator[HomeTurnEvent, None]:
+    """Stream one conversational home-chat turn as typed events.
+
+    Runs the composed graph with the token-streaming recipe proven by the
+    spike: ``stream_mode=["updates", "messages"], subgraphs=True`` — without
+    ``subgraphs=True`` the ask subgraph's LLM tokens do not stream at all.
+
+    The generator catches ``BaseException`` so a connection kill or
+    cancellation surfaces as a typed error event instead of a bare EOF
+    (absorbed hard requirement from the diagnosis #57 / superseded hotfix
+    #61). ``GeneratorExit`` and ``CancelledError`` are re-raised after the
+    error event so cancellation semantics stay intact.
+    """
+    graph = await get_home_chat_graph()
+    thread_config = RunnableConfig(configurable={"thread_id": session_id})
+    current_state = await graph.aget_state(config=thread_config)
+    messages = list((current_state.values if current_state else {}).get("messages", []))
+    messages.append(HumanMessage(content=question))
+
+    final_answer: Optional[str] = None
+    suggestions: List[str] = []
+    streamed: List[str] = []
+
+    try:
+        async for namespace, mode, payload in graph.astream(  # type: ignore[call-overload]
+            input={
+                "messages": messages,
+                "question": question,
+                "notebook_ids": notebook_ids,
+                # Per-turn output channels are plain (no reducer) — reset them
+                # so a value checkpointed by a PREVIOUS turn can't leak.
+                "final_answer": None,
+                "suggestions": None,
+                # Chat opts into the Ask clarification gate (map #56, Q3).
+                "clarify": True,
+            },
+            config=RunnableConfig(
+                configurable={
+                    "thread_id": session_id,
+                    "strategy_model": strategy_model,
+                    "answer_model": answer_model,
+                    "final_answer_model": final_answer_model,
+                }
+            ),
+            stream_mode=["updates", "messages"],
+            subgraphs=True,
+        ):
+            if mode == "messages":
+                chunk, metadata = payload
+                if (
+                    metadata.get("langgraph_node") == "write_final_answer"
+                    and chunk.content
+                ):
+                    streamed.append(chunk.content)
+                    yield {"type": "answer_delta", "content": chunk.content}
+                continue
+
+            node = next(iter(payload), None)
+            update = payload.get(node, {}) if node else {}
+            if node == "suggest":
+                suggestions = update.get("suggestions") or []
+            elif node in ("ask", "no_scope"):
+                value = update.get("final_answer")
+                if value:
+                    final_answer = value
+
+        # The clarify and empty-scope paths produce no token stream — their
+        # final answer arrives via the node update above.
+        if final_answer is None:
+            final_answer = "".join(streamed)
+        yield {"type": "final_answer", "content": final_answer}
+        if suggestions:
+            yield {"type": "suggestions", "suggestions": suggestions}
+        yield {
+            "type": "complete",
+            "final_answer": final_answer,
+            "suggestions": suggestions,
+        }
+    except GeneratorExit:
+        raise
+    except asyncio.CancelledError:
+        _, message = classify_error(asyncio.CancelledError())
+        yield {"type": "error", "message": message}
+        raise
+    except BaseException as e:  # noqa: BLE001 - never bare-EOF a chat turn
+        _, message = classify_error(e)
+        yield {"type": "error", "message": message}

@@ -3,6 +3,7 @@ import { ReactNode } from 'react'
 import { renderHook, act } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { toast } from 'sonner'
 import { useHomeChat } from './use-home-chat'
 import { homeChatApi } from '@/lib/api/home-chat'
 
@@ -225,6 +226,67 @@ describe('useHomeChat', () => {
     expect(result.current.messages.map((m) => m.content)).toEqual(['q', 'the answer'])
     expect(result.current.turns).toHaveLength(1)
     expect(result.current.suggestions).toEqual(['Next?'])
+  })
+
+  it('streams answer_delta events into a progressively growing AI message', async () => {
+    vi.mocked(homeChatApi.createSession).mockResolvedValue({
+      id: 'home_chat_session:1',
+      title: 'q',
+      created: '',
+      updated: '',
+    } as any)
+    vi.mocked(homeChatApi.sendMessage).mockResolvedValue(
+      sseStream([
+        { type: 'user_message', content: 'q' },
+        { type: 'answer_delta', content: 'Hello ' },
+        { type: 'answer_delta', content: 'world' },
+        { type: 'answer_delta', content: '!' },
+        { type: 'final_answer', content: 'Hello world!' },
+        { type: 'suggestions', suggestions: ['Next?'] },
+        { type: 'complete', final_answer: 'Hello world!' },
+      ]) as any
+    )
+
+    const { result } = renderHook(() => useHomeChat(), { wrapper })
+
+    await act(async () => {
+      await result.current.sendMessage('q', { models: MODELS })
+    })
+
+    // One AI message, assembled from the deltas (final_answer overwrites
+    // with the authoritative full text).
+    const aiMessages = result.current.messages.filter((m) => m.type === 'ai')
+    expect(aiMessages).toHaveLength(1)
+    expect(aiMessages[0].content).toBe('Hello world!')
+    expect(result.current.suggestions).toEqual(['Next?'])
+  })
+
+  it('treats EOF before complete as an error (no phantom question)', async () => {
+    vi.mocked(homeChatApi.createSession).mockResolvedValue({
+      id: 'home_chat_session:1',
+      title: 'q',
+      created: '',
+      updated: '',
+    } as any)
+    // Stream just stops — the silent-abort shape from the diagnosis (#57).
+    vi.mocked(homeChatApi.sendMessage).mockResolvedValue(
+      sseStream([
+        { type: 'user_message', content: 'q' },
+        { type: 'answer_delta', content: 'partial ' },
+      ]) as any
+    )
+
+    const { result } = renderHook(() => useHomeChat(), { wrapper })
+
+    await act(async () => {
+      await result.current.sendMessage('q', { models: MODELS })
+    })
+
+    expect(toast.error).toHaveBeenCalled()
+    expect(result.current.isStreaming).toBe(false)
+    // The optimistic question is rolled back with the unfinished turn.
+    expect(result.current.messages).toEqual([])
+    expect(result.current.turns).toEqual([])
   })
 
   it('drops the optimistic message on an in-band error event', async () => {

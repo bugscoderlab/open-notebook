@@ -156,6 +156,7 @@ export const zhCN = {
     failedToUpdateSession: "更新会话失败",
     failedToDeleteSession: "删除会话失败",
     failedToSendMessage: "发送消息失败",
+    streamIncomplete: "回复在完成前被中断了，请重试。",
     unauthorized: "无权访问，请检查您的密码",
     invalidPassword: "密码错误",
     embeddingModelRequired: "此功能需要嵌入模型。请在模型设置中配置一个。",

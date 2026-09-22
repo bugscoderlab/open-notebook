@@ -9,6 +9,7 @@ Prior art: tests/test_chat_routers_characterization.py (TestClient + auth_sessio
 + monkeypatched seams), tests/test_admin_users_teams_api.py (CSRF pattern).
 """
 
+import json
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 from unittest.mock import AsyncMock
@@ -828,6 +829,25 @@ class TestMessageRouting:
         response = self._message(client, "hello")
         assert response.status_code == 403
 
+
+# ---------------------------------------------------------------------------
+# Streaming message spine: POST /integrations/message/stream (SSE)
+# ---------------------------------------------------------------------------
+    def test_help_and_unknown_command_reply_with_help(self, client, monkeypatch):
+        from api import integrations_service
+
+        self._linked(monkeypatch)
+        for text in ("/help", "/frobnicate"):
+            response = self._message(client, text)
+            assert response.status_code == 200
+            assert "/new" in response.json()["reply"]
+            assert "/search" in response.json()["reply"]
+            integrations_service.reset_rate_limit_state()
+
+
+
+
+
     def test_rate_limit_blocks_second_message(self, client, monkeypatch):
         from api import integrations_service
 
@@ -915,17 +935,143 @@ class TestMessageRouting:
         assert response.json()["conversation_reset"] is True
         assert link.deleted is True
 
-    def test_help_and_unknown_command_reply_with_help(self, client, monkeypatch):
+
+class TestStreamingMessageRouting:
+    def _stream(self, client, text, **body_overrides):
+        body = {"platform": "telegram", "external_id": "4242", "text": text}
+        body.update(body_overrides)
+        return client.post(
+            "/api/integrations/message/stream",
+            json=body,
+            headers=_internal_headers(),
+        )
+
+    def _events(self, response):
+        return [
+            json.loads(line.removeprefix("data: "))
+            for line in response.text.splitlines()
+            if line.startswith("data: ")
+        ]
+
+    @pytest.fixture(autouse=True)
+    def _reset_rate_limit(self):
+        from api import integrations_service
+
+        integrations_service.reset_rate_limit_state()
+        yield
+        integrations_service.reset_rate_limit_state()
+
+    def _linked(self, monkeypatch):
+        from api import integrations_service
+
+        link = _StubLink(
+            id="integration_link:t1",
+            platform="telegram",
+            external_id="4242",
+            user_id="app_user:test",
+            home_chat_session_id="home_chat_session:x",
+        )
+        user = _user()
+        resolve = AsyncMock(return_value=(link, user))
+        monkeypatch.setattr(integrations_service, "resolve_linked_user", resolve)
+        return link
+
+    def test_bad_token_is_401(self, client):
+        response = client.post(
+            "/api/integrations/message/stream",
+            json={"platform": "telegram", "external_id": "4242", "text": "hi"},
+            headers={"Authorization": "Internal wrong"},
+        )
+        assert response.status_code == 401
+
+    def test_unlinked_identity_is_404(self, client, monkeypatch):
+        from api import integrations_service
+        from open_notebook.exceptions import NotFoundError
+
+        monkeypatch.setattr(
+            integrations_service,
+            "resolve_linked_user",
+            AsyncMock(side_effect=NotFoundError("No integration link found")),
+        )
+        response = self._stream(client, "hello")
+        assert response.status_code == 404
+
+    def test_command_is_400(self, client, monkeypatch):
+
+        self._linked(monkeypatch)
+
+        response = self._stream(client, "/search salaries")
+
+        assert response.status_code == 400
+        assert "Commands" in response.json()["detail"]
+
+    def test_happy_path_emits_sse_event_sequence(self, client, monkeypatch):
         from api import integrations_service
 
         self._linked(monkeypatch)
-        for text in ("/help", "/frobnicate"):
-            response = self._message(client, text)
-            assert response.status_code == 200
-            assert "/new" in response.json()["reply"]
-            assert "/search" in response.json()["reply"]
-            integrations_service.reset_rate_limit_state()
 
+        async def _fake_ask(link_arg, user_arg, question):
+            assert question == "what is the meaning of life?"
+            yield {"type": "answer_delta", "content": "The answer "}
+            yield {"type": "answer_delta", "content": "is 42."}
+            yield {"type": "final_answer", "content": "The answer is 42."}
+            yield {"type": "suggestions", "suggestions": ["Follow-up?"]}
+            yield {
+                "type": "complete",
+                "final_answer": "The answer is 42.",
+                "suggestions": ["Follow-up?"],
+            }
+
+        monkeypatch.setattr(integrations_service, "stream_home_chat_ask", _fake_ask)
+
+        response = self._stream(client, "what is the meaning of life?")
+
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("text/event-stream")
+        events = self._events(response)
+        assert [e["type"] for e in events] == [
+            "answer_delta",
+            "answer_delta",
+            "final_answer",
+            "suggestions",
+            "complete",
+        ]
+        assert "".join(e["content"] for e in events if e["type"] == "answer_delta") == (
+            "The answer is 42."
+        )
+
+    def test_error_event_passes_through(self, client, monkeypatch):
+        from api import integrations_service
+
+        self._linked(monkeypatch)
+
+        async def _failing_ask(link_arg, user_arg, question):
+            yield {"type": "error", "message": "provider exploded"}
+
+        monkeypatch.setattr(integrations_service, "stream_home_chat_ask", _failing_ask)
+
+        response = self._stream(client, "hi")
+
+        assert response.status_code == 200
+        events = self._events(response)
+        assert events == [{"type": "error", "message": "provider exploded"}]
+
+    def test_rate_limit_blocks_second_stream(self, client, monkeypatch):
+        from api import integrations_service
+
+        self._linked(monkeypatch)
+
+        async def _ok(link_arg, user_arg, question):
+            yield {"type": "complete", "final_answer": "a", "suggestions": []}
+
+        monkeypatch.setattr(integrations_service, "stream_home_chat_ask", _ok)
+
+        first = self._stream(client, "question one")
+        second = self._stream(client, "question two")
+
+        assert first.status_code == 200
+        assert second.status_code == 429
+        assert "too quickly" in second.json()["detail"]
 
 class TestRunSearchService:
     """Canary: /search must query with exactly the caller's permitted scope —
@@ -1000,21 +1146,14 @@ class TestRunHomeChatAskService:
             AsyncMock(return_value="home_chat_session:x"),
         )
 
-        class _Boom:
-            async def aget_state(self, config):
-                return None
-
-            def astream(self, *args, **kwargs):
-                async def _gen():
-                    raise RuntimeError("provider exploded")
-                    yield  # pragma: no cover
-
-                return _gen()
+        async def _boom_turn(**kwargs):
+            raise RuntimeError("provider exploded")
+            yield  # pragma: no cover
 
         monkeypatch.setattr(
             integrations_service,
-            "get_home_chat_graph",
-            AsyncMock(return_value=_Boom()),
+            "stream_home_turn",
+            _boom_turn,
         )
 
         link = _StubLink(id="integration_link:t1", user_id="app_user:test")
@@ -1053,24 +1192,17 @@ class TestAskScopeService:
             AsyncMock(return_value="home_chat_session:x"),
         )
 
-        captured_inputs = []
+        captured_kwargs = []
 
-        class _Graph:
-            async def aget_state(self, config):
-                return None
-
-            def astream(self, input, config, stream_mode):
-                captured_inputs.append(input)
-
-                async def _gen():
-                    yield {"knowledge_final": {"final_answer": "scoped answer"}}
-
-                return _gen()
+        async def _fake_turn(**kwargs):
+            captured_kwargs.append(kwargs)
+            yield {"type": "final_answer", "content": "scoped answer"}
+            yield {"type": "complete", "final_answer": "scoped answer", "suggestions": []}
 
         monkeypatch.setattr(
             integrations_service,
-            "get_home_chat_graph",
-            AsyncMock(return_value=_Graph()),
+            "stream_home_turn",
+            _fake_turn,
         )
 
         link = _StubLink(id="integration_link:t1", user_id="app_user:test")
@@ -1082,4 +1214,4 @@ class TestAskScopeService:
 
         assert reply == "scoped answer"
         assert scope.await_args.args[1] == []  # empty requested scope
-        assert captured_inputs[0]["notebook_ids"] == ["notebook:hr"]
+        assert captured_kwargs[0]["notebook_ids"] == ["notebook:hr"]

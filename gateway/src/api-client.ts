@@ -10,6 +10,14 @@ export type WhatsappPairingStatus =
   | 'disconnected'
   | 'logged_out'
 
+/** One typed event from the streaming message endpoint. */
+export interface StreamTurnEvent {
+  type: 'answer_delta' | 'final_answer' | 'suggestions' | 'complete' | 'error'
+  content?: string
+  suggestions?: string[]
+  message?: string
+}
+
 export class ApiClientError extends Error {
   constructor(
     public readonly status: number,
@@ -134,6 +142,63 @@ export class ApiClient {
       nonce?: string | null
     }
     return body.nonce ?? null
+  }
+
+  /**
+   * Stream one conversational ask over SSE, yielding typed turn events
+   * (answer_delta → final_answer → suggestions → complete, or error).
+   * Throws ApiClientError on non-OK responses — callers fall back to the
+   * non-streaming message() path.
+   */
+  async *messageStream(
+    platform: string,
+    externalId: string,
+    text: string,
+  ): AsyncGenerator<StreamTurnEvent> {
+    const response = await this.call('/integrations/message/stream', {
+      method: 'POST',
+      body: JSON.stringify({ platform, external_id: externalId, text }),
+    })
+    if (!response.ok || !response.body) {
+      throw new ApiClientError(
+        response.status,
+        await ApiClient.detailOf(response),
+      )
+    }
+
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+    try {
+      for (;;) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() ?? ''
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue
+          const payload = line.slice(6).trim()
+          if (!payload) continue
+          let event: StreamTurnEvent
+          try {
+            event = JSON.parse(payload) as StreamTurnEvent
+          } catch {
+            // Incomplete JSON stays skipped — don't kill the stream.
+            continue
+          }
+          yield event
+          if (event.type === 'complete' || event.type === 'error') {
+            return
+          }
+        }
+      }
+      // EOF before complete/error: surface as a thrown error so the caller
+      // can fall back (or apologize) — never silently act successful (#57).
+      throw new ApiClientError(0, 'Stream ended before completion')
+    } finally {
+      reader.releaseLock()
+    }
   }
 
   /** Route one inbound message; returns the reply to send back. */

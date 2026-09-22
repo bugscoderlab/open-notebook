@@ -154,6 +154,7 @@ export const enUS = {
     failedToUpdateSession: "Failed to update session",
     failedToDeleteSession: "Failed to delete session",
     failedToSendMessage: "Failed to send message",
+    streamIncomplete: "The reply was cut off before it finished — please try again.",
     unauthorized: "Unauthorized access, please check your password",
     invalidPassword: "Invalid password",
     embeddingModelRequired: "This feature requires an embedding model. Please configure one in the Models section.",
