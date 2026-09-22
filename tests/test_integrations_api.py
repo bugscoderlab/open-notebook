@@ -1000,21 +1000,14 @@ class TestRunHomeChatAskService:
             AsyncMock(return_value="home_chat_session:x"),
         )
 
-        class _Boom:
-            async def aget_state(self, config):
-                return None
-
-            def astream(self, *args, **kwargs):
-                async def _gen():
-                    raise RuntimeError("provider exploded")
-                    yield  # pragma: no cover
-
-                return _gen()
+        async def _boom_turn(**kwargs):
+            raise RuntimeError("provider exploded")
+            yield  # pragma: no cover
 
         monkeypatch.setattr(
             integrations_service,
-            "get_home_chat_graph",
-            AsyncMock(return_value=_Boom()),
+            "stream_home_turn",
+            _boom_turn,
         )
 
         link = _StubLink(id="integration_link:t1", user_id="app_user:test")
@@ -1053,24 +1046,17 @@ class TestAskScopeService:
             AsyncMock(return_value="home_chat_session:x"),
         )
 
-        captured_inputs = []
+        captured_kwargs = []
 
-        class _Graph:
-            async def aget_state(self, config):
-                return None
-
-            def astream(self, input, config, stream_mode):
-                captured_inputs.append(input)
-
-                async def _gen():
-                    yield {"knowledge_final": {"final_answer": "scoped answer"}}
-
-                return _gen()
+        async def _fake_turn(**kwargs):
+            captured_kwargs.append(kwargs)
+            yield {"type": "final_answer", "content": "scoped answer"}
+            yield {"type": "complete", "final_answer": "scoped answer", "suggestions": []}
 
         monkeypatch.setattr(
             integrations_service,
-            "get_home_chat_graph",
-            AsyncMock(return_value=_Graph()),
+            "stream_home_turn",
+            _fake_turn,
         )
 
         link = _StubLink(id="integration_link:t1", user_id="app_user:test")
@@ -1082,4 +1068,4 @@ class TestAskScopeService:
 
         assert reply == "scoped answer"
         assert scope.await_args.args[1] == []  # empty requested scope
-        assert captured_inputs[0]["notebook_ids"] == ["notebook:hr"]
+        assert captured_kwargs[0]["notebook_ids"] == ["notebook:hr"]
