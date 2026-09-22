@@ -116,6 +116,9 @@ export function createChatHandlers(
     if (!messageStream) {
       throw new ApiClientError(0, 'Streaming not supported by this API')
     }
+    // Call it BOUND: a detached reference loses `this` and the first
+    // next() throws before any request goes out (fell back silently once).
+    const stream = messageStream.bind(client)
     const buffer = new StreamBuffer({
       minChars: streamMinChars,
       maxChars: streamMaxChars,
@@ -137,7 +140,7 @@ export function createChatHandlers(
     }
 
     try {
-      for await (const event of messageStream(platform, ctx.chatId, text)) {
+      for await (const event of stream(platform, ctx.chatId, text)) {
         if (event.type === 'answer_delta') {
           for (const segment of buffer.push(event.content ?? '')) queue(segment)
         } else if (event.type === 'suggestions') {
@@ -195,9 +198,13 @@ export function createChatHandlers(
         try {
           // Streaming path (preferred): progressive chunks, silent.
           suggestions = (await streamReply(ctx, text)).suggestions
-        } catch {
+        } catch (streamError) {
           // The stream failed before anything reached the user — fall back
-          // to the one-shot path rather than erroring out.
+          // to the one-shot path rather than erroring out. Logged: a silent
+          // fallback once hid a detached-method bug for a whole release.
+          console.error(
+            `[handlers] streaming failed, falling back to message(): ${String(streamError)}`,
+          )
           const result = await client.message(platform, ctx.chatId, text)
           await sendChunked(ctx, result.reply)
           suggestions = result.suggestions

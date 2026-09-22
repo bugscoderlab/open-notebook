@@ -153,4 +153,44 @@ describe('streaming replies (shared by WhatsApp and Telegram)', () => {
 
     expect(replies.map((r) => r.text)).toEqual(['y'.repeat(50), 'y'.repeat(50), 'y'.repeat(20)])
   })
+
+  it('calls messageStream with its this-binding intact (class client)', async () => {
+    // Regression: the handler once detached the method into a bare
+    // reference, so `this.call(...)` threw pre-request and every reply
+    // silently fell back to the one-shot path. A class-based client
+    // exercises the real binding.
+    const { ctx, replies } = makeCtx()
+
+    class ClassClient {
+      message = vi.fn().mockResolvedValue({
+        reply: 'fallback answer',
+        suggestions: [],
+        conversation_reset: false,
+      })
+      claim = vi.fn().mockResolvedValue({ email: 'a@b.c' })
+
+      async *messageStream(
+        _platform: string,
+        _externalId: string,
+        _text: string,
+      ): AsyncGenerator<StreamTurnEvent> {
+        yield { type: 'answer_delta', content: 'Streamed answer. ' }
+        yield { type: 'suggestions', suggestions: ['More?'] }
+        yield { type: 'complete', final_answer: 'Streamed answer.', suggestions: ['More?'] }
+      }
+    }
+
+    const client = new ClassClient()
+    const handlers = createChatHandlers(
+      client as unknown as Pick<ApiClient, 'message' | 'claim'> &
+        Partial<Pick<ApiClient, 'messageStream'>>,
+      'whatsapp',
+      TIMING,
+    )
+
+    await handlers.handleText(ctx)
+
+    expect(client.message).not.toHaveBeenCalled()
+    expect(replies.map((r) => r.text)).toEqual(['Streamed answer. ', 'You could also ask:\n· More?'])
+  })
 })
