@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { LoadingSpinner } from '@/components/common/LoadingSpinner'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Input } from '@/components/ui/input'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert'
@@ -25,6 +26,8 @@ const settingsSchema = z.object({
   docling_ocr: z.boolean().optional(),
   docling_formulas: z.boolean().optional(),
   docling_vision: z.boolean().optional(),
+  ask_max_searches: z.number().int().min(1).max(5).optional(),
+  ask_search_answer_max_tokens: z.number().int().min(256).max(8192).optional(),
 })
 
 type SettingsFormData = z.infer<typeof settingsSchema>
@@ -66,6 +69,8 @@ export function SettingsForm() {
       docling_ocr: undefined,
       docling_formulas: undefined,
       docling_vision: undefined,
+      ask_max_searches: undefined,
+      ask_search_answer_max_tokens: undefined,
     }
   })
 
@@ -84,6 +89,8 @@ export function SettingsForm() {
         docling_ocr: settings.docling_ocr ?? true,
         docling_formulas: settings.docling_formulas ?? false,
         docling_vision: settings.docling_vision ?? false,
+        ask_max_searches: settings.ask_max_searches ?? 3,
+        ask_search_answer_max_tokens: settings.ask_search_answer_max_tokens ?? 2048,
       }
       reset(formData)
       setHasResetForm(true)
@@ -307,6 +314,69 @@ export function SettingsForm() {
                 <p>{t('settings.embeddingHelp')}</p>
               </CollapsibleContent>
             </Collapsible>
+          </div>
+        </div>
+      </SectionCard>
+
+       <SectionCard
+        title={
+          <>
+            {t('settings.askPipeline')}
+            <span className="mt-1 block font-sans text-sm font-normal tracking-normal text-muted-foreground">
+              {t('settings.askPipelineDesc')}
+            </span>
+          </>
+        }
+      >
+        <div className="space-y-6 p-5">
+          <div className="space-y-2">
+            <Label htmlFor="ask_max_searches">{t('settings.askMaxSearches')}</Label>
+            <Controller
+              name="ask_max_searches"
+              control={control}
+              render={({ field }) => (
+                <Input
+                  id="ask_max_searches"
+                  type="number"
+                  min={1}
+                  max={5}
+                  step={1}
+                  className="w-full"
+                  value={field.value ?? ''}
+                  onChange={(e) => {
+                    const value = e.target.valueAsNumber
+                    field.onChange(Number.isNaN(value) ? undefined : value)
+                  }}
+                  disabled={field.disabled || isLoading}
+                />
+              )}
+            />
+            <p className="text-sm text-muted-foreground">{t('settings.askMaxSearchesHelp')}</p>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="ask_search_answer_max_tokens">{t('settings.askSearchAnswerMaxTokens')}</Label>
+            <Controller
+              name="ask_search_answer_max_tokens"
+              control={control}
+              render={({ field }) => (
+                <Input
+                  id="ask_search_answer_max_tokens"
+                  type="number"
+                  min={256}
+                  max={8192}
+                  step={128}
+                  className="w-full"
+                  value={field.value ?? ''}
+                  onChange={(e) => {
+                    const value = e.target.valueAsNumber
+                    field.onChange(Number.isNaN(value) ? undefined : value)
+                  }}
+                  disabled={field.disabled || isLoading}
+                />
+              )}
+            />
+            <p className="text-sm text-muted-foreground">{t('settings.askSearchAnswerMaxTokensHelp')}</p>
           </div>
         </div>
       </SectionCard>

@@ -105,3 +105,22 @@ describe('SettingsForm engine gating', () => {
     ).toBeDisabled()
   })
 })
+
+describe('SettingsForm Ask pipeline knobs', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('renders the Ask pipeline section with conservative defaults when the backend omits the knobs', () => {
+    mockCapabilities({ docling_available: true, crawl4ai_available: true })
+    render(<SettingsForm />)
+
+    expect(screen.getByText('settings.askPipeline')).toBeInTheDocument()
+    // Target the inputs by their associated labels; settingsData omits the
+    // knobs, so the form must fall back to 3 / 2048.
+    expect(screen.getByLabelText('settings.askMaxSearches')).toHaveValue(3)
+    expect(screen.getByLabelText('settings.askSearchAnswerMaxTokens')).toHaveValue(
+      2048
+    )
+  })
+})
