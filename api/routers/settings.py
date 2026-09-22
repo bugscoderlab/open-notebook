@@ -27,6 +27,8 @@ async def get_settings():
             docling_formulas=settings.docling_formulas,
             docling_vision=settings.docling_vision,
             youtube_preferred_languages=settings.youtube_preferred_languages,
+            ask_max_searches=settings.ask_max_searches,
+            ask_search_answer_max_tokens=settings.ask_search_answer_max_tokens,
         )
     except HTTPException:
         raise
@@ -86,6 +88,12 @@ async def update_settings(settings_update: SettingsUpdate,
             settings.youtube_preferred_languages = (
                 settings_update.youtube_preferred_languages
             )
+        if settings_update.ask_max_searches is not None:
+            settings.ask_max_searches = settings_update.ask_max_searches
+        if settings_update.ask_search_answer_max_tokens is not None:
+            settings.ask_search_answer_max_tokens = (
+                settings_update.ask_search_answer_max_tokens
+            )
 
         await settings.update()
 
@@ -98,6 +106,8 @@ async def update_settings(settings_update: SettingsUpdate,
             docling_formulas=settings.docling_formulas,
             docling_vision=settings.docling_vision,
             youtube_preferred_languages=settings.youtube_preferred_languages,
+            ask_max_searches=settings.ask_max_searches,
+            ask_search_answer_max_tokens=settings.ask_search_answer_max_tokens,
         )
     except HTTPException:
         raise

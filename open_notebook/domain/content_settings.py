@@ -45,3 +45,15 @@ class ContentSettings(RecordModel):
         ["en", "pt", "es", "de", "nl", "en-GB", "fr", "hi", "ja", "zh-CN", "zh-TW"],
         description="Preferred languages for YouTube transcripts",
     )
+    ask_max_searches: Optional[int] = Field(
+        3,
+        ge=1,
+        le=5,
+        description="Maximum parallel searches the Ask pipeline runs per question",
+    )
+    ask_search_answer_max_tokens: Optional[int] = Field(
+        2048,
+        ge=256,
+        le=8192,
+        description="Output token budget for each intermediate Ask search answer",
+    )

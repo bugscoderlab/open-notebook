@@ -6,25 +6,72 @@ from langchain_core.output_parsers.pydantic import PydanticOutputParser
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Send
+from loguru import logger
 from pydantic import BaseModel, Field
 from typing_extensions import TypedDict
 
 from open_notebook.ai.provision import provision_langchain_model
+from open_notebook.domain.content_settings import ContentSettings
 from open_notebook.domain.notebook import vector_search
 from open_notebook.exceptions import ExternalServiceError, OpenNotebookError
 from open_notebook.utils import clean_thinking_content
 from open_notebook.utils.error_classifier import classify_error
 from open_notebook.utils.text_utils import extract_text_content
 
-# Output budget shared by the three Ask stages (strategy, per-search answers,
-# final synthesis). Matches chat and transformations. The previous 2000 cap
+# Output budget shared by the user-visible Ask stages (strategy, final
+# synthesis). Matches chat and transformations. The previous 2000 cap
 # silently truncated answers in token-dense languages and left reasoning
 # models with no budget for the visible answer after their thinking (#1221).
+# The per-search extraction stage has its own, smaller budget below.
 ASK_MAX_TOKENS = 8192
+
+# Ask pipeline tuning knobs, admin-editable via Settings (ContentSettings).
+# These defaults apply when settings are unset or unreadable; the graph
+# clamps stored values to safe ranges (one may predate validation).
+#
+# ASK_MAX_SEARCHES is the main credit-conservation lever: every search fans
+# out into its own model call that carries the retrieved chunks into
+# context, so the cap bounds both the call count and the input tokens spent
+# per question.
+ASK_MAX_SEARCHES = 3
+# Hard ceiling for the search cap regardless of settings — keeps the
+# per-question fan-out multiplier bounded.
+ASK_MAX_SEARCHES_CEILING = 5
+# Output budget for each per-search extraction answer. That answer is
+# intermediate material for the final synthesis, not user-visible prose, so
+# it needs far less headroom than ASK_MAX_TOKENS.
+ASK_SEARCH_ANSWER_MAX_TOKENS = 2048
+ASK_SEARCH_ANSWER_MIN_TOKENS = 256
 
 # Clarifying-question cap for the Ask-tab clarification gate. Blocking: when
 # the strategy returns clarifications, searches are deliberately skipped.
 MAX_CLARIFICATIONS = 3
+
+
+async def _ask_limits() -> tuple[int, int]:
+    """Resolve the (max_searches, search_answer_max_tokens) tuning knobs.
+
+    Reads the admin-editable ContentSettings, falling back to the module
+    defaults when settings are unreadable and clamping stored values to safe
+    ranges. Follows the graphs/source.py pattern of degrading to defaults
+    rather than failing the turn on a settings hiccup.
+    """
+    max_searches = ASK_MAX_SEARCHES
+    search_answer_max_tokens = ASK_SEARCH_ANSWER_MAX_TOKENS
+    try:
+        settings: ContentSettings = await ContentSettings.get_instance()  # type: ignore[assignment]
+        if settings.ask_max_searches is not None:
+            max_searches = max(
+                1, min(ASK_MAX_SEARCHES_CEILING, settings.ask_max_searches)
+            )
+        if settings.ask_search_answer_max_tokens is not None:
+            search_answer_max_tokens = max(
+                ASK_SEARCH_ANSWER_MIN_TOKENS,
+                min(ASK_MAX_TOKENS, settings.ask_search_answer_max_tokens),
+            )
+    except Exception as e:
+        logger.warning(f"Failed to load Ask settings, using defaults: {e}")
+    return max_searches, search_answer_max_tokens
 
 
 class SubGraphState(TypedDict):
@@ -49,7 +96,10 @@ class Strategy(BaseModel):
     reasoning: str
     searches: List[Search] = Field(
         default_factory=list,
-        description="You can add up to five searches to this strategy",
+        description=(
+            "Searches to run in parallel, most relevant first. The server "
+            "applies a hard cap from Ask settings (default 3)."
+        ),
     )
     clarifications: List[str] = Field(
         default_factory=list,
@@ -125,6 +175,10 @@ async def call_model_with_messages(state: ThreadState, config: RunnableConfig) -
         # fail loudly when nothing usable remains, instead of running empty
         # vector searches and answering "no documents found".
         strategy.searches = [s for s in strategy.searches if s.term.strip()]
+        # Hard cap on the fan-out, from Ask settings (default ASK_MAX_SEARCHES).
+        # Most-relevant-first ordering means truncation drops the tail.
+        max_searches, _ = await _ask_limits()
+        strategy.searches = strategy.searches[:max_searches]
         if not strategy.searches and not strategy.clarifications:
             raise ExternalServiceError(
                 "The strategy model returned no search terms or clarifying "
@@ -215,11 +269,12 @@ async def provide_answer(state: SubGraphState, config: RunnableConfig) -> dict:
         ids = [r["id"] for r in results]
         payload["ids"] = ids
         system_prompt = Prompter(prompt_template="ask/query_process").render(data=payload)  # type: ignore[arg-type]
+        _, search_answer_max_tokens = await _ask_limits()
         model = await provision_langchain_model(
             system_prompt,
             config.get("configurable", {}).get("answer_model"),
             "tools",
-            max_tokens=ASK_MAX_TOKENS,
+            max_tokens=search_answer_max_tokens,
         )
         ai_message = await model.ainvoke(system_prompt)
         ai_content = clean_thinking_content(extract_text_content(ai_message.content))

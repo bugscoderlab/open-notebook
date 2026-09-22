@@ -322,6 +322,8 @@ class SettingsResponse(BaseModel):
     docling_formulas: Optional[bool] = None
     docling_vision: Optional[bool] = None
     youtube_preferred_languages: Optional[List[str]] = None
+    ask_max_searches: Optional[int] = None
+    ask_search_answer_max_tokens: Optional[int] = None
 
 
 class SettingsUpdate(BaseModel):
@@ -333,6 +335,11 @@ class SettingsUpdate(BaseModel):
     docling_formulas: Optional[bool] = None
     docling_vision: Optional[bool] = None
     youtube_preferred_languages: Optional[List[str]] = None
+    # Bounds mirror ContentSettings: the search cap keeps the per-question
+    # fan-out multiplier bounded, the token floor keeps extraction answers
+    # usable for the final synthesis.
+    ask_max_searches: Optional[int] = Field(None, ge=1, le=5)
+    ask_search_answer_max_tokens: Optional[int] = Field(None, ge=256, le=8192)
 
 
 # Sources API models

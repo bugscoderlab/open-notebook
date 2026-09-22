@@ -637,6 +637,26 @@ class TestContentSettings:
         assert settings.docling_vision is False
         assert ContentSettings(docling_vision=True).docling_vision is True
 
+    def test_ask_pipeline_knobs_default(self):
+        """The credit-conservation knobs default to the conservative values."""
+        settings = ContentSettings()
+        assert settings.ask_max_searches == 3
+        assert settings.ask_search_answer_max_tokens == 2048
+
+    def test_ask_pipeline_knobs_bounds(self):
+        """Out-of-range values are rejected at the domain boundary."""
+        # RecordModel.__new__ caches the singleton before __init__ validates,
+        # so a rejected construction poisons the cache — clear between checks.
+        for kwargs in (
+            {"ask_max_searches": 0},
+            {"ask_max_searches": 6},
+            {"ask_search_answer_max_tokens": 100},
+            {"ask_search_answer_max_tokens": 9000},
+        ):
+            with pytest.raises(ValidationError):
+                ContentSettings(**kwargs)
+            ContentSettings.clear_instance()
+
 
 # ============================================================================
 # TEST SUITE 9: Episode Profile Validation

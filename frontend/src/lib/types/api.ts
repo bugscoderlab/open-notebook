@@ -69,6 +69,8 @@ export interface SettingsResponse {
   docling_formulas?: boolean
   docling_vision?: boolean
   youtube_preferred_languages?: string[]
+  ask_max_searches?: number
+  ask_search_answer_max_tokens?: number
 }
 
 export interface Capabilities {
