@@ -14,10 +14,12 @@ API resolves everything else. Message routing joins this router in the
 message spine (T2).
 """
 
+import json
 from datetime import datetime, timezone
-from typing import List, Literal, Optional
+from typing import AsyncGenerator, List, Literal, Optional
 
 from fastapi import APIRouter, Depends, Path
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from api import integrations_service as service
@@ -28,9 +30,11 @@ from open_notebook.domain.integration_link import Platform
 from open_notebook.exceptions import (
     ConfigurationError,
     ForbiddenError,
+    InvalidInputError,
     NotFoundError,
     RateLimitError,
 )
+from open_notebook.utils.error_classifier import classify_error
 
 router = APIRouter()
 
@@ -299,6 +303,83 @@ async def claim_own_whatsapp(
 # ---------------------------------------------------------------------------
 # WhatsApp one-click re-pair (admin → gateway poll → fresh QR)
 # ---------------------------------------------------------------------------
+
+SSE_HEADERS = {
+    "Cache-Control": "no-cache",
+    "Connection": "keep-alive",
+    "X-Accel-Buffering": "no",
+}
+
+
+async def _sse_stream_inbound_message(
+    link, user, request: MessageRequest
+) -> AsyncGenerator[str, None]:
+    """SSE payload for the streaming message endpoint: forwards the service's
+    typed turn events (answer_delta → final_answer → suggestions → complete),
+    or a typed error event. Mid-turn failures AND pre-stream resolution
+    failures arrive as error events — never bare EOF (#57)."""
+    try:
+        async for event in service.stream_home_chat_ask(link, user, request.text.strip()):
+            yield f"data: {json.dumps(event)}\n\n"
+    except GeneratorExit:
+        raise
+    except BaseException as e:  # noqa: BLE001 - never bare-EOF a chat turn
+        _, message = classify_error(e)
+        yield f"data: {json.dumps({'type': 'error', 'message': message})}\n\n"
+
+
+@router.post("/integrations/message/stream")
+async def stream_inbound_message(
+    request: MessageRequest,
+    _: None = Depends(get_internal_caller),
+):
+    """Stream one conversational ask for a linked identity (SSE).
+
+    Gateway-internal counterpart to the non-streaming message endpoint: same
+    auth, rate limiting, and audit; the per-stage model knobs collapse to the
+    default chat model. Gates run BEFORE the response so 404/403/429 surface
+    as HTTP status, not events. Commands (/new, /search, /unlink, /help) stay
+    on the non-streaming endpoint — sending one here is a 400.
+    """
+    if request.text.strip().startswith("/"):
+        raise InvalidInputError(
+            "Commands are not supported on the streaming endpoint — "
+            "use the non-streaming message endpoint."
+        )
+    started = datetime.now(timezone.utc)
+    outcome = "ok"
+    resolved_user_id: Optional[str] = None
+    try:
+        if not service.check_rate_limit(request.platform, request.external_id):
+            outcome = "rate-limited"
+            raise RateLimitError(
+                "You're sending messages too quickly — wait a few seconds."
+            )
+        try:
+            link, user = await service.resolve_linked_user(
+                request.platform, request.external_id
+            )
+        except NotFoundError:
+            outcome = "unlinked"
+            raise
+        except ForbiddenError:
+            outcome = "disabled"
+            raise
+        resolved_user_id = user.id
+        return StreamingResponse(
+            _sse_stream_inbound_message(link, user, request),
+            media_type="text/event-stream",
+            headers=SSE_HEADERS,
+        )
+    finally:
+        service.audit(
+            platform=request.platform,
+            external_id=request.external_id,
+            user_id=resolved_user_id,
+            endpoint="message.stream",
+            outcome=outcome,
+            latency_ms=(datetime.now(timezone.utc) - started).total_seconds() * 1000,
+        )
 
 
 @router.post("/integrations/whatsapp/reset", response_model=WhatsappResetResponse)

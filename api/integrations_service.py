@@ -15,7 +15,7 @@ import hashlib
 import secrets
 import time
 from datetime import datetime, timedelta, timezone
-from typing import Dict, List, Optional, Tuple
+from typing import AsyncGenerator, Dict, List, Optional, Tuple
 
 from loguru import logger
 
@@ -31,7 +31,7 @@ from open_notebook.exceptions import (
     InvalidInputError,
     NotFoundError,
 )
-from open_notebook.graphs.home_chat import stream_home_turn
+from open_notebook.graphs.home_chat import HomeTurnEvent, stream_home_turn
 from open_notebook.utils.error_classifier import classify_error
 
 CODE_TTL = timedelta(minutes=10)
@@ -410,27 +410,10 @@ async def run_home_chat_ask(
     checkpoint is left alone (per #41: a failed turn must not poison the
     session).
     """
-    strategy_model = answer_model = final_answer_model = await _resolve_default_model()
-    if not strategy_model:
-        raise InvalidInputError(
-            "This Open Notebook instance has no default chat model yet — "
-            "ask an admin to set one in Models settings."
-        )
-
-    notebook_ids = await effective_notebook_scope(user, [])
-    session_id = await _ensure_session(link)
-
     final_answer: Optional[str] = None
     suggestions: List[str] = []
     try:
-        async for event in stream_home_turn(
-            session_id=session_id,
-            question=question,
-            notebook_ids=notebook_ids,
-            strategy_model=strategy_model,
-            answer_model=answer_model,
-            final_answer_model=final_answer_model,
-        ):
+        async for event in stream_home_chat_ask(link, user, question):
             kind = event["type"]
             if kind == "final_answer":
                 final_answer = event["content"]
@@ -438,6 +421,8 @@ async def run_home_chat_ask(
                 suggestions = event["suggestions"]
             elif kind == "error":
                 return event["message"], []
+    except (InvalidInputError, NotFoundError, ForbiddenError):
+        raise
     except Exception as e:  # noqa: BLE001 - classified for the chat surface
         _, message = classify_error(e)
         logger.error(f"Home chat ask via integrations failed: {e}")
@@ -449,6 +434,35 @@ async def run_home_chat_ask(
             [],
         )
     return final_answer, suggestions[:3]
+
+
+async def stream_home_chat_ask(
+    link: IntegrationLink, user: CurrentUser, question: str
+) -> AsyncGenerator[HomeTurnEvent, None]:
+    """Streaming conversational ask: resolves the default chat model (the
+    per-stage knobs collapse to it on this path), the caller's notebook
+    scope, and the link's home session, then forwards the shared turn
+    generator's typed events. A failure before the first event raises; a
+    failure mid-turn arrives as a typed error event (never bare EOF).
+    """
+    strategy_model = answer_model = final_answer_model = await _resolve_default_model()
+    if not strategy_model:
+        raise InvalidInputError(
+            "This Open Notebook instance has no default chat model yet — "
+            "ask an admin to set one in Models settings."
+        )
+
+    notebook_ids = await effective_notebook_scope(user, [])
+    session_id = await _ensure_session(link)
+    async for event in stream_home_turn(
+        session_id=session_id,
+        question=question,
+        notebook_ids=notebook_ids,
+        strategy_model=strategy_model,
+        answer_model=answer_model,
+        final_answer_model=final_answer_model,
+    ):
+        yield event
 
 
 async def run_search(user: CurrentUser, query: str) -> str:
