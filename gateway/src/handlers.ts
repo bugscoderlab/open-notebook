@@ -12,8 +12,9 @@ export const START_COMMAND_RE = /^\/start(?:@\w+)?\s+(\d{6})$/
 const TYPING_INTERVAL_MS = 4_000 // Telegram clears typing after ~5s
 const INTERIM_AFTER_MS = 45_000 // one "still working" message past this
 const CHUNK_PACING_MS = 1_100 // stay under ~1 msg/sec per-chat guidance
-const STREAM_MIN_CHARS = 400 // a streamed chunk holds at least this…
+const STREAM_MIN_CHARS = 400 // sentence fallback inside one long paragraph…
 const STREAM_MAX_CHARS = 1_200 // …and hard-flushes at this, boundary or not
+const STREAM_PARA_CHARS = 150 // one paragraph, one message, from this size
 
 /** Sent when a stream dies after partial content reached the user. */
 const STREAM_APOLOGY =
@@ -61,6 +62,7 @@ export interface HandlerTiming {
   chunkPacingMs?: number
   streamMinChars?: number
   streamMaxChars?: number
+  streamParaChars?: number
   sleepFn?: (ms: number) => Promise<void>
 }
 
@@ -86,6 +88,7 @@ export function createChatHandlers(
   const chunkPacing = timing.chunkPacingMs ?? CHUNK_PACING_MS
   const streamMinChars = timing.streamMinChars ?? STREAM_MIN_CHARS
   const streamMaxChars = timing.streamMaxChars ?? STREAM_MAX_CHARS
+  const streamParaChars = timing.streamParaChars ?? STREAM_PARA_CHARS
   const pause = timing.sleepFn ?? sleep
 
   async function handleStart(ctx: ChatContext, code: string): Promise<void> {
@@ -122,6 +125,7 @@ export function createChatHandlers(
     const buffer = new StreamBuffer({
       minChars: streamMinChars,
       maxChars: streamMaxChars,
+      paraChars: streamParaChars,
     })
     let first = true
     let queuedAny = false

@@ -45,6 +45,32 @@ describe('StreamBuffer', () => {
     expect(buffer.finish()).toEqual(['Second paragraph'])
   })
 
+  it('one paragraph, one message: each empty line past the floor is a cut', () => {
+    const buffer = new StreamBuffer({ paraChars: 20, minChars: 400, maxChars: 1000 })
+    const p1 = 'Alpha paragraph here.\n\n'
+    const p2 = 'Beta paragraph here.\n\n'
+    expect(buffer.push(p1)).toEqual([p1])
+    expect(buffer.push(p2)).toEqual([p2])
+    expect(buffer.push('Gamma tail.')).toEqual([])
+    expect(buffer.finish()).toEqual(['Gamma tail.'])
+  })
+
+  it('paragraphs below the floor merge with the next paragraph', () => {
+    const buffer = new StreamBuffer({ paraChars: 100, minChars: 30, maxChars: 1000 })
+    const tiny = 'Tiny.\n\n'
+    const big = 'A much bigger paragraph that carries the tiny one with it.\n\n'
+    // The tiny paragraph alone is under the floor; it merges forward.
+    expect(buffer.push(tiny + big)).toEqual([tiny + big])
+    expect(buffer.finish()).toEqual([])
+  })
+
+  it('an over-long paragraph is split at the cap, not one huge message', () => {
+    const buffer = new StreamBuffer({ paraChars: 20, minChars: 400, maxChars: 60 })
+    const para = 'x'.repeat(130) // one paragraph, no breaks, over the cap
+    expect(buffer.push(para)).toEqual(['x'.repeat(60), 'x'.repeat(60)])
+    expect(buffer.finish()).toEqual(['x'.repeat(10)])
+  })
+
   it('drains nothing when empty', () => {
     const buffer = new StreamBuffer()
     expect(buffer.finish()).toEqual([])

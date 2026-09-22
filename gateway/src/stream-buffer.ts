@@ -1,32 +1,44 @@
 /**
  * Buffers streamed answer tokens into platform-sized message segments.
  *
- * Flush rules (locked in map #56): a segment may leave when it holds at
- * least `minChars` AND ends at a sentence/paragraph boundary; `maxChars`
- * hard-flushes regardless of boundary (never let one message grow huge).
- * `finish()` drains the remainder at end of stream.
+ * Flush rules:
+ * - ONE PARAGRAPH, ONE MESSAGE: the first `\n\n` break that has accumulated
+ *   at least `paraChars` (default 150) is a cut point — each empty line
+ *   starts a new message, like a person sending several messages.
+ * - Sentence fallback: inside a single long paragraph (no qualifying empty
+ *   line), cut at the largest sentence end ≥ `minChars` (default 400).
+ * - `maxChars` (default 1200) hard-flushes regardless of boundary — a
+ *   paragraph longer than the cap is split, never one huge message.
+ * - `finish()` drains the remainder at end of stream (last segment trimmed).
  *
  * Pacing between sends is the CALLER's job (chunkPacing sleep) — the buffer
  * only decides WHERE to cut.
  */
 
 export interface StreamBufferOptions {
-  /** Minimum accumulated chars before a boundary flush (default 400). */
+  /** Largest sentence end inside one paragraph before a flush (default 400). */
   minChars?: number
   /** Hard flush at this size regardless of boundary (default 1200). */
   maxChars?: number
+  /** A paragraph (\n\n chunk) may go out once it holds at least this many
+   * chars (default 150) — paragraphs flush early; fragments below the floor
+   * merge with the next paragraph. */
+  paraChars?: number
 }
 
-const SENTENCE_END = /[.!?。！？]["'”’)\]]?\s+|\n{2,}/g
+const PARA_BREAK = /\n{2,}/g
+const SENTENCE_END = /[.!?。！？]["'”’)\]]?\s+/g
 
 export class StreamBuffer {
   private buf = ''
   private readonly minChars: number
   private readonly maxChars: number
+  private readonly paraChars: number
 
   constructor(options: StreamBufferOptions = {}) {
     this.minChars = options.minChars ?? 400
     this.maxChars = options.maxChars ?? 1200
+    this.paraChars = options.paraChars ?? 150
   }
 
   /** Append tokens; returns the segments ready to send right now. */
@@ -35,7 +47,7 @@ export class StreamBuffer {
     return this.drain(false)
   }
 
-  /** End of stream: return whatever is left, even below `minChars`. */
+  /** End of stream: return whatever is left (trimmed). */
   finish(): string[] {
     return this.drain(true)
   }
@@ -61,8 +73,17 @@ export class StreamBuffer {
         }
         break
       }
+      // One paragraph, one message: the FIRST empty line that has
+      // accumulated at least paraChars wins.
+      const para = this.paragraphCut()
+      if (para !== null) {
+        segments.push(this.buf.slice(0, para))
+        this.buf = this.buf.slice(para)
+        continue
+      }
+      // Long single paragraph: fall back to sentence boundaries.
       if (this.buf.length >= this.minChars) {
-        const cut = this.boundaryCut()
+        const cut = this.sentenceCut()
         if (cut > 0) {
           segments.push(this.buf.slice(0, cut))
           this.buf = this.buf.slice(cut)
@@ -74,11 +95,24 @@ export class StreamBuffer {
     return segments
   }
 
-  /** Position of the best sentence/paragraph end within the buffer: the
-   * LARGEST boundary that is at or after minChars (buffers at/over maxChars
-   * are hard-flushed before boundary logic, so every boundary cut sits under
-   * the cap). -1 when no clean cut exists yet. */
-  private boundaryCut(): number {
+  /** First \n\n end at or after paraChars, or null when no paragraph break
+   * qualifies yet (fragments below the floor merge forward). */
+  private paragraphCut(): number | null {
+    PARA_BREAK.lastIndex = 0
+    let match: RegExpExecArray | null
+    while ((match = PARA_BREAK.exec(this.buf)) !== null) {
+      const end = match.index + match[0].length
+      if (end >= this.paraChars) {
+        return end
+      }
+    }
+    return null
+  }
+
+  /** Largest sentence end at or after minChars, or -1 (buffers at/over
+   * maxChars are hard-flushed before this runs, so every cut sits under
+   * the cap). */
+  private sentenceCut(): number {
     SENTENCE_END.lastIndex = 0
     let cut = -1
     let match: RegExpExecArray | null
