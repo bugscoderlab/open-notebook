@@ -143,6 +143,10 @@ export function useHomeChat() {
     // Reserve the turn slot for the AI answer we're about to stream.
     setTurns((prev) => [...prev, {}])
 
+    // Tracked outside the try so the error path can roll the whole
+    // unfinished turn back (question + partial answer + reserved slot).
+    let streamAiMessageId: string | null = null
+
     try {
       const response = await homeChatApi.sendMessage(sessionId, {
         message,
@@ -161,7 +165,17 @@ export function useHomeChat() {
       const reader = response.getReader()
       const decoder = new TextDecoder()
       let buffer = ''
-      let aiMessageId: string | null = null
+      let sawComplete = false
+
+      const ensureAiMessage = (initialContent: string): void => {
+        if (!streamAiMessageId) {
+          streamAiMessageId = `ai-${Date.now()}`
+          setMessages((prev) => [
+            ...prev,
+            { id: streamAiMessageId!, type: 'ai', content: initialContent, timestamp: new Date().toISOString() }
+          ])
+        }
+      }
 
       while (true) {
         const { done, value } = await reader.read()
@@ -186,19 +200,24 @@ export function useHomeChat() {
           }
 
           switch (event.type) {
+            case 'answer_delta': {
+              // Progressive answer text — append to the in-progress AI message.
+              const delta = event.content ?? ''
+              if (!delta) break
+              ensureAiMessage(delta)
+              setMessages((prev) =>
+                prev.map((msg) =>
+                  msg.id === streamAiMessageId ? { ...msg, content: msg.content + delta } : msg
+                )
+              )
+              break
+            }
             case 'final_answer': {
               const content = event.content ?? ''
-              if (!aiMessageId) {
-                aiMessageId = `ai-${Date.now()}`
-                setMessages((prev) => [
-                  ...prev,
-                  { id: aiMessageId!, type: 'ai', content, timestamp: new Date().toISOString() }
-                ])
-              } else {
-                setMessages((prev) =>
-                  prev.map((msg) => (msg.id === aiMessageId ? { ...msg, content } : msg))
-                )
-              }
+              ensureAiMessage(content)
+              setMessages((prev) =>
+                prev.map((msg) => (msg.id === streamAiMessageId ? { ...msg, content } : msg))
+              )
               break
             }
             case 'suggestions':
@@ -209,22 +228,34 @@ export function useHomeChat() {
                 return next
               })
               break
+            case 'complete':
+              sawComplete = true
+              break
             case 'error':
               throw new Error(event.message || 'Stream error')
             default:
               // user_message (already optimistic), strategy/answer stages,
-              // complete and any legacy/unknown event types from an older
-              // backend (e.g. analytics_answer) — the final answer / session
-              // refetch cover these; unknown types are ignored gracefully.
+              // and any legacy/unknown event types from an older backend
+              // (e.g. analytics_answer) — ignored gracefully.
               break
           }
         }
+      }
+
+      // A stream that ends without `complete` is an error, not a success —
+      // never leave the user staring at a question with no reply (#57).
+      if (!sawComplete) {
+        throw new Error(t('apiErrors.streamIncomplete'))
       }
     } catch (err: unknown) {
       const error = err as { response?: { data?: { detail?: string } }, message?: string };
       console.error('Error sending home chat message:', error)
       toast.error(getApiErrorMessage(error.response?.data?.detail || error.message, (key) => t(key), 'apiErrors.failedToSendMessage'))
-      setMessages((prev) => prev.filter((msg) => !msg.id.startsWith('temp-')))
+      // Roll back the whole unfinished turn: optimistic question, any
+      // partially streamed answer, and the reserved turn slot.
+      setMessages((prev) =>
+        prev.filter((msg) => !msg.id.startsWith('temp-') && msg.id !== streamAiMessageId)
+      )
       setTurns((prev) => prev.slice(0, -1))
     } finally {
       setIsStreaming(false)

@@ -156,6 +156,7 @@ export const zhTW = {
     failedToUpdateSession: "更新對話失敗",
     failedToDeleteSession: "刪除對話失敗",
     failedToSendMessage: "發送訊息失敗",
+    streamIncomplete: "回覆在完成前被中斷了，請重試。",
     unauthorized: "無權存取，請檢查您的密碼",
     invalidPassword: "密碼錯誤",
     embeddingModelRequired: "此功能需要嵌入模型。請在模型設定中設定一個。",

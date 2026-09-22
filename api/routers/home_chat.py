@@ -325,7 +325,9 @@ async def stream_home_chat_response(
             final_answer_model=final_answer_model,
         ):
             kind = event["type"]
-            if kind == "final_answer":
+            if kind == "answer_delta":
+                yield f"data: {json.dumps({'type': 'answer_delta', 'content': event['content']})}\n\n"
+            elif kind == "final_answer":
                 final_answer = event["content"]
             elif kind == "suggestions":
                 suggestions = event["suggestions"]
