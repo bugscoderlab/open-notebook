@@ -51,11 +51,27 @@ export default function HomePage() {
   const { data: modelDefaults, isLoading: modelsLoading } = useModelDefaults()
   const [scopeNotebookIds, setScopeNotebookIds] = useState<string[]>([])
   const [sessionManagerOpen, setSessionManagerOpen] = useState(false)
-  const messagesEndRef = useRef<HTMLDivElement>(null)
+  const scrollAreaRef = useRef<HTMLDivElement>(null)
 
-  // Auto-scroll to the latest message.
+  // Auto-scroll to the latest message — scoped to the chat viewport only.
+  // scrollIntoView() scrolls EVERY scrollable ancestor, which shifted the
+  // whole page once the history outgrew the viewport; it also restarted a
+  // smooth scroll on every streaming delta, fighting anyone scrolled up.
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    const viewport = scrollAreaRef.current?.querySelector<HTMLElement>(
+      '[data-slot="scroll-area-viewport"]',
+    )
+    if (!viewport) return
+    // Don't fight the user: follow only when already near the bottom.
+    const distanceFromBottom =
+      viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight
+    if (distanceFromBottom > 80) return
+    if (typeof viewport.scrollTo === 'function') {
+      viewport.scrollTo({ top: viewport.scrollHeight, behavior: 'smooth' })
+    } else {
+      // jsdom and older engines: assignment is a harmless no-op there.
+      viewport.scrollTop = viewport.scrollHeight
+    }
   }, [chat.messages])
 
   const handleSend = useCallback((message: string) => {
@@ -105,7 +121,7 @@ export default function HomePage() {
           </Dialog>
         </div>
 
-        <ScrollArea className="flex-1 min-h-0 px-4">
+        <ScrollArea ref={scrollAreaRef} className="flex-1 min-h-0 px-4">
           <div className="space-y-4 py-4 max-w-3xl mx-auto">
             {chat.messages.length === 0 ? (
               <div className="text-center text-muted-foreground py-12">
@@ -147,7 +163,6 @@ export default function HomePage() {
                 </div>
               </div>
             )}
-            <div ref={messagesEndRef} />
           </div>
         </ScrollArea>
 
