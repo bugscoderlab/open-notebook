@@ -48,6 +48,7 @@ endpoint can re-attach them to the persisted messages.
 import asyncio
 import operator
 import re
+import time
 from typing import Annotated, Any, AsyncGenerator, List, Optional, TypedDict
 
 import aiosqlite
@@ -70,6 +71,19 @@ NO_SCOPE_ANSWER = (
 )
 
 HISTORY_TURNS = 3
+
+# Token deltas are coalesced into at most one SSE frame per interval: the
+# synthesis can emit hundreds of tiny chunks per second, and high-frequency
+# chunked responses abort mid-stream in some browsers through dev proxies
+# (Safari + Turbopack observed). 200ms bursts are visually identical but an
+# order of magnitude fewer frames.
+DELTA_FLUSH_INTERVAL_S = 0.2
+
+
+def _monotonic() -> float:
+    """Indirection so tests can patch the clock without touching the global
+    time module (LangGraph internals share it)."""
+    return time.monotonic()
 
 
 class HomeChatState(TypedDict, total=False):
@@ -287,11 +301,27 @@ async def stream_home_turn(
     thread_config = RunnableConfig(configurable={"thread_id": session_id})
     current_state = await graph.aget_state(config=thread_config)
     messages = list((current_state.values if current_state else {}).get("messages", []))
-    messages.append(HumanMessage(content=question))
+    last_ai_index = max(
+        (i for i, m in enumerate(messages) if getattr(m, "type", None) == "ai"),
+        default=-1,
+    )
+    pending_same_question = any(
+        getattr(m, "content", None) == question
+        for m in messages[last_ai_index + 1 :]
+        if getattr(m, "type", None) == "human"
+    )
+    if not pending_same_question:
+        messages.append(HumanMessage(content=question))
+    # A client retry after a transport abort re-enters with the SAME question
+    # while the cancelled turn's human message is still pending (no AI answer
+    # after it) — don't duplicate it in the persisted history. Re-asking a
+    # question that WAS answered is legitimate and still appends.
 
     final_answer: Optional[str] = None
     suggestions: List[str] = []
     streamed: List[str] = []
+    pending_deltas = ""
+    last_flush = _monotonic()
 
     try:
         async for namespace, mode, payload in graph.astream(  # type: ignore[call-overload]
@@ -324,7 +354,15 @@ async def stream_home_turn(
                     and chunk.content
                 ):
                     streamed.append(chunk.content)
-                    yield {"type": "answer_delta", "content": chunk.content}
+                    pending_deltas += chunk.content
+                    # Coalesce deltas: one frame per interval at most (see
+                    # DELTA_FLUSH_INTERVAL_S). Yielding every raw token chunk
+                    # is a high-frequency SSE firehose that some browsers
+                    # abort mid-stream through dev proxies.
+                    if _monotonic() - last_flush >= DELTA_FLUSH_INTERVAL_S:
+                        last_flush = _monotonic()
+                        yield {"type": "answer_delta", "content": pending_deltas}
+                        pending_deltas = ""
                 continue
 
             node = next(iter(payload), None)
@@ -340,6 +378,8 @@ async def stream_home_turn(
         # final answer arrives via the node update above.
         if final_answer is None:
             final_answer = "".join(streamed)
+        if pending_deltas:
+            yield {"type": "answer_delta", "content": pending_deltas}
         yield {"type": "final_answer", "content": final_answer}
         if suggestions:
             yield {"type": "suggestions", "suggestions": suggestions}
@@ -356,4 +396,6 @@ async def stream_home_turn(
         raise
     except BaseException as e:  # noqa: BLE001 - never bare-EOF a chat turn
         _, message = classify_error(e)
+        if pending_deltas:
+            yield {"type": "answer_delta", "content": pending_deltas}
         yield {"type": "error", "message": message}

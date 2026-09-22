@@ -24,6 +24,16 @@ export interface SendHomeMessageOptions {
   }
 }
 
+/** Transport-level failures (browser/dev-proxy stream aborts) vs typed
+ * errors (HTTP status, in-band error events) — only the former get a
+ * transparent retry. Safari surfaces aborts as TypeError; Chrome as
+ * TypeError "Failed to fetch". */
+function isTransportError(error: unknown): boolean {
+  if (error instanceof TypeError) return true
+  const message = error instanceof Error ? error.message : String(error)
+  return /input stream|failed to fetch|network error|load failed/i.test(message)
+}
+
 export function useHomeChat() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
@@ -147,22 +157,8 @@ export function useHomeChat() {
     // unfinished turn back (question + partial answer + reserved slot).
     let streamAiMessageId: string | null = null
 
-    try {
-      const response = await homeChatApi.sendMessage(sessionId, {
-        message,
-        ...(options.notebookIds && options.notebookIds.length > 0
-          ? { notebook_ids: options.notebookIds }
-          : {}),
-        strategy_model: options.models?.strategy,
-        answer_model: options.models?.answer,
-        final_answer_model: options.models?.finalAnswer
-      })
-
-      if (!response) {
-        throw new Error('No response body')
-      }
-
-      const reader = response.getReader()
+    const consumeStream = async (body: ReadableStream<Uint8Array>) => {
+      const reader = body.getReader()
       const decoder = new TextDecoder()
       let buffer = ''
       let sawComplete = false
@@ -177,7 +173,7 @@ export function useHomeChat() {
         }
       }
 
-      while (true) {
+      for (;;) {
         const { done, value } = await reader.read()
         if (done) break
 
@@ -246,6 +242,37 @@ export function useHomeChat() {
       // never leave the user staring at a question with no reply (#57).
       if (!sawComplete) {
         throw new Error(t('apiErrors.streamIncomplete'))
+      }
+    }
+
+    try {
+      const sendRequest = () =>
+        homeChatApi.sendMessage(sessionId, {
+          message,
+          ...(options.notebookIds && options.notebookIds.length > 0
+            ? { notebook_ids: options.notebookIds }
+            : {}),
+          strategy_model: options.models?.strategy,
+          answer_model: options.models?.answer,
+          final_answer_model: options.models?.finalAnswer
+        })
+
+      const response = await sendRequest()
+      if (!response) {
+        throw new Error('No response body')
+      }
+      try {
+        await consumeStream(response)
+      } catch (streamError) {
+        if (!isTransportError(streamError)) throw streamError
+        // One transparent retry: the transport (browser ↔ dev proxy) aborted
+        // and the server turn dies with the connection. Re-ask; the server
+        // dedupes the repeated question in the checkpoint.
+        const retryResponse = await sendRequest()
+        if (!retryResponse) {
+          throw new Error('No response body')
+        }
+        await consumeStream(retryResponse)
       }
     } catch (err: unknown) {
       const error = err as { response?: { data?: { detail?: string } }, message?: string };

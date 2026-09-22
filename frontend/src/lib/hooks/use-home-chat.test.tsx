@@ -261,6 +261,70 @@ describe('useHomeChat', () => {
     expect(result.current.suggestions).toEqual(['Next?'])
   })
 
+  it('transparently retries once when the transport aborts mid-stream', async () => {
+    vi.mocked(homeChatApi.createSession).mockResolvedValue({
+      id: 'home_chat_session:1',
+      title: 'q',
+      created: '',
+      updated: '',
+    } as any)
+    const encoder = new TextEncoder()
+    // First attempt: Safari-style mid-stream abort.
+    vi.mocked(homeChatApi.sendMessage)
+      .mockResolvedValueOnce(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(
+              encoder.encode(`data: ${JSON.stringify({ type: 'answer_delta', content: 'partial ' })}\n\n`),
+            )
+            controller.error(new TypeError('Error in input stream'))
+          },
+        }) as any,
+      )
+      // Retry: clean stream.
+      .mockResolvedValueOnce(
+        sseStream([
+          { type: 'answer_delta', content: 'Full ' },
+          { type: 'answer_delta', content: 'answer.' },
+          { type: 'final_answer', content: 'Full answer.' },
+          { type: 'complete', final_answer: 'Full answer.' },
+        ]) as any,
+      )
+
+    const { result } = renderHook(() => useHomeChat(), { wrapper })
+
+    await act(async () => {
+      await result.current.sendMessage('q', { models: MODELS })
+    })
+
+    expect(vi.mocked(homeChatApi.sendMessage)).toHaveBeenCalledTimes(2)
+    const contents = result.current.messages.map((m) => m.content)
+    expect(contents).toEqual(['q', 'Full answer.'])
+    expect(toast.error).not.toHaveBeenCalled()
+  })
+
+  it('does not retry on in-band error events', async () => {
+    vi.mocked(homeChatApi.createSession).mockResolvedValue({
+      id: 'home_chat_session:1',
+      title: 'q',
+      created: '',
+      updated: '',
+    } as any)
+    vi.mocked(homeChatApi.sendMessage).mockResolvedValue(
+      sseStream([{ type: 'error', message: 'provider down' }]) as any,
+    )
+
+    const { result } = renderHook(() => useHomeChat(), { wrapper })
+
+    await act(async () => {
+      await result.current.sendMessage('q', { models: MODELS })
+    })
+
+    expect(vi.mocked(homeChatApi.sendMessage)).toHaveBeenCalledTimes(1)
+    expect(toast.error).toHaveBeenCalled()
+    expect(result.current.messages).toEqual([])
+  })
+
   it('treats EOF before complete as an error (no phantom question)', async () => {
     vi.mocked(homeChatApi.createSession).mockResolvedValue({
       id: 'home_chat_session:1',

@@ -382,19 +382,122 @@ class TestStreamHomeTurn:
             ]
 
         kinds = [e["type"] for e in events]
+        # Deltas are coalesced (DELTA_FLUSH_INTERVAL_S): the scripted model
+        # emits all chunks instantly, so they arrive as ONE delta frame.
         assert kinds == [
-            "answer_delta",
-            "answer_delta",
             "answer_delta",
             "final_answer",
             "suggestions",
             "complete",
         ]
-        assert "".join(e["content"] for e in events if e["type"] == "answer_delta") == (
-            "final answer text"
-        )
+        assert events[0]["content"] == "final answer text"
         assert events[-2]["suggestions"] == ["Follow up?"]
         assert events[-1]["final_answer"] == "final answer text"
+
+    @pytest.mark.asyncio
+    async def test_deltas_flush_per_interval(self, patched_pipeline, monkeypatch):
+        """Coalescing gate: with monotonic() advancing past the interval
+        between chunks, each interval boundary yields a separate delta."""
+        record, search = patched_pipeline
+        graph = _build_memory_graph()
+
+        clock = iter([i * 0.25 for i in range(1000)])
+        monkeypatch.setattr(home, "_monotonic", lambda: next(clock))
+
+        with (
+            patch.object(home, "get_home_chat_graph", new=AsyncMock(return_value=graph)),
+            _patched_pipeline(record, search),
+        ):
+            events = [
+                event
+                async for event in home.stream_home_turn(
+                    session_id="gen-coalesce-thread",
+                    question="hello?",
+                    notebook_ids=["notebook:1"],
+                    strategy_model="strategy_model",
+                    answer_model="answer_model",
+                    final_answer_model="final_answer_model",
+                )
+            ]
+
+        deltas = [e["content"] for e in events if e["type"] == "answer_delta"]
+        assert len(deltas) > 1
+        assert "".join(deltas) == "final answer text"
+        assert events[-1]["type"] == "complete"
+
+    @pytest.mark.asyncio
+    async def test_retry_after_cancelled_turn_dedups_pending_question(
+        self, patched_pipeline
+    ):
+        """A client retry after a transport abort re-enters with the SAME
+        question while the cancelled turn's human message is still PENDING
+        (no AI after it) — it must not duplicate. Re-asking a question that
+        WAS answered is legitimate and still appends a new turn."""
+        from langchain_core.runnables import RunnableConfig
+
+        record, search = patched_pipeline
+        saver = MemorySaver()
+        graph = home._build_graph(checkpointer=saver)
+
+        async def _run(question: str):
+            return [
+                event
+                async for event in home.stream_home_turn(
+                    session_id="retry-thread",
+                    question=question,
+                    notebook_ids=["notebook:1"],
+                    strategy_model="strategy_model",
+                    answer_model="answer_model",
+                    final_answer_model="final_answer_model",
+                )
+            ]
+
+        with (
+            patch.object(home, "get_home_chat_graph", new=AsyncMock(return_value=graph)),
+            _patched_pipeline(record, search),
+        ):
+            first = await _run("hello?")
+            assert first[-1]["type"] == "complete"
+
+            # Simulate the cancelled-turn state: drop the AI message from the
+            # checkpoint, leaving the human question pending (a real abort
+            # checkpoints the input but never reaches `remember`).
+            tuple_ = saver.get_tuple(
+                RunnableConfig(
+                    configurable={"thread_id": "retry-thread", "checkpoint_ns": ""}
+                )
+            )
+            assert tuple_ is not None
+            values = tuple_.checkpoint["channel_values"]
+            kept = [
+                m
+                for m in values["messages"]
+                if (getattr(m, "type", None) or (m.get("type") if isinstance(m, dict) else None)) != "ai"
+            ]
+            cancelled = cast(Checkpoint, dict(tuple_.checkpoint))
+            cancelled["channel_values"] = {**values, "messages": kept}
+            saver.put(
+                RunnableConfig(
+                    configurable={"thread_id": "retry-thread", "checkpoint_ns": ""}
+                ),
+                cancelled,
+                tuple_.metadata,
+                tuple_.checkpoint["channel_versions"],
+            )
+
+            # Retry with the same question: deduped, turn completes.
+            retry = await _run("hello?")
+            assert retry[-1]["type"] == "complete"
+
+            # A genuinely new question still appends a turn.
+            third = await _run("next thing?")
+            assert third[-1]["type"] == "complete"
+
+        state = await graph.aget_state(
+            config={"configurable": {"thread_id": "retry-thread"}}
+        )
+        humans = [m for m in state.values["messages"] if m.type == "human"]
+        assert [m.content for m in humans] == ["hello?", "next thing?"]
 
     @pytest.mark.asyncio
     async def test_model_failure_yields_error_event_not_exception(self, patched_pipeline):
