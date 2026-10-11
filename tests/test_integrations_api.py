@@ -11,7 +11,7 @@ Prior art: tests/test_chat_routers_characterization.py (TestClient + auth_sessio
 
 import json
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Optional, cast
 from unittest.mock import AsyncMock
 
 import pytest
@@ -882,6 +882,7 @@ class TestMessageRouting:
         assert body["suggestions"] == ["Follow-up one?", "Follow-up two?"]
         assert body["conversation_reset"] is False
         # The ask ran scoped to the linked user's permitted notebooks.
+        assert ask.await_args is not None
         call_user = ask.await_args.args[1]
         assert call_user.id == "app_user:test"
 
@@ -910,6 +911,7 @@ class TestMessageRouting:
 
         assert response.status_code == 200
         assert response.json()["reply"] == "1. Report — HR (source)"
+        assert search.await_args is not None
         assert search.await_args.args[1] == "quarterly report"
 
     def test_search_command_without_query_shows_usage(self, client, monkeypatch):
@@ -1097,6 +1099,7 @@ class TestRunSearchService:
         await integrations_service.run_search(self.user, "salaries")
 
         assert self.text_search.await_count == 1
+        assert self.text_search.await_args is not None
         kwargs = self.text_search.await_args.kwargs
         assert kwargs["notebook_ids"] == ["notebook:hr"]
 
@@ -1124,7 +1127,7 @@ class TestRunHomeChatAskService:
         user = type("U", (), {"id": "app_user:test"})()
 
         with pytest.raises(InvalidInputError, match="default chat model"):
-            await integrations_service.run_home_chat_ask(link, user, "hi")
+            await integrations_service.run_home_chat_ask(cast(IntegrationLink, link), user, "hi")
 
     @pytest.mark.asyncio
     async def test_pipeline_error_degrades_to_friendly_reply(self, monkeypatch):
@@ -1160,7 +1163,7 @@ class TestRunHomeChatAskService:
         user = type("U", (), {"id": "app_user:test"})()
 
         reply, suggestions = await integrations_service.run_home_chat_ask(
-            link, user, "hi"
+            cast(IntegrationLink, link), user, "hi"
         )
 
         assert reply  # non-empty friendly message
@@ -1209,9 +1212,10 @@ class TestAskScopeService:
         user = type("U", (), {"id": "app_user:test"})()
 
         reply, _suggestions = await integrations_service.run_home_chat_ask(
-            link, user, "what do we know about salaries?"
+            cast(IntegrationLink, link), user, "what do we know about salaries?"
         )
 
         assert reply == "scoped answer"
+        assert scope.await_args is not None
         assert scope.await_args.args[1] == []  # empty requested scope
         assert captured_kwargs[0]["notebook_ids"] == ["notebook:hr"]
