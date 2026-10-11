@@ -46,7 +46,6 @@ const getNavigationItems = (t: TFunction) => [
 const getCreateItems = (t: TFunction) => [
   { name: t('common.newSource'), action: 'source', icon: FileText },
   { name: t('common.newNotebook'), action: 'notebook', icon: Book },
-  { name: t('common.newPodcast'), action: 'podcast', icon: Mic },
 ]
 
 const getThemeItems = (t: TFunction) => [
@@ -65,7 +64,7 @@ export function CommandPalette() {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const router = useRouter()
-  const { openSourceDialog, openNotebookDialog, openPodcastDialog } = useCreateDialogs()
+  const { openSourceDialog, openNotebookDialog } = useCreateDialogs()
   const { setTheme } = useTheme()
   const { data: notebooks, isLoading: notebooksLoading } = useNotebooks(false)
 
@@ -125,10 +124,9 @@ export function CommandPalette() {
   const handleCreate = useCallback((action: string) => {
     handleSelect(() => {
       if (action === 'source') openSourceDialog()
-      else if (action === 'notebook') openNotebookDialog()
-      else if (action === 'podcast') openPodcastDialog()
+      else openNotebookDialog()
     })
-  }, [handleSelect, openSourceDialog, openNotebookDialog, openPodcastDialog])
+  }, [handleSelect, openSourceDialog, openNotebookDialog])
 
   const handleTheme = useCallback((theme: 'light' | 'dark' | 'system') => {
     handleSelect(() => setTheme(theme))

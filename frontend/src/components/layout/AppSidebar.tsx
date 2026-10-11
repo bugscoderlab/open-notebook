@@ -107,7 +107,7 @@ function LogoPebbles({ className }: { className?: string }) {
   )
 }
 
-type CreateTarget = 'source' | 'notebook' | 'podcast'
+type CreateTarget = 'source' | 'notebook'
 
 export function AppSidebar() {
   const { t } = useTranslation()
@@ -128,7 +128,7 @@ export function AppSidebar() {
     items: section.items.filter(isItemVisible),
   }))
   const { isCollapsed, toggleCollapse } = useSidebarStore()
-  const { openSourceDialog, openNotebookDialog, openPodcastDialog } = useCreateDialogs()
+  const { openSourceDialog, openNotebookDialog } = useCreateDialogs()
   // Prototype shell (T2): at ≤950px the sidebar becomes a 76px icon rail,
   // regardless of the stored collapse preference.
   const isRail = useMediaQuery('(max-width: 950px)')
@@ -157,10 +157,8 @@ export function AppSidebar() {
 
     if (target === 'source') {
       openSourceDialog()
-    } else if (target === 'notebook') {
+    } else {
       openNotebookDialog()
-    } else if (target === 'podcast') {
-      openPodcastDialog()
     }
   }
 
@@ -279,16 +277,6 @@ export function AppSidebar() {
                 >
                    <Book className="h-4 w-4" />
                   {t('common.notebook')}
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onSelect={(event) => {
-                    event.preventDefault()
-                    handleCreateSelection('podcast')
-                  }}
-                  className="gap-2"
-                >
-                   <Mic className="h-4 w-4" />
-                  {t('common.podcast')}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
