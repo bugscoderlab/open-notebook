@@ -1,7 +1,8 @@
 import operator
-from typing import Annotated, List
+from typing import Annotated, Any, List
 
 from ai_prompter import Prompter
+from langchain_core.messages import HumanMessage
 from langchain_core.output_parsers.pydantic import PydanticOutputParser
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
@@ -145,40 +146,31 @@ async def call_model_with_messages(state: ThreadState, config: RunnableConfig) -
             max_tokens=ASK_MAX_TOKENS,
             structured=dict(type="json"),
         )
-        # model = model.bind_tools(tools)
-        # First get the raw response from the model
-        ai_message = await model.ainvoke(system_prompt)
+        strategy = await _invoke_strategy(model, system_prompt, parser)
+        strategy = await _normalize_strategy(strategy, state)
 
-        # Clean the thinking content from the response
-        message_content = extract_text_content(ai_message.content)
-        cleaned_content = clean_thinking_content(message_content)
+        if not strategy.searches and not strategy.clarifications:
+            # Reasoning models sometimes burn the whole output budget on
+            # thinking and then emit valid JSON with empty lists to fit what
+            # remains (#1221). One corrective retry — a nudge plus a doubled
+            # budget for the visible answer — recovers almost always; the
+            # loud failure below still fires when the model is truly broken.
+            # The retry only runs on this rare path, so the credit cost is
+            # bounded.
+            retry_model = await provision_langchain_model(
+                system_prompt,
+                config.get("configurable", {}).get("strategy_model"),
+                "tools",
+                max_tokens=ASK_MAX_TOKENS * 2,
+                structured=dict(type="json"),
+            )
+            retry_prompt = [
+                HumanMessage(content=system_prompt),
+                HumanMessage(content=_EMPTY_STRATEGY_NUDGE),
+            ]
+            strategy = await _invoke_strategy(retry_model, retry_prompt, parser)
+            strategy = await _normalize_strategy(strategy, state)
 
-        # Parse the cleaned JSON content
-        strategy = parser.parse(cleaned_content)
-
-        # Normalise the clarification gate: drop blank questions and cap the
-        # list. When the gate is opted into (standalone Ask), clarifications
-        # are blocking — clear the searches so none run. When it is not
-        # opted into (home chat reuses this node), strip any clarifications
-        # so its behavior is provably unchanged.
-        strategy.clarifications = [
-            question.strip() for question in strategy.clarifications if question.strip()
-        ][:MAX_CLARIFICATIONS]
-        if state.get("clarify"):
-            if strategy.clarifications:
-                strategy.searches = []
-        else:
-            strategy.clarifications = []
-
-        # A reasoning model that spends its whole budget thinking returns a
-        # syntactically valid strategy with blank search terms. Drop those and
-        # fail loudly when nothing usable remains, instead of running empty
-        # vector searches and answering "no documents found".
-        strategy.searches = [s for s in strategy.searches if s.term.strip()]
-        # Hard cap on the fan-out, from Ask settings (default ASK_MAX_SEARCHES).
-        # Most-relevant-first ordering means truncation drops the tail.
-        max_searches, _ = await _ask_limits()
-        strategy.searches = strategy.searches[:max_searches]
         if not strategy.searches and not strategy.clarifications:
             raise ExternalServiceError(
                 "The strategy model returned no search terms or clarifying "
@@ -194,6 +186,62 @@ async def call_model_with_messages(state: ThreadState, config: RunnableConfig) -
     except Exception as e:
         error_class, user_message = classify_error(e)
         raise error_class(user_message) from e
+
+
+# Follow-up for the corrective retry in call_model_with_messages: reasoning
+# models that returned empty lists under output-budget pressure fix
+# themselves when told explicitly that one of the two lists must be filled.
+_EMPTY_STRATEGY_NUDGE = (
+    "Your previous reply was a valid Strategy JSON, but both its searches "
+    "and clarifications lists were empty. Keep the reasoning brief. Answer "
+    "the same question again with the Strategy JSON: populate the searches "
+    "list with the terms needed to answer it from the user's documents; only "
+    "if the question is missing decision-critical context, populate the "
+    "clarifications list with questions instead. One of the two lists must "
+    "be non-empty."
+)
+
+
+async def _invoke_strategy(
+    model: Any, prompt: Any, parser: PydanticOutputParser[Strategy]
+) -> Strategy:
+    """One strategy invocation: invoke → strip thinking → parse the JSON."""
+    ai_message = await model.ainvoke(prompt)
+    message_content = extract_text_content(ai_message.content)
+    cleaned_content = clean_thinking_content(message_content)
+    return parser.parse(cleaned_content)
+
+
+async def _normalize_strategy(strategy: Strategy, state: ThreadState) -> Strategy:
+    """Apply the clarification gate, drop blank terms, cap the fan-out.
+
+    Factored out of call_model_with_messages so the corrective retry runs
+    exactly the same pipeline as the first attempt.
+    """
+    # Normalise the clarification gate: drop blank questions and cap the
+    # list. When the gate is opted into (standalone Ask), clarifications
+    # are blocking — clear the searches so none run. When it is not
+    # opted into (home chat reuses this node), strip any clarifications
+    # so its behavior is provably unchanged.
+    strategy.clarifications = [
+        question.strip() for question in strategy.clarifications if question.strip()
+    ][:MAX_CLARIFICATIONS]
+    if state.get("clarify"):
+        if strategy.clarifications:
+            strategy.searches = []
+    else:
+        strategy.clarifications = []
+
+    # A reasoning model that spends its whole budget thinking returns a
+    # syntactically valid strategy with blank search terms. Drop those;
+    # the caller fails loudly when nothing usable remains, instead of
+    # running empty vector searches and answering "no documents found".
+    strategy.searches = [s for s in strategy.searches if s.term.strip()]
+    # Hard cap on the fan-out, from Ask settings (default ASK_MAX_SEARCHES).
+    # Most-relevant-first ordering means truncation drops the tail.
+    max_searches, _ = await _ask_limits()
+    strategy.searches = strategy.searches[:max_searches]
+    return strategy
 
 
 async def trigger_queries(state: ThreadState, config: RunnableConfig):

@@ -10,6 +10,8 @@
 #         |  gateway  |      <- split off the worker pane
 #         +-----------+
 #
+# Also: verifies frontend/gateway node_modules (runs npm ci if missing or
+# broken) and names each pane (db/api/worker/frontend/gateway).
 # Never uses nohup/backgrounding. Requires running inside Herdr.
 # Usage: scripts/dev-herdr.sh up|down|status
 set -euo pipefail
@@ -67,6 +69,19 @@ wait_http() { # <url> <timeout_s> <name>
   echo "dev-herdr: $name healthy ($url)"
 }
 
+ensure_node_modules() { # <subdir> <bin> <name>
+  # node_modules can exist yet be stale (dangling .bin symlinks), so check the
+  # service's actual binary, not just the directory.
+  local dir="$1" bin="$2" name="$3"
+  if [ -x "$REPO_ROOT/$dir/node_modules/.bin/$bin" ]; then
+    echo "dev-herdr: $name node_modules ok ($dir), skipping"
+  else
+    echo "dev-herdr: $name node_modules missing/broken in $dir — running npm ci"
+    (cd "$REPO_ROOT/$dir" && npm ci)
+    echo "dev-herdr: $name dependencies installed"
+  fi
+}
+
 up() {
   TAB=$(find_tab || true)
   if [ -z "${TAB}" ]; then
@@ -100,6 +115,17 @@ up() {
     esac
     echo "dev-herdr: reusing tab '$TAB_LABEL' ($TAB)"
   fi
+
+  # Name the panes so they're identifiable in the Herdr UI.
+  herdr pane rename "$P_DB" db >/dev/null
+  herdr pane rename "$P_API" api >/dev/null
+  herdr pane rename "$P_WORKER" worker >/dev/null
+  herdr pane rename "$P_FRONTEND" frontend >/dev/null
+  herdr pane rename "$P_GATEWAY" gateway >/dev/null
+
+  # 0. Node dependencies (frontend/gateway won't start without them)
+  ensure_node_modules frontend next frontend
+  ensure_node_modules gateway tsx gateway
 
   # 1. SurrealDB (everything waits on it)
   if curl -sf -m 2 http://localhost:8000/health >/dev/null 2>&1; then

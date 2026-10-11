@@ -34,6 +34,12 @@ function isTransportError(error: unknown): boolean {
   return /input stream|failed to fetch|network error|load failed/i.test(message)
 }
 
+/** EOF before the `complete` event: the transport died AFTER response
+ * headers, so reader.read() just returns done instead of throwing. Same
+ * remedy as a mid-stream abort — the server turn died with the
+ * connection, so re-ask (the server dedupes the repeated question). */
+class StreamIncompleteError extends Error {}
+
 export function useHomeChat() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
@@ -241,7 +247,7 @@ export function useHomeChat() {
       // A stream that ends without `complete` is an error, not a success —
       // never leave the user staring at a question with no reply (#57).
       if (!sawComplete) {
-        throw new Error(t('apiErrors.streamIncomplete'))
+        throw new StreamIncompleteError(t('apiErrors.streamIncomplete'))
       }
     }
 
@@ -264,10 +270,13 @@ export function useHomeChat() {
       try {
         await consumeStream(response)
       } catch (streamError) {
-        if (!isTransportError(streamError)) throw streamError
         // One transparent retry: the transport (browser ↔ dev proxy) aborted
         // and the server turn dies with the connection. Re-ask; the server
-        // dedupes the repeated question in the checkpoint.
+        // dedupes the repeated question in the checkpoint. EOF-before-
+        // complete is the post-headers abort shape — same remedy.
+        if (!isTransportError(streamError) && !(streamError instanceof StreamIncompleteError)) {
+          throw streamError
+        }
         const retryResponse = await sendRequest()
         if (!retryResponse) {
           throw new Error('No response body')

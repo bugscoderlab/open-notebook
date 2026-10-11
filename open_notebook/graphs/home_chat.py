@@ -58,6 +58,7 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
+from loguru import logger
 
 from open_notebook.ai.provision import provision_langchain_model
 from open_notebook.config import LANGGRAPH_CHECKPOINT_FILE
@@ -391,8 +392,13 @@ async def stream_home_turn(
     except GeneratorExit:
         raise
     except asyncio.CancelledError:
-        _, message = classify_error(asyncio.CancelledError())
-        yield {"type": "error", "message": message}
+        # Client disconnect or server shutdown — not an LLM failure.
+        # classify_error() would log a scary "Unclassified LLM error"
+        # WARNING here and return an empty message (str(CancelledError)
+        # is ""), so handle it explicitly. The typed error event keeps
+        # the #57 never-bare-EOF contract for a still-connected client.
+        logger.info("Home chat turn cancelled (client disconnected or shutdown)")
+        yield {"type": "error", "message": "The turn was interrupted."}
         raise
     except BaseException as e:  # noqa: BLE001 - never bare-EOF a chat turn
         _, message = classify_error(e)

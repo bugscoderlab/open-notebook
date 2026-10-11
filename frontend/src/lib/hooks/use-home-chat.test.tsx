@@ -325,20 +325,30 @@ describe('useHomeChat', () => {
     expect(result.current.messages).toEqual([])
   })
 
-  it('treats EOF before complete as an error (no phantom question)', async () => {
+  it('transparently retries once when the stream ends before complete', async () => {
     vi.mocked(homeChatApi.createSession).mockResolvedValue({
       id: 'home_chat_session:1',
       title: 'q',
       created: '',
       updated: '',
     } as any)
-    // Stream just stops — the silent-abort shape from the diagnosis (#57).
-    vi.mocked(homeChatApi.sendMessage).mockResolvedValue(
-      sseStream([
-        { type: 'user_message', content: 'q' },
-        { type: 'answer_delta', content: 'partial ' },
-      ]) as any
-    )
+    // First attempt: the transport died after headers — reader just sees
+    // EOF (the Safari/Turbopack dev-proxy abort shape). Retry: clean stream.
+    vi.mocked(homeChatApi.sendMessage)
+      .mockResolvedValueOnce(
+        sseStream([
+          { type: 'user_message', content: 'q' },
+          { type: 'answer_delta', content: 'partial ' },
+        ]) as any,
+      )
+      .mockResolvedValueOnce(
+        sseStream([
+          { type: 'answer_delta', content: 'Full ' },
+          { type: 'answer_delta', content: 'answer.' },
+          { type: 'final_answer', content: 'Full answer.' },
+          { type: 'complete', final_answer: 'Full answer.' },
+        ]) as any,
+      )
 
     const { result } = renderHook(() => useHomeChat(), { wrapper })
 
@@ -346,6 +356,37 @@ describe('useHomeChat', () => {
       await result.current.sendMessage('q', { models: MODELS })
     })
 
+    expect(vi.mocked(homeChatApi.sendMessage)).toHaveBeenCalledTimes(2)
+    const contents = result.current.messages.map((m) => m.content)
+    expect(contents).toEqual(['q', 'Full answer.'])
+    expect(toast.error).not.toHaveBeenCalled()
+  })
+
+  it('treats EOF before complete on both attempts as an error (no phantom question)', async () => {
+    vi.mocked(homeChatApi.createSession).mockResolvedValue({
+      id: 'home_chat_session:1',
+      title: 'q',
+      created: '',
+      updated: '',
+    } as any)
+    // Both attempts cut off — the silent-abort shape from the diagnosis (#57),
+    // persisting. Only then does the user see an error and the turn rolls back.
+    const cutOff = () =>
+      sseStream([
+        { type: 'user_message', content: 'q' },
+        { type: 'answer_delta', content: 'partial ' },
+      ]) as any
+    vi.mocked(homeChatApi.sendMessage)
+      .mockResolvedValueOnce(cutOff())
+      .mockResolvedValueOnce(cutOff())
+
+    const { result } = renderHook(() => useHomeChat(), { wrapper })
+
+    await act(async () => {
+      await result.current.sendMessage('q', { models: MODELS })
+    })
+
+    expect(vi.mocked(homeChatApi.sendMessage)).toHaveBeenCalledTimes(2)
     expect(toast.error).toHaveBeenCalled()
     expect(result.current.isStreaming).toBe(false)
     // The optimistic question is rolled back with the unfinished turn.

@@ -5,8 +5,9 @@ import { AppShell } from '@/components/layout/AppShell'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
-import { Bot, User, Send, Loader2, Clock, Sparkles, BookOpen } from 'lucide-react'
+import { Bot, User, Send, Loader2, Clock, Sparkles, BookOpen, ChevronDown } from 'lucide-react'
 import { MarkdownRenderer } from '@/components/ui/markdown-renderer'
 import { NotebookScopeSelector } from '@/components/search/NotebookScopeSelector'
 import { SessionManager } from '@/components/sources/SessionManager'
@@ -54,58 +55,78 @@ export default function HomePage() {
   const scrollAreaRef = useRef<HTMLDivElement>(null)
   const pinnedAiIdRef = useRef<string | null>(null)
 
-  // Auto-scroll to the latest message — scoped to the chat viewport only.
-  // scrollIntoView() scrolls EVERY scrollable ancestor, which shifted the
-  // whole page once the history outgrew the viewport; it also restarted a
-  // smooth scroll on every streaming delta, fighting anyone scrolled up.
+  // Unified scroll policy — ONE effect, so only one scroll call is ever
+  // issued per render. The previous split (bottom-follow effect + pin
+  // effect) made two competing smooth-scroll calls on the render where an
+  // answer appears, and Safari resolved the race towards the bottom: the
+  // question never scrolled up. scrollIntoView() is not used: it scrolls
+  // EVERY scrollable ancestor, which shifted the whole page once the
+  // history outgrew the viewport.
+  //
+  // - answer appeared → pin ITS question to the top of the viewport, right
+  //   below the h1, and hold that position while the turn streams
+  // - question sent   → bottom, so the question + loader are visible
+  //   through the silent clarify → search phase
+  // - otherwise       → follow the tail only when already near the bottom
+  //   (never fight the reader); never re-pin when viewing an old session
   useEffect(() => {
     const viewport = scrollAreaRef.current?.querySelector<HTMLElement>(
       '[data-slot="scroll-area-viewport"]',
     )
     if (!viewport) return
-    // Don't fight the user: follow only when already near the bottom.
-    const distanceFromBottom =
-      viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight
-    if (distanceFromBottom > 80) return
-    if (typeof viewport.scrollTo === 'function') {
-      viewport.scrollTo({ top: viewport.scrollHeight, behavior: 'smooth' })
-    } else {
-      // jsdom and older engines: assignment is a harmless no-op there.
-      viewport.scrollTop = viewport.scrollHeight
-    }
-  }, [chat.messages])
 
-  // When an answer starts streaming, pin the question it answers to the TOP
-  // of the viewport — the answer then reads directly below it instead of
-  // the view jumping to the stream tail. Fires once per answer, only while
-  // streaming (never when reopening an old session).
-  useEffect(() => {
-    if (!chat.isStreaming) return
-    const lastAiIndex = chat.messages.map((m) => m.type).lastIndexOf('ai')
-    if (lastAiIndex < 0) return
-    const lastAi = chat.messages[lastAiIndex]
-    if (lastAi.id === pinnedAiIdRef.current) return
-    const question = [...chat.messages.slice(0, lastAiIndex)]
-      .reverse()
-      .find((m) => m.type === 'human')
-    if (!question) return
-    pinnedAiIdRef.current = lastAi.id
-    const viewport = scrollAreaRef.current?.querySelector<HTMLElement>(
-      '[data-slot="scroll-area-viewport"]',
-    )
-    const el = viewport?.querySelector<HTMLElement>(
-      `[data-message-id="${CSS.escape(question.id)}"]`,
-    )
-    if (!viewport || !el) return
-    const top =
-      el.getBoundingClientRect().top -
-      viewport.getBoundingClientRect().top +
-      viewport.scrollTop
-    if (typeof viewport.scrollTo === 'function') {
-      viewport.scrollTo({ top, behavior: 'smooth' })
-    } else {
-      viewport.scrollTop = top
+    const scrollToBottom = () => {
+      if (typeof viewport.scrollTo === 'function') {
+        viewport.scrollTo({ top: viewport.scrollHeight, behavior: 'smooth' })
+      } else {
+        // jsdom and older engines: assignment is a harmless no-op there.
+        viewport.scrollTop = viewport.scrollHeight
+      }
     }
+
+    const lastMessage = chat.messages[chat.messages.length - 1]
+
+    if (!chat.isStreaming) {
+      // Turn over, or an old session reopened: hand the scroll to the user.
+      const distanceFromBottom =
+        viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight
+      if (distanceFromBottom > 80) return
+      scrollToBottom()
+      return
+    }
+
+    if (lastMessage?.type === 'human') {
+      // Freshly sent question: supersede any previous pin and bring the
+      // question + loading bubble into view for the silent phase.
+      scrollToBottom()
+      return
+    }
+
+    // Streaming and the last message is an AI answer.
+    if (lastMessage.id !== pinnedAiIdRef.current) {
+      // The answer just appeared: pin the question it answers.
+      const question = [...chat.messages.slice(0, -1)]
+        .reverse()
+        .find((m) => m.type === 'human')
+      if (!question) return
+      pinnedAiIdRef.current = lastMessage.id
+      const el = viewport.querySelector<HTMLElement>(
+        `[data-message-id="${CSS.escape(question.id)}"]`,
+      )
+      if (!el) return
+      const top =
+        el.getBoundingClientRect().top -
+        viewport.getBoundingClientRect().top +
+        viewport.scrollTop
+      if (typeof viewport.scrollTo === 'function') {
+        viewport.scrollTo({ top, behavior: 'smooth' })
+      } else {
+        viewport.scrollTop = top
+      }
+      return
+    }
+    // The pinned turn is streaming: hold — tailing the deltas would yank
+    // the question back off the top.
   }, [chat.messages, chat.isStreaming])
 
   const handleSend = useCallback((message: string) => {
@@ -202,24 +223,7 @@ export default function HomePage() {
 
         {/* Follow-up suggestions from the last completed turn */}
         {!chat.isStreaming && chat.suggestions.length > 0 && (
-          <div className="px-4 pb-2 max-w-3xl mx-auto w-full">
-            <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-2">
-              <Sparkles className="h-3.5 w-3.5" />
-              {t('home.suggestions')}
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {chat.suggestions.map((suggestion) => (
-                <button
-                  key={suggestion}
-                  type="button"
-                  onClick={() => handleSend(suggestion)}
-                  className="rounded-md border bg-card px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                >
-                  {suggestion}
-                </button>
-              ))}
-            </div>
-          </div>
+          <SuggestedFollowUps suggestions={chat.suggestions} onSelect={handleSend} />
         )}
 
         <HomeComposer
@@ -311,6 +315,54 @@ function KnowledgeAnswerContent({
     <MarkdownRenderer components={{ a: LinkComponent }}>
       {markdownWithCompactRefs}
     </MarkdownRenderer>
+  )
+}
+
+interface SuggestedFollowUpsProps {
+  suggestions: string[]
+  onSelect: (suggestion: string) => void
+}
+
+/** Follow-up suggestion pills for the last completed turn, collapsible so
+ * long suggestion lists don't push the composer down. Pops back open when a
+ * new turn's suggestions arrive, even if the user collapsed the previous
+ * list. */
+function SuggestedFollowUps({ suggestions, onSelect }: SuggestedFollowUpsProps) {
+  const { t } = useTranslation()
+  const [open, setOpen] = useState(true)
+  // Adjust-during-render (React's recommended pattern) — reopen exactly
+  // once per new suggestions batch, without an effect.
+  const suggestionsKey = suggestions.join('\n')
+  const [seenKey, setSeenKey] = useState(suggestionsKey)
+  if (suggestionsKey !== seenKey) {
+    setSeenKey(suggestionsKey)
+    setOpen(true)
+  }
+
+  return (
+    <div className="px-4 pb-2 max-w-3xl mx-auto w-full">
+      <Collapsible open={open} onOpenChange={setOpen}>
+        <CollapsibleTrigger className="flex w-full items-center gap-1.5 text-xs text-muted-foreground mb-2 [&[data-state=open]>svg:last-child]:rotate-180">
+          <Sparkles className="h-3.5 w-3.5" />
+          {t('home.suggestions')}
+          <ChevronDown className="ml-auto h-3.5 w-3.5 transition-transform" />
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <div className="flex flex-wrap gap-2">
+            {suggestions.map((suggestion) => (
+              <button
+                key={suggestion}
+                type="button"
+                onClick={() => onSelect(suggestion)}
+                className="rounded-md border bg-card px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              >
+                {suggestion}
+              </button>
+            ))}
+          </div>
+        </CollapsibleContent>
+      </Collapsible>
+    </div>
   )
 }
 

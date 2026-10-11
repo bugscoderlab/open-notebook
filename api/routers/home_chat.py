@@ -9,6 +9,7 @@ Conversation memory is server-side: the home chat graph is checkpointed
 reloads and are shared across devices.
 """
 
+import asyncio
 import json
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
@@ -39,6 +40,13 @@ SSE_HEADERS = {
     "Connection": "keep-alive",
     "X-Accel-Buffering": "no",
 }
+
+# SSE comment heartbeat. A turn's clarify → strategy → search phase emits no
+# frames for tens of seconds, and browser/dev-proxy streams (Safari +
+# Turbopack observed) get killed when no bytes flow for ~30s — the server
+# then sees the turn as a mid-stream CancelledError. Comment lines (': …')
+# are not data: frames: the client's line parser skips them.
+TURN_KEEPALIVE_INTERVAL_S = 15.0
 
 
 class CreateHomeChatSessionRequest(BaseModel):
@@ -316,24 +324,59 @@ async def stream_home_chat_response(
         final_answer: Optional[str] = None
         suggestions: List[str] = []
         error_message: Optional[str] = None
-        async for event in stream_home_turn(
+
+        # Keepalive race: poll the turn generator with a heartbeat timer so
+        # the silent pre-answer phase still puts bytes on the wire. The
+        # pending __anext__ task survives heartbeats untouched — only an
+        # actual exit/cancellation tears it down (finally below).
+        turn = stream_home_turn(
             session_id=session_id,
             question=question,
             notebook_ids=notebook_ids,
             strategy_model=strategy_model,
             answer_model=answer_model,
             final_answer_model=final_answer_model,
-        ):
-            kind = event["type"]
-            if kind == "answer_delta":
-                yield f"data: {json.dumps({'type': 'answer_delta', 'content': event['content']})}\n\n"
-            elif kind == "final_answer":
-                final_answer = event["content"]
-            elif kind == "suggestions":
-                suggestions = event["suggestions"]
-            elif kind == "error":
-                error_message = event["message"]
-                break
+        ).__aiter__()
+        pending_next = asyncio.ensure_future(turn.__anext__())
+        keepalive = asyncio.ensure_future(asyncio.sleep(TURN_KEEPALIVE_INTERVAL_S))
+        try:
+            while True:
+                done, _pending = await asyncio.wait(
+                    {pending_next, keepalive}, return_when=asyncio.FIRST_COMPLETED
+                )
+                if keepalive in done and not pending_next.done():
+                    yield ": keepalive\n\n"
+                    keepalive = asyncio.ensure_future(
+                        asyncio.sleep(TURN_KEEPALIVE_INTERVAL_S)
+                    )
+                    continue
+                keepalive.cancel()
+                try:
+                    event = pending_next.result()
+                except StopAsyncIteration:
+                    break
+                pending_next = asyncio.ensure_future(turn.__anext__())
+                keepalive = asyncio.ensure_future(
+                    asyncio.sleep(TURN_KEEPALIVE_INTERVAL_S)
+                )
+
+                kind = event["type"]
+                if kind == "answer_delta":
+                    yield f"data: {json.dumps({'type': 'answer_delta', 'content': event['content']})}\n\n"
+                elif kind == "final_answer":
+                    final_answer = event["content"]
+                elif kind == "suggestions":
+                    suggestions = event["suggestions"]
+                elif kind == "error":
+                    error_message = event["message"]
+                    break
+        finally:
+            keepalive.cancel()
+            if not pending_next.done():
+                # Exit or cancellation must reach the shared turn generator
+                # too — otherwise the graph keeps burning LLM tokens for a
+                # dead client.
+                pending_next.cancel()
 
         if error_message is not None:
             yield f"data: {json.dumps({'type': 'error', 'message': error_message})}\n\n"

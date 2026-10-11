@@ -79,6 +79,7 @@ repo root, `open_notebook/`, and `frontend/`.
 | [VISION.md](../../VISION.md) | All developers | Product identity and current posture |
 | [Decision Records](decisions/README.md) | All developers | ADRs/PDRs — why things are the way they are |
 | [Change Playbooks](change-playbooks.md) | Contributors & agents | Step-by-step recipes for common changes |
+| [Future Enhancements](future-enhancements.md) | Contributors & agents | Proposed Ask/Home chat performance work (caching, precompute) |
 | [API Reference](api-reference.md) | Building integrations | Complete REST API documentation |
 | [Security](security.md) | All developers | Security practices and vulnerability prevention |
 | [Maintainer Guide](maintainer-guide.md) | Maintainers | Managing issues, PRs, labels |

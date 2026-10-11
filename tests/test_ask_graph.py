@@ -280,6 +280,35 @@ class TestEmptyStrategyHandling:
                 await call_model_with_messages(state, EMPTY_CONFIG)
 
     @pytest.mark.asyncio
+    async def test_empty_strategy_retries_once_with_nudge_and_recovers(self):
+        """Reasoning models that burned the output budget on thinking return
+        empty lists; the corrective retry (nudge + doubled budget) recovers."""
+        state = cast(ThreadState, {"question": "q"})
+        provision = AsyncMock(
+            side_effect=[
+                _model_returning(_strategy_json([])),
+                _model_returning(_strategy_json(["rag"])),
+            ]
+        )
+        with patch("open_notebook.graphs.ask.provision_langchain_model", new=provision):
+            result = await call_model_with_messages(state, EMPTY_CONFIG)
+        assert [s.term for s in result["strategy"].searches] == ["rag"]
+        assert provision.call_count == 2
+        assert provision.call_args_list[0].kwargs["max_tokens"] == ASK_MAX_TOKENS
+        assert provision.call_args_list[1].kwargs["max_tokens"] == ASK_MAX_TOKENS * 2
+
+    @pytest.mark.asyncio
+    async def test_empty_strategy_still_raises_after_retry(self):
+        state = cast(ThreadState, {"question": "q"})
+        provision = AsyncMock(
+            return_value=_model_returning(_strategy_json([])),
+        )
+        with patch("open_notebook.graphs.ask.provision_langchain_model", new=provision):
+            with pytest.raises(ExternalServiceError, match="no search terms"):
+                await call_model_with_messages(state, EMPTY_CONFIG)
+        assert provision.call_count == 2
+
+    @pytest.mark.asyncio
     async def test_thinking_only_partial_answer_is_skipped(self):
         state = {"question": "q", "term": "rag", "instructions": "extract"}
         with (
