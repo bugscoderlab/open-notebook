@@ -24,6 +24,7 @@ Or all at once: `make start-all` (status: `make status`, stop: `make stop-all`).
 - Frontend (inside `frontend/`): `npm run lint` · `npm run test` · `npm run build`
 - Gateway (inside `gateway/`): `npm run test` · `npm run typecheck` · `npm run build`
 - Docker release: `make docker-release` (see `.github/RELEASE_PROCESS.md`)
+- VPS deploy: push to `main` — `.github/workflows/test.yml` gates on the full test matrix, then SSHes to the VPS and runs `git pull --ff-only && docker compose -f docker-compose.deploy.yml up -d --build` (builds the fork's own image from source; same VPS/credentials as drawin/shipment-tracker/costing-prep)
 
 ## Hard rules
 
