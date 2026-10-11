@@ -32,7 +32,6 @@ import {
   Home,
   Book,
   Search,
-  Mic,
   Bot,
   Shuffle,
   Settings,
@@ -79,7 +78,6 @@ const getNavigation = (t: TFunction): { title: string; items: NavItem[] }[] => [
   {
     title: t('navigation.create'),
     items: [
-      { name: t('navigation.podcasts'), href: '/podcasts', icon: Mic, iconClass: undefined },
       { name: t('navigation.transformations'), href: '/transformations', icon: Shuffle, iconClass: undefined },
       { name: t('navigation.advanced'), href: '/advanced', icon: Wrench, iconClass: undefined, hideFromNonAdmins: true },
     ],
