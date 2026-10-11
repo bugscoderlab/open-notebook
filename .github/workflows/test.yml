@@ -252,3 +252,28 @@ jobs:
 
       - name: Build
         run: npm run build
+
+  # Ship every push to main that passes the full gate above. Same VPS and
+  # credentials as the drawin / shipment-tracker / costing-prep deploys;
+  # the compose file builds the fork's own image from source on the VPS.
+  deploy:
+    name: Deploy to VPS
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    needs: [backend, backend-coverage, testpack, backend-lint, backend-typecheck, frontend, frontend-lint, frontend-build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to VPS
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          # Any failing command must fail the deploy — a silent `git pull`
+          # failure here once left a VPS serving stale builds.
+          script_stop: true
+          script: |
+            cd ~/open-notebook
+            git pull --ff-only
+            git log -1 --oneline
+            docker compose -f docker-compose.deploy.yml up -d --build
+            docker image prune -f

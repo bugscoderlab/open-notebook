@@ -1,0 +1,58 @@
+# Docker Compose — VPS deploy
+#
+# Used by the GitHub Actions deploy job (.github/workflows/test.yml). Builds
+# the fork's own image from source (root Dockerfile) instead of pulling the
+# upstream lfnovo/open_notebook image, so every push to main ships
+# immediately — same pattern as the drawin / shipment-tracker /
+# costing-prep deploys (git pull --ff-only && docker compose up -d --build).
+#
+# First-time setup on the VPS:
+#   git clone https://github.com/bugscoderlab/open-notebook.git ~/open-notebook
+#   cd ~/open-notebook
+#   # create .env: OPEN_NOTEBOOK_ENCRYPTION_KEY, SURREAL_USER, SURREAL_PASSWORD
+#   docker compose -f docker-compose.deploy.yml up -d --build
+
+services:
+  surrealdb:
+    image: surrealdb/surrealdb:v2
+    # List (exec) form so each interpolated value stays a single argument —
+    # a password containing spaces would otherwise be split into several.
+    command: ["start", "--log", "info", "--user", "${SURREAL_USER:?Set SURREAL_USER in ~/open-notebook/.env}", "--pass", "${SURREAL_PASSWORD:?Set SURREAL_PASSWORD in ~/open-notebook/.env}", "rocksdb:/mydata/mydatabase.db"]
+    user: root  # Required for bind mounts on Linux
+    # No host port: the DB stays on the internal compose network. The root
+    # compose's 127.0.0.1:8000 debug binding would collide with other API
+    # containers on this VPS, and nothing outside the network needs it.
+    volumes:
+      - ./surreal_data:/mydata
+    environment:
+      - SURREAL_EXPERIMENTAL_GRAPHQL=true
+    restart: always
+    pull_policy: always
+
+  open_notebook:
+    build: .
+    # Local tag only, so compose never tries to pull a registry image.
+    image: open-notebook:deploy
+    ports:
+      - "8502:8502"  # Web UI
+      - "5055:5055"  # REST API
+    environment:
+      # REQUIRED: encrypts API keys at rest (see .env.example)
+      - OPEN_NOTEBOOK_ENCRYPTION_KEY=${OPEN_NOTEBOOK_ENCRYPTION_KEY:?Set OPEN_NOTEBOOK_ENCRYPTION_KEY in ~/open-notebook/.env}
+
+      # Database connection — same values as the surrealdb service above
+      - SURREAL_URL=ws://surrealdb:8000/rpc
+      - SURREAL_USER=${SURREAL_USER:?Set SURREAL_USER in ~/open-notebook/.env}
+      - SURREAL_PASSWORD=${SURREAL_PASSWORD:?Set SURREAL_PASSWORD in ~/open-notebook/.env}
+      - SURREAL_NAMESPACE=open_notebook
+      - SURREAL_DATABASE=open_notebook
+
+      # The messenger gateway is on by default inside the image; WhatsApp
+      # stays off until explicitly enabled (the Telegram adapter needs
+      # OPEN_NOTEBOOK_TELEGRAM_BOT_TOKEN to do anything).
+      - OPEN_NOTEBOOK_WHATSAPP_ENABLED=false
+    volumes:
+      - ./notebook_data:/app/data
+    depends_on:
+      - surrealdb
+    restart: always
