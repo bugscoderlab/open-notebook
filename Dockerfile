@@ -5,7 +5,7 @@
 # npm retry logic, ...) apply to both variants at once.
 
 # Stage 1: Frontend builder
-FROM node:22-slim AS frontend-builder
+FROM node:25-slim AS frontend-builder
 WORKDIR /app/frontend
 
 # Copy dependency files first to leverage cache
@@ -28,7 +28,7 @@ COPY frontend/ ./
 RUN npm run build
 
 # Stage 1b: Messenger gateway builder (compiles dist + prunes to prod deps)
-FROM node:22-slim AS gateway-builder
+FROM node:25-slim AS gateway-builder
 WORKDIR /build/gateway
 COPY gateway/package.json gateway/package-lock.json ./
 ARG NPM_REGISTRY=https://registry.npmjs.org/
@@ -39,7 +39,7 @@ COPY gateway/ ./
 RUN npm run build && npm prune --omit=dev
 
 # Stage 2: Backend builder
-FROM python:3.12-slim-trixie AS backend-builder
+FROM python:3.14-slim-trixie AS backend-builder
 
 # Install build dependencies (uv downloads pre-built wheels for most packages)
 RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
@@ -77,7 +77,7 @@ RUN mkdir -p /app/tiktoken-cache && \
 FROM surrealdb/surrealdb:v2 AS surreal-binary
 
 # Stage 4: Shared runtime base (everything common to both variants)
-FROM python:3.12-slim-trixie AS runtime-base
+FROM python:3.14-slim-trixie AS runtime-base
 
 # Install only runtime system dependencies (no build tools)
 # Add Node.js 22.x LTS for running the frontend
