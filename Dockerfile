@@ -5,7 +5,7 @@
 # npm retry logic, ...) apply to both variants at once.
 
 # Stage 1: Frontend builder
-FROM node:22-slim AS frontend-builder
+FROM node:25-slim AS frontend-builder
 WORKDIR /app/frontend
 
 # Copy dependency files first to leverage cache
@@ -28,7 +28,7 @@ COPY frontend/ ./
 RUN npm run build
 
 # Stage 1b: Messenger gateway builder (compiles dist + prunes to prod deps)
-FROM node:22-slim AS gateway-builder
+FROM node:25-slim AS gateway-builder
 WORKDIR /build/gateway
 COPY gateway/package.json gateway/package-lock.json ./
 ARG NPM_REGISTRY=https://registry.npmjs.org/
